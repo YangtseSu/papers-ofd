@@ -1,0 +1,923 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+/* Phase-2 acceptance, headless (plan §5): text, layout, area extraction, the
+ * glyph mapping, find rectangles and selection (text, region and overlay
+ * surface) of the OFD module, each compared against a direct rofd query on the
+ * same fixture.
+ *
+ * The comparisons with rofd are the point: the shell copies text out of
+ * get_selected_text, derives search snippets from the agreement between find
+ * rectangles and layout rectangles, hits-tests the I-beam cursor against
+ * get_text_mapping and draws the highlight from the selection region and
+ * surface, so each of those must match what the ABI reports for the same
+ * document and the same coordinates. */
+
+#include "ofd-test-utils.h"
+
+#include <papers-document.h>
+#include <rofd.h>
+
+#include <math.h>
+
+#define MM(v) ((v) * 72.0 / 25.4)
+
+/* The left text column and the right one, in millimetres from the fixture
+ * generator (page 0 puts the columns at x=15 and x=120). */
+#define LEFT_COLUMN_X1_MM 10.0
+#define LEFT_COLUMN_X2_MM 112.0
+#define COLUMN_Y1_MM 20.0
+#define COLUMN_Y2_MM 60.0
+
+static gchar *
+oracle_page_text (rofd_document_t *document, gint index)
+{
+	rofd_page_t *page = NULL;
+	rofd_string_t *string = NULL;
+	rofd_error_t *rerror = NULL;
+	gchar *text;
+
+	g_assert_cmpint (rofd_document_get_page (document, (size_t) index, &page, &rerror),
+	                 ==, ROFD_STATUS_OK);
+	g_assert_cmpint (rofd_page_get_text (page, &string, &rerror), ==, ROFD_STATUS_OK);
+
+	text = g_strdup (rofd_string_get_data (string));
+
+	rofd_string_free (string);
+	rofd_page_free (page);
+
+	return text;
+}
+
+static gchar *
+oracle_text_in_area (rofd_document_t *document, gint index, PpsRectangle *area_pt)
+{
+	rofd_page_t *page = NULL;
+	rofd_string_t *string = NULL;
+	rofd_error_t *rerror = NULL;
+	rofd_rect_t area_mm;
+	gchar *text;
+
+	g_assert_cmpint (rofd_document_get_page (document, (size_t) index, &page, &rerror),
+	                 ==, ROFD_STATUS_OK);
+
+	area_mm.x_mm = MIN (area_pt->x1, area_pt->x2) / 72.0 * 25.4;
+	area_mm.y_mm = MIN (area_pt->y1, area_pt->y2) / 72.0 * 25.4;
+	area_mm.width_mm = ABS (area_pt->x2 - area_pt->x1) / 72.0 * 25.4;
+	area_mm.height_mm = ABS (area_pt->y2 - area_pt->y1) / 72.0 * 25.4;
+
+	g_assert_cmpint (rofd_page_get_text_for_area (page, &area_mm, &string, &rerror),
+	                 ==, ROFD_STATUS_OK);
+
+	text = g_strdup (rofd_string_get_data (string));
+
+	rofd_string_free (string);
+	rofd_page_free (page);
+
+	return text;
+}
+
+static gchar *
+oracle_selection_text (rofd_document_t *document,
+                       gint index,
+                       uint32_t style,
+                       PpsRectangle *area_pt)
+{
+	rofd_page_t *page = NULL;
+	rofd_text_selection_t *selection = NULL;
+	rofd_error_t *rerror = NULL;
+	rofd_rect_t area_mm;
+	gchar *text;
+
+	g_assert_cmpint (rofd_document_get_page (document, (size_t) index, &page, &rerror),
+	                 ==, ROFD_STATUS_OK);
+
+	area_mm.x_mm = MIN (area_pt->x1, area_pt->x2) / 72.0 * 25.4;
+	area_mm.y_mm = MIN (area_pt->y1, area_pt->y2) / 72.0 * 25.4;
+	area_mm.width_mm = ABS (area_pt->x2 - area_pt->x1) / 72.0 * 25.4;
+	area_mm.height_mm = ABS (area_pt->y2 - area_pt->y1) / 72.0 * 25.4;
+
+	g_assert_cmpint (rofd_page_get_selected_text (page, style, &area_mm, &selection, &rerror),
+	                 ==, ROFD_STATUS_OK);
+
+	text = g_strdup (rofd_text_selection_get_text (selection));
+
+	rofd_text_selection_free (selection);
+	rofd_page_free (page);
+
+	return text;
+}
+
+/* The scale the module maps a render context onto: Papers' rounded pixel size
+ * over the page size (plan §4), which is why the oracle below uses it instead
+ * of the raw context scale. */
+static gdouble
+papers_scale (PpsRenderContext *rc, double width_pt, double height_pt)
+{
+	gint scaled_width = 0;
+	gint scaled_height = 0;
+
+	pps_render_context_compute_scaled_size (rc, width_pt, height_pt,
+	                                        &scaled_width, &scaled_height);
+
+	return scaled_width / width_pt;
+}
+
+/* rofd's own canvas size for the options the module maps a render context onto
+ * (plan §4); the selection overlay and its region must agree with the page
+ * texture, which is sized by the same call. */
+static void
+oracle_canvas (rofd_renderer_t *renderer,
+               rofd_page_t *page,
+               gdouble scale,
+               gint *width,
+               gint *height)
+{
+	rofd_render_options_t options;
+	rofd_error_t *rerror = NULL;
+
+	rofd_render_options_init (&options, sizeof (options));
+	options.dpi = 72.0;
+	options.scale = scale;
+	options.rotation_degrees = 0;
+	options.background_rgba = 0xFFFFFFFF;
+
+	g_assert_cmpint (rofd_renderer_get_pixel_canvas_size (renderer, page, &options,
+	                                                      width, height, &rerror),
+	                 ==, ROFD_STATUS_OK);
+	g_assert_null (rerror);
+}
+
+static void
+oracle_page_canvas (rofd_document_t *document,
+                    rofd_renderer_t *renderer,
+                    gint index,
+                    gdouble scale,
+                    gint *width,
+                    gint *height)
+{
+	rofd_page_t *page = NULL;
+	rofd_error_t *rerror = NULL;
+
+	g_assert_cmpint (rofd_document_get_page (document, (size_t) index, &page, &rerror),
+	                 ==, ROFD_STATUS_OK);
+	oracle_canvas (renderer, page, scale, width, height);
+	rofd_page_free (page);
+}
+
+static void
+oracle_page_size_pt (PpsDocument *document, gint index, double *width, double *height)
+{
+	PpsPage *page = pps_document_get_page (document, index);
+
+	g_assert_nonnull (page);
+	pps_document_get_page_size_uncached (document, page, width, height);
+	g_object_unref (page);
+}
+
+/* Copied text equals the ABI's canonical text, byte for byte: the clipboard
+ * path starts here, and the layout offsets index exactly these bytes. */
+static void
+test_text_matches_oracle (PpsDocument *document, rofd_document_t *oracle)
+{
+	static const gchar *needles[] = {
+		"Invoice total: 42 EUR",
+		"invoice appears lowercase",
+	};
+	gint i;
+
+	for (i = 0; i < 2; i++) {
+		PpsPage *page = pps_document_get_page (document, i);
+		g_autofree gchar *ours = NULL;
+		g_autofree gchar *theirs = NULL;
+
+		g_assert_nonnull (page);
+		ours = pps_document_text_get_text (PPS_DOCUMENT_TEXT (document), page);
+		theirs = oracle_page_text (oracle, i);
+
+		g_assert_nonnull (ours);
+		g_assert_cmpstr (ours, ==, theirs);
+		g_object_unref (page);
+	}
+
+	for (i = 0; i < (gint) G_N_ELEMENTS (needles); i++)
+		g_assert_true (g_strstr_len (oracle_page_text (oracle, 0), -1, needles[i]) != NULL);
+
+	/* The CJK page carries the fixture's searchable phrase twice. */
+	{
+		g_autofree gchar *cjk = oracle_page_text (oracle, 1);
+
+		g_assert_cmpint (g_utf8_strlen (cjk, -1), ==, 25);
+		g_assert_nonnull (g_strstr_len (cjk, -1, "发票编号 42"));
+	}
+}
+
+/* One rectangle per Unicode scalar, in page points, inside the page box; the
+ * synthesised object separator has an empty box, like the PDF backend's
+ * newline. */
+static void
+test_text_layout (PpsDocument *document)
+{
+	gint i;
+
+	for (i = 0; i < 2; i++) {
+		PpsPage *page = pps_document_get_page (document, i);
+		g_autofree gchar *text = NULL;
+		g_autofree PpsRectangle *areas = NULL;
+		guint n_areas = 0;
+		double width_pt = 0.0, height_pt = 0.0;
+		const gchar *cursor;
+		gint scalars = 0;
+
+		g_assert_nonnull (page);
+		text = pps_document_text_get_text (PPS_DOCUMENT_TEXT (document), page);
+		g_assert_nonnull (text);
+		g_assert_true (pps_document_text_get_text_layout (PPS_DOCUMENT_TEXT (document),
+		                                                  page, &areas, &n_areas));
+
+		oracle_page_size_pt (document, i, &width_pt, &height_pt);
+		g_assert_cmpint (n_areas, ==, g_utf8_strlen (text, -1));
+
+		for (cursor = text; *cursor != '\0'; cursor = g_utf8_next_char (cursor)) {
+			PpsRectangle *area = &areas[scalars];
+
+			if (*cursor == '\n') {
+				/* The separator between two text objects has no geometry. */
+				g_assert_cmpfloat (area->x1, ==, area->x2);
+				g_assert_cmpfloat (area->y1, ==, area->y2);
+			} else {
+				g_assert_cmpfloat (area->x2, >, area->x1);
+				g_assert_cmpfloat (area->y2, >, area->y1);
+				g_assert_cmpfloat (area->x1, >=, -0.01);
+				g_assert_cmpfloat (area->y1, >=, -0.01);
+				g_assert_cmpfloat (area->x2, <=, width_pt + 0.01);
+				g_assert_cmpfloat (area->y2, <=, height_pt + 0.01);
+			}
+
+			scalars++;
+		}
+
+		g_object_unref (page);
+	}
+}
+
+static void
+test_text_in_area (PpsDocument *document, rofd_document_t *oracle)
+{
+	PpsPage *page = pps_document_get_page (document, 0);
+	PpsRectangle left = {
+		.x1 = MM (LEFT_COLUMN_X1_MM), .y1 = MM (COLUMN_Y1_MM),
+		.x2 = MM (LEFT_COLUMN_X2_MM), .y2 = MM (COLUMN_Y2_MM),
+	};
+	g_autofree gchar *ours = NULL;
+	g_autofree gchar *theirs = NULL;
+
+	g_assert_nonnull (page);
+
+	ours = pps_document_text_get_text_in_area (PPS_DOCUMENT_TEXT (document), page, &left);
+	theirs = oracle_text_in_area (oracle, 0, &left);
+
+	g_assert_nonnull (ours);
+	g_assert_cmpstr (ours, ==, theirs);
+	g_assert_nonnull (g_strstr_len (ours, -1, "Invoice total: 42 EUR"));
+	g_assert_nonnull (g_strstr_len (ours, -1, "Reference INV-42-ALPHA"));
+	g_assert_null (g_strstr_len (ours, -1, "Second column"));
+
+	g_object_unref (page);
+}
+
+/* The I-beam cursor and the page-scroll step hit-test this region in page
+ * points, so it must cover the glyphs and nothing else. */
+static void
+test_text_mapping (PpsDocument *document)
+{
+	PpsPage *page = pps_document_get_page (document, 0);
+	cairo_region_t *region = NULL;
+	g_autofree PpsRectangle *areas = NULL;
+	guint n_areas = 0;
+	cairo_rectangle_int_t extents;
+
+	g_assert_nonnull (page);
+
+	g_assert_true (pps_document_text_get_text_layout (PPS_DOCUMENT_TEXT (document),
+	                                                  page, &areas, &n_areas));
+	g_assert_cmpint (n_areas, >, 0);
+
+	region = pps_document_text_get_text_mapping (PPS_DOCUMENT_TEXT (document), page);
+	g_assert_nonnull (region);
+	g_assert_false (cairo_region_is_empty (region));
+
+	/* The first glyph's centre is text; the page corner is not. */
+	g_assert_true (cairo_region_contains_point (region,
+	                                            (gint) ((areas[0].x1 + areas[0].x2) / 2),
+	                                            (gint) ((areas[0].y1 + areas[0].y2) / 2)));
+	g_assert_false (cairo_region_contains_point (region, 2, 2));
+
+	cairo_region_get_extents (region, &extents);
+	g_assert_cmpint (extents.width, >, 0);
+	g_assert_cmpint (extents.height, >, 0);
+
+	cairo_region_destroy (region);
+	g_object_unref (page);
+}
+
+static gint
+find_match_count (PpsDocument *document, PpsPage *page, const gchar *query, PpsFindOptions options)
+{
+	GList *matches = pps_document_find_find_text (PPS_DOCUMENT_FIND (document), page,
+	                                              query, options);
+	gint count = g_list_length (matches);
+
+	g_list_free_full (matches, (GDestroyNotify) pps_find_rectangle_free);
+
+	return count;
+}
+
+/* Papers derives a snippet by walking the layout rectangles from the current
+ * offset until one agrees with the match rectangle (get_match_offset,
+ * libview/context/pps-search-context.c); a match that never agrees degrades to
+ * a bare highlighted query, so the agreement is what the search acceptance
+ * means. The scalar the walk lands on must also be where the query starts. */
+static void
+assert_match_agrees_with_layout (const gchar *text,
+                                 const PpsRectangle *areas,
+                                 guint n_areas,
+                                 PpsFindRectangle *match,
+                                 const gchar *query)
+{
+	gint start = -1;
+	guint i;
+
+	for (i = 0; i < n_areas; i++) {
+		const PpsRectangle *area = &areas[i];
+		gdouble center_x = (area->x1 + area->x2) / 2;
+		gdouble center_y = (area->y1 + area->y2) / 2;
+		gdouble match_y = (match->y1 + match->y2) / 2;
+
+		if (match->x1 >= area->x1 && match->x1 < area->x2 &&
+		    match_y >= area->y1 && match_y <= area->y2 &&
+		    center_x >= match->x1 && center_x <= match->x2 &&
+		    center_y >= match->y1 && center_y <= match->y2) {
+			start = (gint) i;
+			break;
+		}
+	}
+
+	g_assert_cmpint (start, >=, 0);
+
+	/* ... and the rectangle it landed on is where the query starts. */
+	{
+		const gchar *found = g_utf8_offset_to_pointer (text, start);
+
+		g_assert_cmpuint (strlen (found), >=, strlen (query));
+		g_assert_cmpint (g_ascii_strncasecmp (found, query, strlen (query)), ==, 0);
+	}
+}
+
+static void
+test_find (PpsDocument *document)
+{
+	PpsPage *page = pps_document_get_page (document, 0);
+	PpsPage *cjk_page = pps_document_get_page (document, 1);
+	g_autofree gchar *text = NULL;
+	g_autofree PpsRectangle *areas = NULL;
+	guint n_areas = 0;
+	GList *matches, *l;
+
+	g_assert_nonnull (page);
+	g_assert_nonnull (cjk_page);
+
+	/* The PDF backend's option set, and nothing else. */
+	g_assert_cmpint (pps_document_find_get_supported_options (PPS_DOCUMENT_FIND (document)),
+	                 ==, (PPS_FIND_CASE_SENSITIVE | PPS_FIND_WHOLE_WORDS_ONLY));
+
+	/* Case-insensitive by default, case-sensitive and whole-word on request. */
+	g_assert_cmpint (find_match_count (document, page, "invoice", 0), ==, 2);
+	g_assert_cmpint (find_match_count (document, page, "invoice", PPS_FIND_CASE_SENSITIVE), ==, 1);
+	g_assert_cmpint (find_match_count (document, page, "INVOICE", 0), ==, 2);
+	g_assert_cmpint (find_match_count (document, page, "invo", 0), ==, 2);
+	g_assert_cmpint (find_match_count (document, page, "invo", PPS_FIND_WHOLE_WORDS_ONLY), ==, 0);
+	g_assert_cmpint (find_match_count (document, page, "invoice", PPS_FIND_WHOLE_WORDS_ONLY), ==, 2);
+	g_assert_cmpint (find_match_count (document, page, "absent", 0), ==, 0);
+	g_assert_cmpint (find_match_count (document, page, "", 0), ==, 0);
+
+	/* CJK, where the fixture's phrase occurs twice. */
+	g_assert_cmpint (find_match_count (document, cjk_page, "发票编号", 0), ==, 2);
+	g_assert_cmpint (find_match_count (document, cjk_page, "发票编号 42", 0), ==, 2);
+	g_assert_cmpint (find_match_count (document, cjk_page, "invoice", 0), ==, 0);
+
+	text = pps_document_text_get_text (PPS_DOCUMENT_TEXT (document), page);
+	g_assert_nonnull (text);
+	g_assert_true (pps_document_text_get_text_layout (PPS_DOCUMENT_TEXT (document),
+	                                                  page, &areas, &n_areas));
+
+	matches = pps_document_find_find_text (PPS_DOCUMENT_FIND (document), page,
+	                                       "invoice", 0);
+	g_assert_cmpint (g_list_length (matches), ==, 2);
+	for (l = matches; l != NULL; l = g_list_next (l))
+		assert_match_agrees_with_layout (text, areas, n_areas,
+		                                 (PpsFindRectangle *) l->data, "invoice");
+	g_list_free_full (matches, (GDestroyNotify) pps_find_rectangle_free);
+
+	g_object_unref (cjk_page);
+	g_object_unref (page);
+}
+
+/* Copy and each selection style answer exactly what a direct FFI selection
+ * answers for the same rectangle; the styles map 1:1 onto the ABI's. */
+static void
+test_selection_text (PpsDocument *document, rofd_document_t *oracle)
+{
+	static const struct {
+		PpsSelectionStyle style;
+		uint32_t rofd_style;
+	} styles[] = {
+		{ PPS_SELECTION_STYLE_GLYPH, ROFD_SELECTION_GLYPH },
+		{ PPS_SELECTION_STYLE_WORD, ROFD_SELECTION_WORD },
+		{ PPS_SELECTION_STYLE_LINE, ROFD_SELECTION_LINE },
+	};
+	PpsPage *page = pps_document_get_page (document, 0);
+	PpsRectangle whole = { 0, }, left = { 0, };
+	gdouble width_pt = 0.0, height_pt = 0.0;
+	guint i;
+
+	g_assert_nonnull (page);
+	oracle_page_size_pt (document, 0, &width_pt, &height_pt);
+
+	whole.x2 = width_pt;
+	whole.y2 = height_pt;
+	left.x1 = MM (LEFT_COLUMN_X1_MM);
+	left.y1 = MM (COLUMN_Y1_MM);
+	left.x2 = MM (LEFT_COLUMN_X2_MM);
+	left.y2 = MM (COLUMN_Y2_MM);
+
+	for (i = 0; i < G_N_ELEMENTS (styles); i++) {
+		g_autofree gchar *ours = NULL;
+		g_autofree gchar *theirs = NULL;
+
+		ours = pps_selection_get_selected_text (PPS_SELECTION (document), page,
+		                                        styles[i].style, &whole);
+		theirs = oracle_selection_text (oracle, 0, styles[i].rofd_style, &whole);
+
+		g_assert_nonnull (ours);
+		g_assert_cmpstr (ours, ==, theirs);
+		g_assert_cmpint (strlen (ours), >, 0);
+	}
+
+	/* A drag-select over one column copies that column only. */
+	{
+		g_autofree gchar *ours = NULL;
+		g_autofree gchar *theirs = NULL;
+
+		ours = pps_selection_get_selected_text (PPS_SELECTION (document), page,
+		                                        PPS_SELECTION_STYLE_GLYPH, &left);
+		theirs = oracle_selection_text (oracle, 0, ROFD_SELECTION_GLYPH, &left);
+
+		g_assert_cmpstr (ours, ==, theirs);
+		g_assert_nonnull (g_strstr_len (ours, -1, "Invoice total"));
+		g_assert_null (g_strstr_len (ours, -1, "Second column"));
+	}
+
+	/* A rectangle with no text selects nothing but never returns NULL. */
+	{
+		PpsRectangle empty = { .x1 = 5, .y1 = 5, .x2 = 20, .y2 = 20 };
+		g_autofree gchar *ours = NULL;
+
+		ours = pps_selection_get_selected_text (PPS_SELECTION (document), page,
+		                                        PPS_SELECTION_STYLE_GLYPH, &empty);
+		g_assert_nonnull (ours);
+		g_assert_cmpstr (ours, ==, "");
+	}
+
+	g_object_unref (page);
+}
+
+/* The region is what the view draws and hit-tests in device pixels, so it must
+ * be non-empty, inside the canvas and positioned by rofd's own canvas size. */
+static void
+test_selection_region (PpsDocument *document, rofd_document_t *oracle, rofd_renderer_t *renderer)
+{
+	PpsPage *page = pps_document_get_page (document, 0);
+	PpsRectangle whole = { 0, };
+	cairo_rectangle_int_t extents;
+	gdouble width_pt = 0.0, height_pt = 0.0;
+	gint canvas_width = 0, canvas_height = 0;
+	cairo_region_t *region = NULL;
+	g_autoptr (PpsRenderContext) rc = NULL;
+	g_autofree PpsRectangle *areas = NULL;
+	guint n_areas = 0;
+	gdouble glyph_x, glyph_y;
+	cairo_rectangle_int_t base_extents;
+
+	g_assert_nonnull (page);
+	oracle_page_size_pt (document, 0, &width_pt, &height_pt);
+	whole.x2 = width_pt;
+	whole.y2 = height_pt;
+
+	rc = pps_render_context_new (page, 0, 1.0, PPS_RENDER_ANNOTS_NONE);
+	region = pps_selection_get_selection_region (PPS_SELECTION (document), rc,
+	                                             PPS_SELECTION_STYLE_GLYPH, &whole);
+	g_assert_nonnull (region);
+	g_assert_false (cairo_region_is_empty (region));
+
+	oracle_page_canvas (oracle, renderer, 0, papers_scale (rc, width_pt, height_pt),
+	                    &canvas_width, &canvas_height);
+	cairo_region_get_extents (region, &extents);
+	g_assert_cmpint (extents.x, >=, 0);
+	g_assert_cmpint (extents.y, >=, 0);
+	g_assert_cmpint (extents.x + extents.width, <=, canvas_width);
+	g_assert_cmpint (extents.y + extents.height, <=, canvas_height);
+	base_extents = extents;
+
+	/* At scale 1 the region is in page points, so a glyph centre still hits it. */
+	g_assert_true (pps_document_text_get_text_layout (PPS_DOCUMENT_TEXT (document),
+	                                                  page, &areas, &n_areas));
+	glyph_x = (areas[0].x1 + areas[0].x2) / 2;
+	glyph_y = (areas[0].y1 + areas[0].y2) / 2;
+	g_assert_true (cairo_region_contains_point (region, (gint) glyph_x, (gint) glyph_y));
+
+	/* A target size makes rofd's canvas (and therefore the region) grow by the
+	 * same factor; the render job's selection path passes scale 0 with a target
+	 * size, so this is the shape Papers actually uses. */
+	{
+		gint target_width = canvas_width * 2;
+		gint target_height = canvas_height * 2;
+		gint scaled_width = 0, scaled_height = 0;
+		g_autoptr (PpsRenderContext) target_rc = NULL;
+		cairo_region_t *target_region = NULL;
+
+		target_rc = pps_render_context_new (page, 0, 0.0, PPS_RENDER_ANNOTS_NONE);
+		pps_render_context_set_target_size (target_rc, target_width, target_height);
+
+		target_region = pps_selection_get_selection_region (PPS_SELECTION (document),
+		                                                    target_rc,
+		                                                    PPS_SELECTION_STYLE_GLYPH,
+		                                                    &whole);
+		g_assert_nonnull (target_region);
+		g_assert_false (cairo_region_is_empty (target_region));
+
+		oracle_page_canvas (oracle, renderer, 0, (gdouble) target_width / width_pt,
+		                    &scaled_width, &scaled_height);
+		cairo_region_get_extents (target_region, &extents);
+		g_assert_cmpint (extents.x + extents.width, <=, scaled_width);
+		g_assert_cmpint (extents.y + extents.height, <=, scaled_height);
+		/* The extents follow the target size (rounding differences of a pixel
+		 * or two against the doubled scale-1 size are expected). */
+		g_assert_cmpint (extents.width, >, base_extents.width);
+		g_assert_cmpint (extents.width, <=, scaled_width);
+
+		cairo_region_destroy (target_region);
+	}
+
+	cairo_region_destroy (region);
+	g_object_unref (page);
+}
+
+/* The overlay surface carries the base colour over the selection and nothing
+ * else, and a reused surface is cleared first (the view keeps one per page). */
+static void
+test_render_selection (PpsDocument *document, rofd_document_t *oracle, rofd_renderer_t *renderer)
+{
+	PpsPage *page = pps_document_get_page (document, 0);
+	PpsRectangle whole = { 0, }, left = { 0, };
+	GdkRGBA base = { 1.0, 0.0, 0.0, 0.5 };
+	GdkRGBA text = { 0.0, 0.0, 0.0, 0.0 };
+	PpsRectangle right = { 0, };
+	gdouble width_pt = 0.0, height_pt = 0.0;
+	gint canvas_width = 0, canvas_height = 0;
+	g_autoptr (PpsRenderContext) rc = NULL;
+	cairo_surface_t *surface = NULL;
+	cairo_surface_t *reused;
+	guint32 *pixels;
+	guint32 inside;
+	gint stride;
+	gint px, py;
+
+	g_assert_nonnull (page);
+	oracle_page_size_pt (document, 0, &width_pt, &height_pt);
+	whole.x2 = width_pt;
+	whole.y2 = height_pt;
+	left.x1 = MM (LEFT_COLUMN_X1_MM);
+	left.y1 = MM (COLUMN_Y1_MM);
+	left.x2 = MM (LEFT_COLUMN_X2_MM);
+	left.y2 = MM (COLUMN_Y2_MM);
+	right.x1 = MM (115.0);
+	right.y1 = MM (COLUMN_Y1_MM);
+	right.x2 = MM (205.0);
+	right.y2 = MM (COLUMN_Y2_MM);
+
+	rc = pps_render_context_new (page, 0, 1.0, PPS_RENDER_ANNOTS_NONE);
+	oracle_page_canvas (oracle, renderer, 0, papers_scale (rc, width_pt, height_pt),
+	                    &canvas_width, &canvas_height);
+
+	pps_selection_render_selection (PPS_SELECTION (document), rc, &surface,
+	                                &left, NULL, PPS_SELECTION_STYLE_GLYPH,
+	                                &text, &base);
+	g_assert_nonnull (surface);
+	g_assert_cmpint (cairo_surface_status (surface), ==, CAIRO_STATUS_SUCCESS);
+	g_assert_cmpint (cairo_image_surface_get_width (surface), ==, canvas_width);
+	g_assert_cmpint (cairo_image_surface_get_height (surface), ==, canvas_height);
+
+	cairo_surface_flush (surface);
+	pixels = (guint32 *) cairo_image_surface_get_data (surface);
+	stride = cairo_image_surface_get_stride (surface) / 4;
+
+	/* Inside the left column (its first glyph) the base colour shows through at
+	 * the requested alpha; the empty right margin stays transparent. */
+	px = (gint) ((left.x1 + left.x2) / 2);
+	py = (gint) ((left.y1 + left.y2) / 2);
+	inside = pixels[py * stride + px];
+	g_assert_cmpint ((inside >> 24) & 0xff, >=, 120);
+	g_assert_cmpint ((inside >> 24) & 0xff, <=, 135);
+	g_assert_cmpint ((inside >> 16) & 0xff, >=, 120);
+	g_assert_cmpint ((inside >> 8) & 0xff, <=, 8);
+
+	px = canvas_width - 5;
+	py = canvas_height - 5;
+	g_assert_cmpint ((pixels[py * stride + px] >> 24) & 0xff, ==, 0);
+
+	/* Reuse: same surface, previous selection cleared. The second selection
+	 * covers the other column, so the first one's pixels must go back to
+	 * transparent while the new one lights up. */
+	reused = surface;
+	pps_selection_render_selection (PPS_SELECTION (document), rc, &reused,
+	                                &right, NULL, PPS_SELECTION_STYLE_GLYPH,
+	                                &text, &base);
+	g_assert_true (reused == surface);
+
+	cairo_surface_flush (surface);
+	px = (gint) ((left.x1 + left.x2) / 2);
+	py = (gint) ((left.y1 + left.y2) / 2);
+	g_assert_cmpint ((pixels[py * stride + px] >> 24) & 0xff, ==, 0);
+
+	px = (gint) ((right.x1 + right.x2) / 2);
+	py = (gint) ((right.y1 + right.y2) / 2);
+	g_assert_cmpint ((pixels[py * stride + px] >> 24) & 0xff, >=, 120);
+
+	cairo_surface_destroy (surface);
+
+	/* Rotated pages: Papers refuses to start a selection there (pps-view.c:4512),
+	 * so the overlay declines instead of drawing rectangles in the wrong place. */
+	{
+		g_autoptr (PpsRenderContext) rotated = NULL;
+		cairo_surface_t *declined = NULL;
+
+		rotated = pps_render_context_new (page, 90, 1.0, PPS_RENDER_ANNOTS_NONE);
+		pps_selection_render_selection (PPS_SELECTION (document), rotated, &declined,
+		                                &whole, NULL, PPS_SELECTION_STYLE_GLYPH,
+		                                &text, &base);
+		g_assert_null (declined);
+	}
+
+	g_object_unref (page);
+}
+
+/* A page whose PhysicalBox origin is "10 20": every rectangle the module
+ * converts must be re-based on that origin (plan §4, D3). The fixture's text
+ * starts 5 mm right of and 2 mm below the box corner, so a missing subtraction
+ * shows up as a rectangle ~28 pt too far right and down. */
+static void
+test_origin_normalisation (const gchar *module_path,
+                           const gchar *descriptor_path,
+                           const gchar *mime_xml_path,
+                           const gchar *fixture_path)
+{
+	PpsDocument *document = ofd_test_load_fixture (module_path, descriptor_path,
+	                                               mime_xml_path, fixture_path);
+	rofd_document_t *oracle = NULL;
+	rofd_error_t *rerror = NULL;
+	PpsPage *page = pps_document_get_page (document, 0);
+	g_autofree gchar *text = NULL;
+	g_autofree PpsRectangle *areas = NULL;
+	guint n_areas = 0;
+	cairo_rectangle_int_t extents;
+	cairo_region_t *region;
+	GList *matches;
+
+	g_assert_cmpint (rofd_document_open (fixture_path, NULL, &oracle, &rerror),
+	                 ==, ROFD_STATUS_OK);
+	g_assert_nonnull (page);
+
+	text = pps_document_text_get_text (PPS_DOCUMENT_TEXT (document), page);
+	g_assert_nonnull (text);
+	g_assert_cmpstr (text, ==, oracle_page_text (oracle, 0));
+	g_assert_cmpstr (text, ==, "Origin normalised text");
+
+	g_assert_true (pps_document_text_get_text_layout (PPS_DOCUMENT_TEXT (document),
+	                                                  page, &areas, &n_areas));
+	g_assert_cmpint (n_areas, ==, g_utf8_strlen (text, -1));
+
+	/* 15 mm and 22 mm absolute, 10 mm and 20 mm of origin: 5 mm and 2 mm. */
+	g_assert_cmpfloat_with_epsilon (areas[0].x1, MM (5.0), 1.0);
+	g_assert_cmpfloat_with_epsilon (areas[0].y1, MM (2.0), 1.0);
+
+	region = pps_document_text_get_text_mapping (PPS_DOCUMENT_TEXT (document), page);
+	g_assert_nonnull (region);
+	g_assert_false (cairo_region_is_empty (region));
+	cairo_region_get_extents (region, &extents);
+	g_assert_cmpint (extents.x, <, (gint) MM (20.0));
+	g_assert_cmpint (extents.y, <, (gint) MM (20.0));
+	cairo_region_destroy (region);
+
+	/* A search hit sits on the same glyphs, in the same page space. */
+	matches = pps_document_find_find_text (PPS_DOCUMENT_FIND (document), page, "Origin", 0);
+	g_assert_cmpint (g_list_length (matches), ==, 1);
+	{
+		PpsFindRectangle *match = matches->data;
+
+		g_assert_cmpfloat_with_epsilon (match->x1, MM (5.0), 1.0);
+		g_assert_cmpfloat_with_epsilon (match->y1, MM (2.0), 1.0);
+	}
+	g_list_free_full (matches, (GDestroyNotify) pps_find_rectangle_free);
+
+	/* And a selection over the whole page answers what the ABI answers for the
+	 * same area, the origin going back in on the way to rofd. */
+	{
+		PpsRectangle whole = { .x2 = MM (210.0), .y2 = MM (297.0) };
+		g_autofree gchar *ours = NULL;
+		g_autofree gchar *theirs = NULL;
+
+		ours = pps_selection_get_selected_text (PPS_SELECTION (document), page,
+		                                        PPS_SELECTION_STYLE_GLYPH, &whole);
+		theirs = oracle_selection_text (oracle, 0, ROFD_SELECTION_GLYPH, &whole);
+		g_assert_cmpstr (ours, ==, theirs);
+	}
+
+	rofd_document_free (oracle);
+	g_object_unref (page);
+	g_object_unref (document);
+}
+
+/* A page with no text at all: empty text, no layout rectangles, an empty
+ * mapping region and no find results, without any of them failing. */
+static void
+test_scan_page (PpsDocument *document)
+{
+	PpsPage *page = pps_document_get_page (document, 0);
+	g_autofree gchar *text = NULL;
+	g_autofree PpsRectangle *areas = NULL;
+	guint n_areas = 0;
+	cairo_region_t *region = NULL;
+	g_autoptr (PpsRenderContext) rc = NULL;
+	PpsRectangle whole = { 0, };
+	GList *matches;
+
+	g_assert_nonnull (page);
+
+	text = pps_document_text_get_text (PPS_DOCUMENT_TEXT (document), page);
+	g_assert_nonnull (text);
+	g_assert_cmpstr (text, ==, "");
+
+	g_assert_true (pps_document_text_get_text_layout (PPS_DOCUMENT_TEXT (document),
+	                                                  page, &areas, &n_areas));
+	g_assert_null (areas);
+	g_assert_cmpint (n_areas, ==, 0);
+
+	region = pps_document_text_get_text_mapping (PPS_DOCUMENT_TEXT (document), page);
+	g_assert_nonnull (region);
+	g_assert_true (cairo_region_is_empty (region));
+
+	matches = pps_document_find_find_text (PPS_DOCUMENT_FIND (document), page, "scan", 0);
+	g_assert_null (matches);
+
+	/* A glyph selection over the whole page is empty but well formed. */
+	oracle_page_size_pt (document, 0, &whole.x2, &whole.y2);
+	rc = pps_render_context_new (page, 0, 1.0, PPS_RENDER_ANNOTS_NONE);
+	region = pps_selection_get_selection_region (PPS_SELECTION (document), rc,
+	                                             PPS_SELECTION_STYLE_GLYPH, &whole);
+	g_assert_nonnull (region);
+	g_assert_true (cairo_region_is_empty (region));
+
+	cairo_region_destroy (region);
+	g_object_unref (page);
+}
+
+/* A page whose content cannot be parsed must not reach any vfunc as a crash:
+ * Papers' page-data job calls these with whatever pps_document_get_page
+ * returned, including NULL. */
+static void
+test_broken_page (const gchar *module_path,
+                  const gchar *descriptor_path,
+                  const gchar *mime_xml_path,
+                  const gchar *fixture_path)
+{
+	PpsDocument *document = ofd_test_load_fixture (module_path, descriptor_path,
+	                                               mime_xml_path, fixture_path);
+	PpsPage *reachable = pps_document_get_page (document, 0);
+	PpsPage *unparsable = pps_page_new (1);
+	g_autofree gchar *text = NULL;
+	PpsRectangle whole = { .x1 = 0.0, .y1 = 0.0, .x2 = 500.0, .y2 = 500.0 };
+	g_autoptr (PpsRenderContext) rc = NULL;
+
+	g_assert_cmpint (pps_document_get_n_pages (document), ==, 2);
+
+	/* Page 0 is intact. */
+	g_assert_nonnull (reachable);
+	text = pps_document_text_get_text (PPS_DOCUMENT_TEXT (document), reachable);
+	g_assert_cmpstr (text, ==, "Page zero text");
+
+	/* Page 1 cannot be opened at all, so Papers' own cache gets NULL. */
+	g_assert_null (pps_document_get_page (document, 1));
+
+	/* A PpsPage the caller built itself: the module fetches and fails to fetch
+	 * the handle, which must look like "no text" rather than an abort. */
+	g_assert_nonnull (unparsable);
+	g_assert_null (pps_document_text_get_text (PPS_DOCUMENT_TEXT (document), unparsable));
+	g_assert_false (pps_document_text_get_text_layout (PPS_DOCUMENT_TEXT (document),
+	                                                   unparsable, NULL, NULL));
+	g_assert_cmpstr (pps_selection_get_selected_text (PPS_SELECTION (document), unparsable,
+	                                                  PPS_SELECTION_STYLE_GLYPH, &whole),
+	                 ==, "");
+	g_assert_null (pps_document_find_find_text (PPS_DOCUMENT_FIND (document), unparsable,
+	                                            "text", 0));
+	g_assert_null (pps_document_links_get_links (PPS_DOCUMENT_LINKS (document), unparsable));
+
+	/* And the NULL page Papers hands over when get_page failed. */
+	g_assert_null (pps_document_text_get_text (PPS_DOCUMENT_TEXT (document), NULL));
+	g_assert_false (pps_document_text_get_text_layout (PPS_DOCUMENT_TEXT (document),
+	                                                   NULL, NULL, NULL));
+	g_assert_null (pps_document_text_get_text_in_area (PPS_DOCUMENT_TEXT (document), NULL, &whole));
+	g_assert_null (pps_document_text_get_text_mapping (PPS_DOCUMENT_TEXT (document), NULL));
+	g_assert_null (pps_document_text_get_text_attrs (PPS_DOCUMENT_TEXT (document), NULL));
+	g_assert_cmpstr (pps_selection_get_selected_text (PPS_SELECTION (document), NULL,
+	                                                  PPS_SELECTION_STYLE_GLYPH, &whole),
+	                 ==, "");
+	g_assert_null (pps_document_find_find_text (PPS_DOCUMENT_FIND (document), NULL, "text", 0));
+	g_assert_null (pps_document_links_get_links (PPS_DOCUMENT_LINKS (document), NULL));
+
+	/* The ABI has no glyph mask and no attribute data: NULL is the contract. */
+	g_assert_null (pps_document_text_get_text_attrs (PPS_DOCUMENT_TEXT (document), reachable));
+
+	/* Running through the cache is what the shell does on every page. */
+	rc = pps_render_context_new (unparsable, 0, 1.0, PPS_RENDER_ANNOTS_NONE);
+	g_assert_null (pps_selection_get_selection_region (PPS_SELECTION (document), rc,
+	                                                   PPS_SELECTION_STYLE_GLYPH, &whole));
+
+	g_object_unref (unparsable);
+	g_object_unref (reachable);
+	g_object_unref (document);
+}
+
+int
+main (int argc, char **argv)
+{
+	g_autofree gchar *module_path = NULL;
+	g_autofree gchar *descriptor_path = NULL;
+	g_autofree gchar *mime_xml_path = NULL;
+	g_autofree gchar *text_fixture = NULL;
+	g_autofree gchar *scan_fixture = NULL;
+	g_autofree gchar *broken_fixture = NULL;
+	g_autofree gchar *origin_fixture = NULL;
+	PpsDocument *text_document;
+	PpsDocument *scan_document;
+	rofd_document_t *oracle = NULL;
+	rofd_renderer_t *renderer = NULL;
+	rofd_error_t *rerror = NULL;
+
+	if (argc != 8) {
+		g_printerr ("usage: %s <module> <descriptor> <mime-xml> <text.ofd> <scan.ofd> "
+		            "<broken-page.ofd> <origin-text.ofd>\n", argv[0]);
+		return 2;
+	}
+
+	module_path = g_canonicalize_filename (argv[1], NULL);
+	descriptor_path = g_canonicalize_filename (argv[2], NULL);
+	mime_xml_path = g_canonicalize_filename (argv[3], NULL);
+	text_fixture = g_canonicalize_filename (argv[4], NULL);
+	scan_fixture = g_canonicalize_filename (argv[5], NULL);
+	broken_fixture = g_canonicalize_filename (argv[6], NULL);
+	origin_fixture = g_canonicalize_filename (argv[7], NULL);
+
+	text_document = ofd_test_load_fixture (module_path, descriptor_path, mime_xml_path,
+	                                       text_fixture);
+	scan_document = ofd_test_load_fixture (module_path, descriptor_path, mime_xml_path,
+	                                       scan_fixture);
+
+	/* rofd's own view of the same file, for the comparisons. */
+	g_assert_cmpint (rofd_document_open (text_fixture, NULL, &oracle, &rerror),
+	                 ==, ROFD_STATUS_OK);
+	g_assert_nonnull (oracle);
+	g_assert_cmpint (rofd_renderer_new (NULL, &renderer, &rerror), ==, ROFD_STATUS_OK);
+	g_assert_nonnull (renderer);
+
+	test_text_matches_oracle (text_document, oracle);
+	test_text_layout (text_document);
+	test_text_in_area (text_document, oracle);
+	test_text_mapping (text_document);
+	test_find (text_document);
+	test_selection_text (text_document, oracle);
+	test_selection_region (text_document, oracle, renderer);
+	test_render_selection (text_document, oracle, renderer);
+	test_scan_page (scan_document);
+	test_broken_page (module_path, descriptor_path, mime_xml_path, broken_fixture);
+	test_origin_normalisation (module_path, descriptor_path, mime_xml_path, origin_fixture);
+
+	rofd_renderer_free (renderer);
+	rofd_document_free (oracle);
+	g_object_unref (scan_document);
+	g_object_unref (text_document);
+	ofd_test_cleanup ();
+
+	g_print ("phase-2 text, layout, find and selection checks passed\n");
+
+	return 0;
+}

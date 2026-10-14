@@ -9,42 +9,43 @@ directory. No Papers fork, no Papers rebuild, no patching of Papers sources.
 
 ## Status
 
-Phases 0 and 1 are implemented and tested against **Papers 51.1** ([tag `51.1`](https://gitlab.gnome.org/GNOME/papers/-/tree/51.1);
+Phases 0, 1 and 2 are implemented and tested against **Papers 51.1** ([tag `51.1`](https://gitlab.gnome.org/GNOME/papers/-/tree/51.1);
 the build needs only the installed `papers-document-4.0` headers) and **rofd ABI v1**:
 the module loads through Papers' own backend discovery, renders pages correctly at
-every rotation and zoom step, prints (vector text), and reports metadata.
+every rotation and zoom step, prints (vector text), reports metadata, and serves
+text, selection, search, page links and the outline.
 
 - `meson test -C _build` runs the unit conversions, the factory round-trip with a
   deliberate discovery failure, the rotation/zoom/origin render matrix, the
   same-options equivalence against a direct FFI render, a real GTK print-to-file
-  whose PDF text is verified with poppler, the metadata fields and mask bits, and
-  — with `-Drofd_src=<rofd checkout>` — the invoice oracle against rofd's
-  reference render.
-- Remaining: text/selection/find/links/outline (phase 2), fd loading, packaging
-  and desktop integration (phase 3), upstream MR (phase 4).
+  whose PDF text is verified with poppler, the metadata fields and mask bits, the
+  text/layout/find/selection checks and the link/outline model — each compared
+  against a direct rofd query of the same fixture — the load error paths, and
+  (with `-Drofd_src=<rofd checkout>`) the invoice oracle against rofd's reference
+  render.
+- Remaining: fd loading, packaging and desktop integration (phase 3), upstream MR
+  (phase 4).
 
 Implementation plan: [`docs/plan.md`](docs/plan.md) — phases, interface contract,
 acceptance criteria, verification playbook, risks ([§5](docs/plan.md#5-phases)).
 Research notebook (raw evidence with `file:line`): `.planning/` in the working
 copy.
 
-## What it will do
+## Capabilities
 
-When the plan is complete:
-
-| Works | Notes |
+| Capability | Notes |
 | --- | --- |
-| Open `*.ofd` (double-click, `papers file.ofd`, `gio open`) | local files; fd/previewer path in phase 3 |
+| Open `*.ofd` (double-click, `papers file.ofd`, `gio open`) | local files; the fd/previewer path is phase 3 |
 | Scroll, zoom, rotate, fit-width/fit-page | full-page Cairo raster from `rofd-render` |
 | Print and print-to-PDF | direct Cairo rendering into the print context, vector text |
 | Thumbnails (sidebar and Nautilus) | reuse of the page renderer |
 | Metadata | title, author, subject, keywords, creator, dates, page count |
-| Select/copy text, Ctrl+F, caret navigation | via rofd's text layout + search |
-| In-page links and the outline sidebar | GOTO/URI links; outline from `rofd_document_get_outline` |
+| Select/copy text, Ctrl+F, caret navigation | rofd's text layout + search; the I-beam cursor comes from the glyph region |
+| In-page links and the outline sidebar | GOTO/URI links; the outline model feeds the links sidebar |
 
-Not supported (rofd has no support yet; Papers hides the UI automatically):
-annotations, signatures/seals, form filling, attachments, layers, transitions,
-editing/saving.
+Not supported (rofd has no support for them, and Papers hides the corresponding
+UI automatically): annotations, signatures/seals, form filling, attachments,
+layers, transitions, editing/saving.
 
 ## How it works
 
@@ -144,8 +145,11 @@ tests — is in [`docs/plan.md` §6](docs/plan.md#6-verification-playbook).
 ```
 
 Papers builds its own desktop and thumbnailer MIME lists from in-tree backends
-only, hence the separate association and thumbnailer entries. Details and the
-patch-free vs patch-the-desktop tradeoff: [`docs/plan.md` §7](docs/plan.md#7-packaging-and-desktop-integration).
+only, hence the separate association and thumbnailer entries. The MIME magic is a
+nested rule at priority 70: below `application/zip`'s priority it would lose every
+content-only guess, which is the only detection the previewer has. Details and the
+patch-free vs patch-the-desktop tradeoff:
+[`docs/plan.md` §7](docs/plan.md#7-packaging-and-desktop-integration).
 
 ## Limitations
 
@@ -163,6 +167,9 @@ patch-free vs patch-the-desktop tradeoff: [`docs/plan.md` §7](docs/plan.md#7-pa
   whose poppler has transparent-selection support (the common case).
 - A wrapped multi-line search match is reported as a single result rectangle.
 - Named destinations (`find_link_dest`/`find_link_page`) are stubs.
+- Selection is declined on rotated pages, which is where Papers refuses to start
+  one itself ("Selection in rotated documents has never worked", `pps-view.c`).
+- At most 4096 search results per page (`OFD_FIND_MAX_RESULTS_PER_PAGE`).
 - rofd's render options carry a **single uniform scale**: a render target whose
   aspect ratio differs from the page is not stretched (poppler's backend scales
   the axes independently). Papers always derives target sizes from the page size,
@@ -174,7 +181,7 @@ patch-free vs patch-the-desktop tradeoff: [`docs/plan.md` §7](docs/plan.md#7-pa
 | --- | --- | --- |
 | 0 | Loadable module, discovery, page geometry | done |
 | 1 | Rendering, rotation/zoom matrix, metadata, printing | done |
-| 2 | Text, selection, find, links, outline | next |
+| 2 | Text, selection, find, links, outline | done |
 | 3 | `load_fd` (previewer), packaging, install checks | planned |
 | 4 | Upstream MR into Papers' `libdocument/backend/ofd/` | planned |
 

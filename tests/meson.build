@@ -27,6 +27,36 @@ latency_fixture = custom_target('ofd-test-fixture-latency-300',
   command: [fixture_generator, 'latency', '@OUTPUT@', '300'],
   build_by_default: true)
 
+text_fixture = custom_target('ofd-test-fixture-text',
+  output: 'text-2pages.ofd',
+  command: [fixture_generator, 'text', '@OUTPUT@'],
+  build_by_default: true)
+
+scan_fixture = custom_target('ofd-test-fixture-scan',
+  output: 'scan-1page.ofd',
+  command: [fixture_generator, 'scan', '@OUTPUT@'],
+  build_by_default: true)
+
+links_fixture = custom_target('ofd-test-fixture-links',
+  output: 'links-2pages.ofd',
+  command: [fixture_generator, 'links', '@OUTPUT@'],
+  build_by_default: true)
+
+broken_page_fixture = custom_target('ofd-test-fixture-broken-page',
+  output: 'broken-page-2pages.ofd',
+  command: [fixture_generator, 'broken-page', '@OUTPUT@'],
+  build_by_default: true)
+
+origin_text_fixture = custom_target('ofd-test-fixture-origin-text',
+  output: 'origin-text.ofd',
+  command: [fixture_generator, 'origin-text', '@OUTPUT@'],
+  build_by_default: true)
+
+malformed_zip_fixture = custom_target('ofd-test-fixture-malformed-zip',
+  output: 'malformed-zip.ofd',
+  command: [fixture_generator, 'malformed-zip', '@OUTPUT@'],
+  build_by_default: true)
+
 poppler_glib_dep = dependency('poppler-glib')
 gtk_dep = dependency('gtk4')
 papers_view_dep = dependency('papers-view-4.0', version: ['>= 51', '< 52'])
@@ -62,6 +92,21 @@ test_ofd_metadata = executable('test-ofd-metadata',
   include_directories: ofd_include,
   dependencies: [papers_dep, glib_dep, gio_dep])
 
+test_ofd_text = executable('test-ofd-text',
+  files('test-ofd-text.c', 'ofd-test-utils.c'),
+  include_directories: ofd_include,
+  dependencies: [papers_dep, glib_dep, gio_dep, rofd_dep])
+
+test_ofd_links = executable('test-ofd-links',
+  files('test-ofd-links.c', 'ofd-test-utils.c'),
+  include_directories: ofd_include,
+  dependencies: [papers_dep, glib_dep, gio_dep, rofd_dep])
+
+test_ofd_errors = executable('test-ofd-errors',
+  files('test-ofd-errors.c', 'ofd-test-utils.c'),
+  include_directories: ofd_include,
+  dependencies: [papers_dep, glib_dep, gio_dep])
+
 test('ofd-units', test_ofd_units, timeout: 30)
 
 test('ofd-document',
@@ -92,6 +137,24 @@ test('ofd-metadata',
   test_ofd_metadata,
   args: [ofd_module, descriptor_in_build, files('../data/papers-ofd.xml'),
          metadata_fixture, fixtures],
+  timeout: 60)
+
+test('ofd-text',
+  test_ofd_text,
+  args: [ofd_module, descriptor_in_build, files('../data/papers-ofd.xml'),
+         text_fixture, scan_fixture, broken_page_fixture, origin_text_fixture],
+  timeout: 120)
+
+test('ofd-links',
+  test_ofd_links,
+  args: [ofd_module, descriptor_in_build, files('../data/papers-ofd.xml'),
+         links_fixture, text_fixture, origin_text_fixture],
+  timeout: 120)
+
+test('ofd-errors',
+  test_ofd_errors,
+  args: [ofd_module, descriptor_in_build, files('../data/papers-ofd.xml'),
+         malformed_zip_fixture, text_fixture],
   timeout: 60)
 
 rofd_src = get_option('rofd_src')

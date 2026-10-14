@@ -4,9 +4,12 @@
 
 #include "ofd-document.h"
 
-#include "ofd-page.h"
+#include "ofd-links.h"
 #include "ofd-metadata.h"
+#include "ofd-outline.h"
+#include "ofd-page.h"
 #include "ofd-render.h"
+#include "ofd-text.h"
 #include "ofd-units.h"
 
 #include <rofd.h>
@@ -38,10 +41,24 @@ struct _OfdDocument {
 };
 
 static void ofd_document_print_iface_init (PpsDocumentPrintInterface *iface);
+static void ofd_document_text_iface_init (PpsDocumentTextInterface *iface);
+static void ofd_document_find_iface_init (PpsDocumentFindInterface *iface);
+static void ofd_document_selection_iface_init (PpsSelectionInterface *iface);
+static void ofd_document_links_iface_init (PpsDocumentLinksInterface *iface);
 
+/* The five interfaces Papers dispatches without a NULL check or that the shell
+ * needs for text, search, selection, links and the outline (A9, A10, A11). */
 G_DEFINE_FINAL_TYPE_WITH_CODE (OfdDocument, ofd_document, PPS_TYPE_DOCUMENT,
                                G_IMPLEMENT_INTERFACE (PPS_TYPE_DOCUMENT_PRINT,
-                                                      ofd_document_print_iface_init))
+                                                      ofd_document_print_iface_init)
+                               G_IMPLEMENT_INTERFACE (PPS_TYPE_DOCUMENT_TEXT,
+                                                      ofd_document_text_iface_init)
+                               G_IMPLEMENT_INTERFACE (PPS_TYPE_DOCUMENT_FIND,
+                                                      ofd_document_find_iface_init)
+                               G_IMPLEMENT_INTERFACE (PPS_TYPE_SELECTION,
+                                                      ofd_document_selection_iface_init)
+                               G_IMPLEMENT_INTERFACE (PPS_TYPE_DOCUMENT_LINKS,
+                                                      ofd_document_links_iface_init))
 
 /* rofd frees take a bare pointer; NULL handling is ours either way. */
 static void
@@ -113,8 +130,8 @@ ofd_document_query_page_box (OfdDocument *self, gint index, rofd_rect_t *box_mm)
 
 /* Cached physical box (millimetres, origin included) for one page; the single
  * lookup used by get_page_size and render (plan §4/D3). */
-static gboolean
-ofd_document_page_box (OfdDocument *self, gint index, rofd_rect_t *box_mm)
+gboolean
+ofd_document_page_box_mm (OfdDocument *self, gint index, rofd_rect_t *box_mm)
 {
 	if (index < 0 || index >= self->n_pages)
 		return FALSE;
@@ -251,16 +268,25 @@ ofd_document_get_page_size (PpsDocument *document, PpsPage *page,
 	*width = 0.0;
 	*height = 0.0;
 
-	if (page == NULL || !ofd_document_page_box (self, page->index, &box_mm))
+	if (page == NULL || !ofd_document_page_box_mm (self, page->index, &box_mm))
 		return;
 
 	*width = ofd_mm_to_pt (box_mm.width_mm);
 	*height = ofd_mm_to_pt (box_mm.height_mm);
 }
 
+/* The rofd document handle, borrowed; NULL before a successful load. */
+rofd_document_t *
+ofd_document_borrow_handle (OfdDocument *self)
+{
+	g_return_val_if_fail (OFD_IS_DOCUMENT (self), NULL);
+
+	return self->rofd_document;
+}
+
 /* Lazily create the renderer; the caller must not hold the mutex. */
-static rofd_renderer_t *
-ofd_document_get_renderer (OfdDocument *self)
+rofd_renderer_t *
+ofd_document_borrow_renderer (OfdDocument *self)
 {
 	rofd_renderer_t *renderer = NULL;
 
@@ -276,13 +302,15 @@ ofd_document_get_renderer (OfdDocument *self)
 /* The rofd page handle a page vfunc renders from: the one attached at get_page
  * (D1), or a handle fetched for this call when the caller built its own
  * PpsPage. Sets *borrowed when the caller must free the result. */
-static rofd_page_t *
-ofd_document_page_handle (OfdDocument *self, PpsPage *page, gboolean *borrowed)
+rofd_page_t *
+ofd_document_borrow_page (OfdDocument *self, PpsPage *page, gboolean *borrowed)
 {
 	rofd_page_t *rpage;
 	rofd_error_t *rerror = NULL;
 
 	*borrowed = FALSE;
+
+	g_return_val_if_fail (page != NULL, NULL);
 
 	rpage = ofd_page_get_rofd_page (page);
 	if (rpage != NULL)
@@ -325,7 +353,7 @@ ofd_document_render (PpsDocument *document, PpsRenderContext *rc)
 	{
 		rofd_rect_t box_mm = { 0, };
 
-		if (!ofd_document_page_box (self, page->index, &box_mm))
+		if (!ofd_document_page_box_mm (self, page->index, &box_mm))
 			return NULL;
 		width_pt = ofd_mm_to_pt (box_mm.width_mm);
 		height_pt = ofd_mm_to_pt (box_mm.height_mm);
@@ -333,11 +361,11 @@ ofd_document_render (PpsDocument *document, PpsRenderContext *rc)
 	if (width_pt <= 0.0 || height_pt <= 0.0)
 		return NULL;
 
-	rpage = ofd_document_page_handle (self, page, &borrowed_page);
+	rpage = ofd_document_borrow_page (self, page, &borrowed_page);
 	if (rpage == NULL)
 		return NULL;
 
-	renderer = ofd_document_get_renderer (self);
+	renderer = ofd_document_borrow_renderer (self);
 	if (renderer != NULL)
 		surface = ofd_render_page_surface (renderer, rpage, rc, width_pt, height_pt);
 
@@ -364,11 +392,11 @@ ofd_document_print_page (PpsDocumentPrint *document_print,
 	if (page == NULL || cr == NULL || self->rofd_document == NULL)
 		return;
 
-	rpage = ofd_document_page_handle (self, page, &borrowed_page);
+	rpage = ofd_document_borrow_page (self, page, &borrowed_page);
 	if (rpage == NULL)
 		return;
 
-	renderer = ofd_document_get_renderer (self);
+	renderer = ofd_document_borrow_renderer (self);
 	if (renderer != NULL) {
 		ofd_render_options_init_print (&options);
 		ofd_render_page_onto (renderer, rpage, cr, &options);
@@ -395,7 +423,7 @@ ofd_document_get_info (PpsDocument *document)
 		for (i = 0; i < self->n_pages; i++) {
 			rofd_rect_t box_mm = { 0, };
 
-			if (!ofd_document_page_box (self, i, &box_mm))
+			if (!ofd_document_page_box_mm (self, i, &box_mm))
 				continue;
 
 			/* Millimetres, like the PDF backend's page_sizes: the properties
@@ -437,10 +465,90 @@ ofd_document_finalize (GObject *object)
 	G_OBJECT_CLASS (ofd_document_parent_class)->finalize (object);
 }
 
+/* PpsDocumentLinks is dispatched without a NULL check upstream (A9), so every
+ * vfunc exists: the two that have no ABI counterpart are stubs. */
+static gboolean
+ofd_document_has_document_links (PpsDocumentLinks *document_links)
+{
+	return ofd_outline_has_document_links (OFD_DOCUMENT (document_links));
+}
+
+static GListModel *
+ofd_document_get_links_model (PpsDocumentLinks *document_links)
+{
+	return ofd_outline_get_links_model (OFD_DOCUMENT (document_links));
+}
+
+static PpsMappingList *
+ofd_document_get_links (PpsDocumentLinks *document_links, PpsPage *page)
+{
+	OfdDocument *self = OFD_DOCUMENT (document_links);
+
+	if (!PPS_IS_PAGE (page))
+		return NULL;
+
+	return ofd_links_get_links (self, page);
+}
+
+static PpsLinkDest *
+ofd_document_find_link_dest (PpsDocumentLinks *document_links, const gchar *link_name)
+{
+	/* No name-to-destination lookup in the ABI (plan §3). */
+	(void) document_links;
+	(void) link_name;
+
+	return NULL;
+}
+
+static gint
+ofd_document_find_link_page (PpsDocumentLinks *document_links, const gchar *link_name)
+{
+	/* No name-to-page lookup in the ABI (plan §3). */
+	(void) document_links;
+	(void) link_name;
+
+	return -1;
+}
+
 static void
 ofd_document_print_iface_init (PpsDocumentPrintInterface *iface)
 {
 	iface->print_page = ofd_document_print_page;
+}
+
+static void
+ofd_document_text_iface_init (PpsDocumentTextInterface *iface)
+{
+	iface->get_text = ofd_text_get_text;
+	iface->get_text_layout = ofd_text_get_text_layout;
+	iface->get_text_in_area = ofd_text_get_text_in_area;
+	iface->get_text_mapping = ofd_text_get_text_mapping;
+	iface->get_text_attrs = ofd_text_get_text_attrs;
+}
+
+static void
+ofd_document_find_iface_init (PpsDocumentFindInterface *iface)
+{
+	iface->get_supported_options = ofd_find_get_supported_options;
+	iface->find_text = ofd_find_text;
+}
+
+static void
+ofd_document_selection_iface_init (PpsSelectionInterface *iface)
+{
+	iface->render_selection = ofd_selection_render_selection;
+	iface->get_selected_text = ofd_selection_get_selected_text;
+	iface->get_selection_region = ofd_selection_get_selection_region;
+}
+
+static void
+ofd_document_links_iface_init (PpsDocumentLinksInterface *iface)
+{
+	iface->has_document_links = ofd_document_has_document_links;
+	iface->get_links_model = ofd_document_get_links_model;
+	iface->get_links = ofd_document_get_links;
+	iface->find_link_dest = ofd_document_find_link_dest;
+	iface->find_link_page = ofd_document_find_link_page;
 }
 
 static void

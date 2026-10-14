@@ -7,7 +7,12 @@
     <comment>Open Fixed-layout Document</comment>
     <comment xml:lang="zh_CN">开放式版式文档</comment>
     <sub-class-of type="application/zip"/>
-    <magic priority="50">
+    <!-- Priority 70 puts the nested rules above application/zip's plain
+         "PK\x03\x04" rule (priority 60): with a lower priority, detection from
+         bytes alone (no file name) falls back to application/zip, which is the
+         only kind of detection the previewer and the fd loading path have. 70 is
+         what the shared-mime-info container formats use (EPUB, ODF). -->
+    <magic priority="70">
       <!-- Producers differ in what the first zip entry is: OFD.xml, or the
            Doc_0 directory the DocRoot points into (the invoice fixture in the
            rofd checkout starts with Doc_0/Annots/Annotations.xml, so OFD.xml

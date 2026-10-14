@@ -7,10 +7,11 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
-Start **phase 2** of `docs/plan.md` (§5): `PpsDocumentText` (all five vfuncs),
-`PpsSelection` (three), `PpsDocumentFind` (two, with the per-page result cap),
-`ofd-links.c` and `ofd-outline.c` + `PpsDocumentLinks::get_links_model`, plus the
-generated CJK/image/links fixtures and the selection/copy/find/caret acceptance.
+Phase 2 of `docs/plan.md` (§5) is implemented, tested and documented; the open
+item is the **GUI acceptance on the live session** (select/copy, Ctrl+F snippets,
+F7 caret, I-beam cursor, GOTO/URI links, outline sidebar) — the same hand-off as
+phase 1, because no headless GUI exists on this host. Then update the phase-2
+status here and start phase 3 (`load_fd`, packaging, install checks).
 
 Phase 1 of `docs/plan.md` is complete and committed: rendering (rotation/zoom
 matrix on pixels, origin normalization, byte-equivalence with a direct FFI
@@ -25,7 +26,7 @@ and #12 when convenient.
 
 ## Current Phase
 
-`docs/plan.md` phases 0 and 1 complete; phase 2 next
+`docs/plan.md` phases 0–2 implemented (phase 2 awaiting the GUI acceptance); phase 3 next
 
 ## Phases
 
@@ -99,6 +100,17 @@ and #12 when convenient.
 - [x] `feat/pkgconfig` pushed to `YangtseSu/rofd`; upstream PR <https://github.com/linuxdeepin/rofd/pull/12> opened
 - [x] Policy recorded in `docs/plan.md` §9 item 5 and `patches/README.md`: every rofd change lives on a fork branch, is pushed to our GitHub and proposed upstream
 - **Status:** complete
+
+### Phase 15: docs/plan.md phase 2 — text, selection, find, links, outline
+
+- [x] `ofd-text.[ch]`: `PpsDocumentText` (five vfuncs), `PpsSelection` (three), `PpsDocumentFind` (two, 4096-result cap); `ofd-page.[ch]` gained `OfdPageRef`, `ofd-render.[ch]` the canvas-size helper, `ofd-units.[ch]` the pixel-rect mapping
+- [x] `ofd-links.[ch]` (page `PpsMappingList` + `PpsLinkAction`/`PpsLinkDest` from a rofd action, URI base resolution) and `ofd-outline.[ch]` (`PpsOutlines` model rebuilt from parent/first_child/next_sibling)
+- [x] Five interfaces registered on `OfdDocument`; every vfunc present, stubs where the ABI has no counterpart
+- [x] Fixtures `text`, `scan`, `links`, `origin-text`, `broken-page`, `malformed-zip` in the generator (+ Meson targets)
+- [x] Tests `test-ofd-text.c`, `test-ofd-links.c`, `test-ofd-errors.c`; 10/10 in both page-size builds
+- [x] Two real defects found and fixed: `pps_outlines_new`/`pps_outlines_set_link` are declared but not exported (A21), and the MIME magic priority made content-only detection answer `application/zip` (A22, the previewer/fd path)
+- [ ] GUI acceptance on the live session (user)
+- **Status:** implementation complete, GUI acceptance open
 
 ### Phase 0: loadable module skeleton
 

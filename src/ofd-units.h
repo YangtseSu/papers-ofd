@@ -24,4 +24,15 @@ void ofd_rect_to_mm (const PpsRectangle *rect,
                      const rofd_rect_t *origin,
                      rofd_rect_t *out);
 
+/* Map a page-space rectangle (points, top-left origin) onto a pixel grid with
+ * the half-pixel bias Papers' own backends use for regions
+ * (`create_region_from_poppler_region`, libdocument/backend/pdf/pps-poppler.c),
+ * so a region built here covers the same pixels as the page texture. With
+ * (1.0, 1.0) it produces the integer page-point rectangles a cairo_region_t
+ * needs for hit testing. */
+void ofd_pixel_rect_from_points (const PpsRectangle *rect,
+                                 double scale_x,
+                                 double scale_y,
+                                 cairo_rectangle_int_t *out);
+
 G_END_DECLS

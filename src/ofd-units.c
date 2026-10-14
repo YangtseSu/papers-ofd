@@ -29,6 +29,18 @@ ofd_rect_from_mm (const rofd_rect_t *rect,
 }
 
 void
+ofd_pixel_rect_from_points (const PpsRectangle *rect,
+                            double scale_x,
+                            double scale_y,
+                            cairo_rectangle_int_t *out)
+{
+	out->x = (gint) (rect->x1 * scale_x + 0.5);
+	out->y = (gint) (rect->y1 * scale_y + 0.5);
+	out->width = (gint) ((rect->x2 - rect->x1) * scale_x + 0.5);
+	out->height = (gint) ((rect->y2 - rect->y1) * scale_y + 0.5);
+}
+
+void
 ofd_rect_to_mm (const PpsRectangle *rect,
                 const rofd_rect_t *origin,
                 rofd_rect_t *out)

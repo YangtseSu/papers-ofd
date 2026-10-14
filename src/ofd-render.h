@@ -35,6 +35,19 @@ cairo_surface_t *ofd_render_page_surface (rofd_renderer_t *renderer,
                                           double width_pt,
                                           double height_pt);
 
+/* Final rotated pixel canvas one page renders into under a Papers render
+ * context: the same option mapping as ofd_render_page_surface, but rofd's
+ * rounding decides the size. Overlays (the selection surface and its region)
+ * use it so they cannot disagree with the page texture. FALSE when rofd cannot
+ * size the canvas. */
+gboolean ofd_render_page_canvas_size (rofd_renderer_t *renderer,
+                                      rofd_page_t *page,
+                                      PpsRenderContext *rc,
+                                      double width_pt,
+                                      double height_pt,
+                                      gint *width,
+                                      gint *height);
+
 /* Draw a page onto an existing target (printing): dpi=72, scale=1, no rotation. */
 gboolean ofd_render_page_onto (rofd_renderer_t *renderer,
                                rofd_page_t *page,

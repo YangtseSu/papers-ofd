@@ -144,6 +144,49 @@ ofd_render_page_onto (rofd_renderer_t *renderer,
 	return TRUE;
 }
 
+gboolean
+ofd_render_page_canvas_size (rofd_renderer_t *renderer,
+                             rofd_page_t *page,
+                             PpsRenderContext *rc,
+                             double width_pt,
+                             double height_pt,
+                             gint *width,
+                             gint *height)
+{
+	rofd_render_options_t options;
+	rofd_error_t *rerror = NULL;
+	int pixel_width = 0;
+	int pixel_height = 0;
+
+	*width = 0;
+	*height = 0;
+
+	if (renderer == NULL || page == NULL || width_pt <= 0.0 || height_pt <= 0.0)
+		return FALSE;
+
+	ofd_render_options_from_context (rc, width_pt, height_pt, &options);
+
+	if (rofd_renderer_get_pixel_canvas_size (renderer, page, &options,
+	                                         &pixel_width, &pixel_height,
+	                                         &rerror) != ROFD_STATUS_OK) {
+		g_debug ("canvas size query failed: %s",
+		         rerror != NULL ? rofd_error_get_message (rerror) : "unknown error");
+		if (rerror != NULL)
+			rofd_error_free (rerror);
+		return FALSE;
+	}
+	if (rerror != NULL)
+		rofd_error_free (rerror);
+
+	if (pixel_width <= 0 || pixel_height <= 0)
+		return FALSE;
+
+	*width = pixel_width;
+	*height = pixel_height;
+
+	return TRUE;
+}
+
 cairo_surface_t *
 ofd_render_page_surface (rofd_renderer_t *renderer,
                          rofd_page_t *page,

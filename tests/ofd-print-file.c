@@ -37,6 +37,8 @@ draw_page (GtkPrintOperation *operation,
 	gdouble width = 0.0;
 	gdouble height = 0.0;
 
+	(void) operation;
+
 	g_assert_nonnull (page);
 	pps_document_get_page_size_uncached (document, page, &width, &height);
 

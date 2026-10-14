@@ -229,6 +229,62 @@
     behaviour, unrelated to this module; the preview and the produced PDF were
     correct).
 
+### Phase 15: docs/plan.md phase 2 — text, selection, find, links, outline (implementation)
+
+- **Status:** complete except the GUI acceptance on the live session
+- Actions taken:
+  - `src/ofd-text.[ch]` (new): `PpsDocumentText` (`get_text`, `get_text_layout`,
+    `get_text_in_area`, `get_text_mapping`, `get_text_attrs` = NULL because the ABI
+    has no attribute data), `PpsSelection` (`get_selected_text`, `get_selection_region`,
+    `render_selection` = base colour only, no glyph mask) and `PpsDocumentFind`
+    (`get_supported_options`, `find_text` with `max_results = 4096`). Shared plumbing
+    went to `ofd-page.[ch]` (`OfdPageRef`: page handle + physical box in one acquire/
+    release pair), `ofd-render.[ch]` (`ofd_render_page_canvas_size`) and `ofd-units.[ch]`
+    (`ofd_pixel_rect_from_points`, the poppler-style half-pixel rounding used for both
+    the page-point text mapping and the device-pixel selection region).
+  - `src/ofd-links.[ch]` (new): `ofd_links_get_links` (one `PpsMapping` per region of
+    the first CLICK action, source order, `PpsMappingList` owns one reference per
+    mapping), plus `ofd_link_action_from_rofd`/`ofd_link_dest_from_rofd` shared with the
+    outline: destination coordinates are re-based on the **target** page's box origin,
+    presence bits → change flags, zoom → `change_zoom` only when non-zero (GB/T 33190
+    table 54), unresolved GOTO → no link, relative URIs resolved against `Base`.
+  - `src/ofd-outline.[ch]` (new): the `PpsOutlines` model rebuilt from
+    `parent`/`first_child`/`next_sibling` (one children store per node with children),
+    `NULL` when there is no outline; every node gets a `PpsLink` because the sidebar
+    dereferences the selected row's link unconditionally.
+  - `src/ofd-document.c`: the four interfaces registered next to `PpsDocumentPrint`
+    (every vfunc, stubs for `find_link_dest`/`find_link_page`), `ofd_document_borrow_handle`,
+    and `ofd_document_page_box_mm`/`ofd_document_borrow_page`/`ofd_document_borrow_renderer`
+    exposed to the new modules.
+  - Fixtures (`tests/generate_fixture.py`): kinds `text` (two-column ASCII page + CJK
+    page), `scan` (embedded PNG, no text), `links` (page-root URI, object GOTO, object
+    URI with `Base`, 4-node outline, named bookmark), `origin-text`
+    (`PhysicalBox "10 20 210 297"` with text **and** a link), `broken-page` (truncated
+    content XML), `malformed-zip`; Meson targets for all of them.
+  - Tests: `test-ofd-text.c`, `test-ofd-links.c`, `test-ofd-errors.c` — every text,
+    selection, find, link and outline answer is compared against a direct rofd query of
+    the same fixture and the same coordinates, plus NULL/out-of-range page robustness,
+    origin normalisation on both text and link geometry, and the byte-only MIME
+    detection.
+  - Two real defects found while wiring this:
+    1. `pps_outlines_new` and `pps_outlines_set_link` are **declared in the installed
+       header but not defined/exported** (`nm -D` on `libppsdocument-4.0.so.6`), so the
+       module failed to link; `g_object_new (PPS_TYPE_OUTLINES, NULL)` and the `link`
+       property are the usable paths (A21).
+    2. The shipped MIME file had magic priority 50, below `application/zip`'s 60, so
+       **content-only detection answered `application/zip`** for every OFD file — which
+       is the only detection the previewer and `load_fd` (phase 3) have. Raised to 70
+       (the shared-mime-info container-format priority) and asserted from a test (A22).
+    Also corrected the phase-1 latency claim's counterpart: `get_text_layout` returns
+    TRUE with zero areas on a text-less page (every consumer guards on `!areas`).
+  - Test-fixture detail worth keeping: rofd advances every glyph by ≈ `0.96 × Size`
+    millimetres when the named font is absent, so the two-column fixture uses `Size=3`
+    to stay inside its columns; the geometry is asserted by the tests.
+- Files created/modified:
+  - `src/{ofd-text.[ch],ofd-links.[ch],ofd-outline.[ch],ofd-document.[ch],ofd-page.[ch],ofd-render.[ch],ofd-units.[ch],meson.build}`,
+    `tests/{generate_fixture.py,meson.build,test-ofd-text.c,test-ofd-links.c,test-ofd-errors.c,ofd-print-file.c}`,
+    `data/papers-ofd.xml`, `docs/plan.md` (§2/§3/§5/§6/§7/§8, A21/A22), `README.md`
+
 ## Test Results
 
 | Test | Input | Expected | Actual | Status |
@@ -296,6 +352,29 @@
 | Papers session run (phase 1) | `papers _build/tests/metadata.ofd` with the dev backend dir | no criticals | ran 15 s until `timeout` (124); 0 CRITICAL/ERROR; one unrelated `Gdk-WARNING` about frame timings; our diagnostics show CJK-capable font fallback on both text objects | pass |
 | GUI acceptance (visual) | live session, dev backend dir | rotation/zoom/print/properties behave | user-confirmed: marker top-left → top-right → bottom-right on `rotate right`, zoom and fit modes clean, `Ctrl+P` preview renders and *Print to File* text selects, properties dialog shows title/author/subject/keywords/creator/dates | pass |
 | REUSE after phase 1 | repository | compliant | 41/41 files with copyright + license | pass |
+| Phase-2 build (both page-size paths) | `meson setup` + `compile` on `_build` and `_build-slow` | module + 10 tests | built without warnings; `meson test` 10/10 in both | pass |
+| Text vs the ABI | `text-2pages.ofd` via `pps_document_text_get_text` | byte-identical to `rofd_page_get_text` | equal on both pages (148 and 25 scalars) | pass |
+| Text layout | same fixture | one rect per Unicode scalar, inside the page box, separators empty | counts equal `g_utf8_strlen`, object separators have empty rects, all rects inside the box | pass |
+| Text in area | left column rectangle | equals `rofd_page_get_text_for_area` for the same mm rect | equal; contains the left column, no right-column text | pass |
+| Text mapping (I-beam) | whole page glyph selection | region covers glyphs, not empty space | glyph centre contained, page corner (2, 2) not, extents inside the page | pass |
+| Find counts | page 0 / page 1 | case-insensitive, case-sensitive, whole-word, CJK | `invoice` 2, case-sensitive 1, `INVOICE` 2, `invo`+whole-words 0, `发票编号` 2, absent 0, empty query 0 | pass |
+| Find/layout agreement | every match rectangle | the search context's `get_match_offset` finds a layout rect, and the query starts there | satisfied for all matches; the scalar found starts with the query (case-insensitive) | pass |
+| Selection text | three styles, whole page | equals `rofd_page_get_selected_text` per style | GLYPH/WORD/LINE all byte-equal; one column ≠ the other; empty rect → "" (never NULL) | pass |
+| Selection region | scale 1 and a doubled target size | inside rofd's canvas, contains glyph centres, grows with the target | inside the canvas in both cases, glyph centre contained, extents > scale-1 extents and ≤ the larger canvas | pass |
+| Selection overlay | base `{1, 0, 0, 0.5}` | canvas-sized surface, base colour inside, transparent outside, cleared on reuse | size == rofd canvas; inside alpha/red ≈ 0x80; outside alpha 0; after reuse for the other column the first column is transparent again; rotated page → no surface | pass |
+| Scan page (no text) | `scan-1page.ofd` | empty text, 0 layout areas, empty regions, no matches | `""` (non-NULL), TRUE with `areas == NULL`, empty mapping/selection regions, `find_text` NULL | pass |
+| Broken page / NULL page | `broken-page-2pages.ofd` + hand-built `PpsPage(1)` + NULL | no crash, "no text" answers | page 0 text OK, page 1 unreachable, every vfunc returns NULL/FALSE/"" without a critical | pass |
+| Page links vs the ABI | `links-2pages.ofd` page 0/1 | three CLICK actions in source order, regions and destinations equal to rofd's | regions equal to the ABI's mm→pt conversion, GOTO page/left/top/zoom equal, URI with `Base` resolved to `https://example.test/base/relative/target`, page 1 whole-page XYZ 20/2 | pass |
+| Link hit test | centre of the GOTO box | the smaller mapping wins over the full-page URI action | returns the GOTO mapping (`pps_mapping_list_get` smallest-area rule) | pass |
+| Outline model | `links-2pages.ofd` | 4-node preorder tree, 3 roots, one child, expand flags | model has 3 roots, node 0 has 1 child, `Expanded=false` only there, markup escaped, every row has a link, `link_page` returns 0/1/-1 as expected | pass |
+| Outline destinations | Fit/FitH/XYZ+bookmark | type, page, coordinates, zoom from the ABI | FIT page 0; FIT_H page 1 top 25 mm; XYZ via bookmark page 1 left 10 top 30 zoom 1.5 | pass |
+| Links/outline stubs and bounds | `find_link_dest`/`find_link_page`, NULL/out-of-range page, document without outline | NULL/-1, no mappings, no model | as specified | pass |
+| Origin normalisation (D3) | `origin-text.ofd` (`PhysicalBox "10 20 210 297"`) | text/layout/find/selection and link region + destination all relative to the box origin | first glyph rect x1 ≈ 5 mm, y1 ≈ 2 mm; mapping extents < 20 mm; link area 0/80 mm; destination left 5 mm, top 6 mm, `change_zoom` FALSE for the explicit `Zoom="0"` | pass |
+| Load error paths | `malformed-zip.ofd`, a truncated copy, a missing path | `G_IO_ERROR_INVALID_DATA` (or no backend), no crash | malformed and truncated fail with `INVALID_DATA`; missing file has no backend; `n_pages` stays -1; reload after a failure recovers to 2 pages | pass |
+| Byte-only MIME detection | first 1024 bytes of a fixture and of a hand-built plain zip | `application/ofd` / `application/zip` | `application/ofd` at the new priority 70, plain zip stays `application/zip` | pass |
+| Papers session (phase 2) | `papers` on the text, scan and links fixtures with the dev backend dir | jobs run, no criticals | links job and page-data jobs for every visible page (our outline/text/mapping/link vfuncs) with 0 CRITICAL/ERROR; PDF in the same dev dir still opens | pass |
+| `reuse lint` after phase 2 | repository | compliant | 50/50 files with copyright + license | pass |
+| Memory checking | the two new test programs under `G_SLICE=always-malloc MALLOC_PERTURB_` | no crash | pass; valgrind is not installed on this host, so no leak report was produced | pass (limited) |
 
 ## Error Log
 
@@ -303,6 +382,14 @@
 |-----------|-------|---------|------------|
 | 2026-10-14 | `read` elided C function bodies (declarations-only view) | 1 | Re-read the exact byte ranges with `sed -n` |
 | 2026-10-14 | Python in-place edit assertion failed during plan section renumbering | 1 | Re-grepped the exact strings, re-ran the script; it only writes after all assertions pass |
+| 2026-10-15 | Module failed to link: `undefined reference to pps_outlines_new` | 1 | The function is declared in the installed header but not exported by `libppsdocument-4.0.so.6` (nor defined in Papers' source); switched to `g_object_new (PPS_TYPE_OUTLINES, NULL)` and, for the link, the `link` property, whose setter takes its own reference (A21) |
+| 2026-10-15 | New test programs reported `File type Zip archive (application/zip) is not supported` for every fixture | 1 | My manual runs passed `../src/libofddocument.so` while the tests resolve argv paths against the build directory (meson passes `src/libofddocument.so`), so the staged symlink dangled and `g_module_open` failed. Confirmed by comparing a passing test; the tests themselves were fine |
+| 2026-10-15 | `test_text_layout` failed: a glyph rect 17 mm outside the page box | 1 | rofd's fallback font advances every glyph by ≈ `0.96 × Size` mm, so the fixture's right column ran off the page; sized the text columns to `Size=3` (left column ≤ 93 mm, right column 120–195 mm) and measured with a throwaway rofd dump before asserting |
+| 2026-10-15 | `test_render_selection` expected a 596 px surface, got 595 | 1 | Papers rounds the pixel size first (`pps_render_context_compute_scaled_size`) and the module derives the scale from that, exactly as §4 specifies; the test's oracle now computes the scale the same way |
+| 2026-10-15 | `test-ofd-links` segfaulted in `g_list_model_get_item` and logged 4 `g_object_unref` criticals | 2 | Two test-side ownership bugs: a borrowed children model held in a `g_autoptr` (freed the store the outlines still pointed at), and `g_autoptr` on `pps_outlines_get_link`/`pps_link_action_get_dest`, which are `transfer none`. Both replaced with plain borrowed pointers; found with gdb backtraces |
+| 2026-10-15 | `test-ofd-errors` asserted `n_pages == 0` after a failed load, got -1 | 1 | The base class keeps -1 until a load succeeds (`pps-document.c:155,446`); the assertion now checks `< 0` |
+
+
 | 2026-10-14 | Oracle run failed with "File type Zip archive (application/zip) is not supported" on the real invoice | 1 | The `OFD.xml`@30 magic only matched archives whose first entry is `OFD.xml`; the invoice starts with `Doc_0/Annots/Annotations.xml` (`OFD.xml` sits at byte 21707), so GLib's data-only guess fell back to `application/zip`. Added a `Doc_0/`@30 alternative to `data/papers-ofd.xml` and verified with `g_content_type_guess(NULL, first 1024 bytes)` and `xdg-mime query filetype`; a plain zip still reports `application/zip` |
 | 2026-10-14 | `ofd-latency` printed the same value for every phase | 1 | `milliseconds_since()` was called with the wrong base at print time; the tool now records a timestamp per phase and computes explicit deltas |
 | 2026-10-14 | `ofd-render` target-size case failed (1132 px instead of 600) | 1 | rofd's options carry a single uniform scale, so a target with a different aspect ratio than the page cannot be reproduced (poppler scales the axes independently). Papers always derives target sizes from the page size (`pps-pixbuf-cache.c:1041-1044,1113-1118`), so the test now does too; the deviation is documented in plan §4 and the README limitations |
@@ -312,11 +399,11 @@
 
 | Question | Answer |
 |----------|--------|
-| Where am I? | `docs/plan.md` phases 0 and 1 complete: module skeleton, rendering/rotation/zoom matrix, printing (vector text), metadata, oracle comparison and the latency table; `meson test` 7/7 in both page-size builds |
-| Where am I going? | Phase 2: `PpsDocumentText` (five vfuncs), `PpsSelection`, `PpsDocumentFind`, links and the outline; then phase 3 (fd loading, packaging, install checks) |
+| Where am I? | `docs/plan.md` phases 0–2 implemented: skeleton, rendering/printing/metadata, and text/selection/find/links/outline; `meson test` 10/10 in both page-size builds; the phase-2 GUI acceptance is the one open item |
+| Where am I going? | Phase 3: `load_fd` (previewer), packaging and install checks — with the MIME priority fix (A22) already in place, content-only detection now works for the previewer path |
 | What's the goal? | Ship the OFD backend for Papers 51.x, out-of-tree, on the rofd ABI we maintain (fork-first, AUR package) |
-| What have I learned? | See `findings.md` + the phase-1 log: the render path needs one uniform scale (plan §4), rofd's rotation is clockwise and matches `rc->rotation` as-is, the real invoice's first zip entry is `Doc_0/…` (so the MIME magic needs both layouts), and `setup_cache` fetches every page object — which is why the metadata-only page-size query does not change the shell's open time (plan §5 phase 1) |
-| What have I done? | Plan/README machine-portable and REUSE-compliant; rofd page-size patch shipped via our AUR package and proposed upstream (#11), `rofd-ffi.pc` proposed upstream (#12) and shipped; phases 0 and 1 implemented, tested and committed; GUI acceptance run on the live session |
+| What have I learned? | Phase 1: one uniform render scale (plan §4), rofd's rotation is clockwise and matches `rc->rotation` as-is, the invoice's first zip entry is `Doc_0/…`, and `setup_cache` fetches every page object. Phase 2: `PpsOutlines` has declared-but-unexported functions (A21), a nested MIME rule below `application/zip`'s priority silently loses content-only detection (A22), Papers refuses selection on rotated pages, rofd's fallback font advances ≈ `0.96 × Size` mm per glyph, and layout/find/selection rectangles must be re-based on the *target* page's box origin for GOTO destinations |
+| What have I done? | Plan/README machine-portable and REUSE-compliant; rofd page-size patch shipped via our AUR package and proposed upstream (#11), `rofd-ffi.pc` proposed upstream (#12) and shipped; phases 0–2 implemented and tested (10/10 in both builds), with the A21/A22 defects fixed; a PDF-session and an OFD-session log check done; the phase-2 GUI acceptance is the user's call |
 
 ---
 
