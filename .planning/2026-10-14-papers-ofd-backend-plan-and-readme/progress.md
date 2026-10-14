@@ -155,6 +155,15 @@
   - Runtime acceptance observed on this host: `meson test -C _build` 3/3; `PPS_BACKENDS_DIR=_build/devbackends papers _build/tests/geometry-3pages.ofd` with the staged MIME tree ran until killed (`timeout` → 124) with **zero** critical/failed lines; the same setup opened a PDF cleanly (dev dir built by copying the whole system backend directory first).
 - Files created: `meson.build`, `meson_options.txt`, `src/{meson.build,ofd-backend.c,ofd-document.[ch],ofd-page.[ch],ofd-render.[ch],ofd-units.[ch]}`, `data/{meson.build,*.papers-backend,papers-ofd.xml,papers-ofd.thumbnailer,org.gnome.Papers.Ofd.desktop}`, `tests/{meson.build,generate_fixture.py,test-ofd-document.c,test-ofd-units.c}`
 
+### Phase 13: fork pushes, upstream PR #12, AUR publication
+
+- **Status:** complete
+- Actions taken:
+  - AUR: committed `librofd-ffi 0.4.3-2` (adds `Requires: cairo` to the generated `.pc`) and pushed to `ssh://aur@aur.archlinux.org/librofd-ffi.git`; remote `master` = `846dc9a` and the AUR RPC reports `0.4.3-2`.
+  - Fork: confirmed `YangtseSu/rofd` `main` is identical to `linuxdeepin/rofd` `main` (`0 0` at `140b936`) and that `feat/ffi-page-size-query` is present; fetched `upstream/main` to make the comparison real rather than assumed.
+  - New rofd change: `feat/pkgconfig` — `debian/rofd-ffi.pc.in` plus the `librofd-ffi-dev` install rule in `debian/rules` (version from `dpkg-parsechangelog`, `DEB_HOST_MULTIARCH`, `Requires: cairo`). Pushed to the fork and proposed upstream as <https://github.com/linuxdeepin/rofd/pull/12>; PR #11 remains open.
+  - Recorded the delivery policy in the plan (§9 item 5) and `patches/README.md` (upstream requests in flight, with the drop criterion for each).
+
 ## Test Results
 
 | Test | Input | Expected | Actual | Status |
@@ -202,6 +211,10 @@
 | Phase-0 deliberate discovery failure | `test-ofd-document --expect-discovery-failure` | broken `Module=` leaves no backend for `application/ofd` | `pps_document_factory_get_document` → NULL with `PPS_DOCUMENT_ERROR_INVALID` ("File type … is not supported") | pass |
 | Phase-0 runtime (OFD) | `PPS_BACKENDS_DIR=_build/devbackends papers geometry-3pages.ofd` (+ staged MIME tree) | opens and renders without errors | ran until killed by `timeout` (124); 0 critical/failed lines; earlier SIGSEGV traced to the missing `render` vfunc (A20) and fixed | pass |
 | Phase-0 runtime (PDF regression) | same dev dir, ImageMagick tutorial PDF | other backends unaffected | ran until killed (124), 0 critical/failed lines | pass |
+| AUR publication | `git push` to `ssh://aur@aur.archlinux.org/librofd-ffi.git` | `master` advances to `846dc9a` | push reported `456e65b..846dc9a`; a fresh `git ls-remote` returns the same commit; RPC `Version` = `0.4.3-2` | pass |
+| Fork sync | `git fetch upstream main`, `rev-list --left-right --count` | fork `main` mirrors upstream | `0 0` at `140b936`; branches `feat/ffi-page-size-query` (`7f6d24d`) and `feat/pkgconfig` on the fork | pass |
+| Upstream PR #12 | `gh pr create` on `linuxdeepin/rofd` | PR opens with the diff | <https://github.com/linuxdeepin/rofd/pull/12> (`feat/pkgconfig`, OPEN); `gh pr list --author YangtseSu` shows #11 and #12 both open | pass |
+| Generated `.pc` (Debian path) | same `sed` as `debian/rules` with `0.4.3` / `x86_64-linux-gnu` | metadata correct | `Version: 0.4.3`, `Requires: cairo`, `--libs` → `-L/usr/lib/x86_64-linux-gnu -lrofd_ffi -lcairo`; `--validate` clean; recipe lines tab-indented (`cat -A`) | pass |
 
 ## Error Log
 

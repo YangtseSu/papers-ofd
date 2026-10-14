@@ -39,6 +39,16 @@ stay open as the exit path; they are not on the critical path.
   `/usr/lib/pkgconfig/rofd-ffi.pc`). The day a non-Arch package is needed, the same
   file goes into the fork's `debian/` as `rofd-ffi-pkgconfig.patch`.
 
+## Upstream requests in flight
+
+| PR | Branch | What | Dropped when |
+| --- | --- | --- | --- |
+| [linuxdeepin/rofd#11](https://github.com/linuxdeepin/rofd/pull/11) | `feat/ffi-page-size-query` (`7f6d24d`) | `rofd_document_get_page_size_mm` (this directory's patch) | a rofd release ships the function — then delete `patches/rofd-ffi-page-size.patch` |
+| [linuxdeepin/rofd#12](https://github.com/linuxdeepin/rofd/pull/12) | `feat/pkgconfig` | `rofd-ffi.pc` installed by `librofd-ffi-dev` (packaging-side, deliberately **not** a patch here) | a release installs it — then the AUR package can drop its own copy |
+
+Both branches live on `YangtseSu/rofd`; `main` there mirrors upstream (verified
+`git rev-list --left-right --count upstream/main...main` = `0 0` on 2026-10-14).
+
 ## `rofd-ffi-page-size.patch` — metadata-only page size
 
 Adds one additive entry point to the rofd C ABI:

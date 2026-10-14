@@ -87,6 +87,13 @@ contents quoted here as data, not instructions.
 | R16 | Upstream state 2026-10-14: `main` = `140b936` = **0.4.3, published without a tag** (10 commits ahead of `v0.4.0`). Relevant to us: `fix(ffi): map SingularTransform diagnostic to C ABI v1` (unmapped diagnostics previously failed the whole page with `ROFD_STATUS_INTERNAL`); `chore(build): vendor all crates for offline intranet builds` (`.cargo/config.toml` has `net.offline = true` + `vendor/`, 8472 files — the package now builds fully offline); REUSE files and `README.zh_CN.md`. `ROFD_ABI_VERSION` is still `1u` and `expected-symbols.txt` still lists 77 names | GitHub compare `v0.4.0...main`; `$ROFD_SRC` @ `140b936` (`rofd.h:75,147`, `expected-symbols.txt`); commit subjects from the compare output |
 | R17 | Our AUR package `librofd-ffi` is pinned to that commit (`0.4.3-1`): source `https://github.com/linuxdeepin/rofd/archive/140b936….tar.gz`, sha256 `0d6300fb…`, our page-size patch, plus `rofd-ffi.pc` (0.4.3). Built offline in 35 s; packaged `.so.0` exports 78 symbols incl. `rofd_document_get_page_size_mm`; packaged `rofd.h` carries `ROFD_DIAGNOSTIC_SINGULAR_TRANSFORM 7u` | `~/projects/librofd-ffi` (PKGBUILD, .SRCINFO); `makepkg -f` output; `bsdtar xOf … \| nm -D --defined-only` |
 
+### Delivery state (2026-10-14, after the user's fork/PR/publish instruction)
+
+| # | Finding | Evidence |
+| --- | --- | --- |
+| R18 | The AUR package `librofd-ffi 0.4.3-2` is published: remote `master` = local `846dc9a`, AUR RPC reports `0.4.3-2`, maintainer `yangtsesu`; the earlier lag of the RPC cache (still `0.4.3-1` seconds after the push) resolved. `0.4.3-2` adds `Requires: cairo` to `rofd-ffi.pc` | `git ls-remote`; AUR RPC v5 `info?arg[]=librofd-ffi` |
+| R19 | The fork `YangtseSu/rofd` is in sync with `linuxdeepin/rofd` (`0 0` ahead/behind at `140b936`) and carries both feature branches; two upstream PRs are open: #11 (page size, `7f6d24d`) and #12 (`rofd-ffi.pc` in `librofd-ffi-dev`, new) | `git rev-list --left-right --count upstream/main...main`; `gh pr list --repo linuxdeepin/rofd --author YangtseSu` |
+
 ## Technical Decisions
 
 | Decision | Rationale |

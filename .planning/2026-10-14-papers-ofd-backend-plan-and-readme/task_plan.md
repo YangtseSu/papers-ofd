@@ -83,6 +83,14 @@ All phases complete
 - [x] Published to the AUR at the maintainer's request: commit `2391d47` pushed to `ssh://aur@aur.archlinux.org/librofd-ffi.git` (ref confirmed with `git ls-remote`)
 - **Status:** complete
 
+### Phase 13: fork pushes, upstream PR #12, AUR publication
+
+- [x] `librofd-ffi 0.4.3-2` committed and pushed to the AUR (`master` = `846dc9a`; RPC reports `0.4.3-2`)
+- [x] Fork verified in sync with upstream (`0 0` at `140b936`) and both feature branches present
+- [x] `feat/pkgconfig` pushed to `YangtseSu/rofd`; upstream PR <https://github.com/linuxdeepin/rofd/pull/12> opened
+- [x] Policy recorded in `docs/plan.md` §9 item 5 and `patches/README.md`: every rofd change lives on a fork branch, is pushed to our GitHub and proposed upstream
+- **Status:** complete
+
 ### Phase 0: loadable module skeleton
 
 - [x] `meson.build`/`meson_options.txt`, `shared_module('ofddocument')`, `HAVE_ROFD_PAGE_SIZE` probe

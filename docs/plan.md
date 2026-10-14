@@ -519,10 +519,13 @@ item blocks a phase; an upstream merge only deletes the matching entry in
    `-Drofd_libdir`/`-Drofd_includedir`, and Papers after phase 4 could say
    `dependency('rofd-ffi', version: '>= 0.4')` — route 1 there.
    Owned, not blocked (D11): our AUR package installs the file already
-   (`rofd-ffi.pc.in` in the package repo); the upstream ask is only so other
-   distributors do not have to reinvent it. It is packaging-side, so it is not a
-   source patch under `patches/`; if a non-Arch distro package is ever needed, the
-   same file goes into the fork's `debian/` as `rofd-ffi-pkgconfig.patch`.
+   (`rofd-ffi.pc.in` in the package repo), and it is packaging-side, so it is not a
+   source patch under `patches/`.
+   Status (2026-10-14): submitted upstream as
+   <https://github.com/linuxdeepin/rofd/pull/12> (branch `feat/pkgconfig` on the
+   fork: `debian/rofd-ffi.pc.in` + the `librofd-ffi-dev` install rule, version from
+   `dpkg-parsechangelog`, `DEB_HOST_MULTIARCH`, `Requires: cairo`). Once merged,
+   the AUR copy and the Debian one describe the same file.
 
 ## Appendix A — evidence index
 
