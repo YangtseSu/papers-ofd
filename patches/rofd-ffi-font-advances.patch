@@ -1,7 +1,8 @@
 From 6f989280cb364d03ca1ea64b790223cf83258c0b Mon Sep 17 00:00:00 2001
 From: Yangtse Su <yangtsesu@gmail.com>
 Date: Thu, 15 Oct 2026 01:57:21 +0800
-Subject: [PATCH] feat(core): resolve missing text deltas through font advances
+Subject: [PATCH 1/2] feat(core): resolve missing text deltas through font
+ advances
 
 An OFD text run that declares no `DeltaX` for a scalar is positioned by that
 scalar's font advance, which is what the renderer draws. The semantic text
@@ -847,6 +848,124 @@ index 475ce6b..3448607 100644
  Reading order is deterministic. It starts with effective paint/source order,
  then groups compatible characters into lines using writing direction and
  geometry. Stable source order breaks geometric ties. Whitespace from the OFD
+-- 
+2.56.0
+
+
+From 812073e15c13f693a7640a4dde7705bea93ca78b Mon Sep 17 00:00:00 2001
+From: Yangtse Su <yangtsesu@gmail.com>
+Date: Thu, 15 Oct 2026 02:15:58 +0800
+Subject: [PATCH 2/2] feat(core): size a resolved glyph box by its advance, not
+ the font size
+
+The conservative footprint (at least one font size per scalar) exists so a
+font-free build still produces usable hit boxes. With a provider that footprint
+is no longer needed: it made every box wider than its glyph, so the boxes of a
+run overlapped and a match rectangle overhung its text by a fraction of a glyph -
+visible as a search highlight that extends past the match into the next letter.
+Measured on a 3 mm Latin line: the "on" match box was 4.82 mm wide against a
+3.65 mm advance span, and the single-glyph boxes overlapped by 1.25 mm.
+
+A scalar whose advance the provider resolved now gets exactly that advance as its
+box width, so the boxes tile the run and the rectangles hug the matched text.
+Scalars the provider cannot resolve, and builds without a provider, keep the
+font-size footprint (an explicit zero advance still gets a nonempty box).
+
+Verified: cargo fmt --all -- --check; cargo clippy -p rofd-core -p rofd-render
+-p rofd-ffi --all-targets -- -D warnings; cargo test for the three crates (the
+core and FFI tests now assert the advance width and that adjacent boxes meet);
+crates/rofd-ffi/tests/run_c_tests.sh.
+---
+ crates/rofd-core/src/semantic.rs        | 23 ++++++++++++++---------
+ crates/rofd-core/tests/semantic_text.rs |  8 ++++++--
+ crates/rofd-ffi/tests/semantic.rs       |  9 ++++++++-
+ 3 files changed, 28 insertions(+), 12 deletions(-)
+
+diff --git a/crates/rofd-core/src/semantic.rs b/crates/rofd-core/src/semantic.rs
+index 54b33d4..40587cc 100644
+--- a/crates/rofd-core/src/semantic.rs
++++ b/crates/rofd-core/src/semantic.rs
+@@ -562,15 +562,15 @@ impl<'a> TextBuilder<'a> {
+         for run in object.runs() {
+             let (mut x, mut y) = (run.x(), run.y());
+             for (index, character) in run.text().chars().enumerate() {
++                let font_advance = resolved
++                    .as_ref()
++                    .and_then(|values| values.get(scalar))
++                    .copied()
++                    .filter(|value| value.is_finite() && *value > 0.0);
+                 let dx = if run.has_explicit_delta_x() {
+                     run.delta_x()[index]
+                 } else {
+-                    resolved
+-                        .as_ref()
+-                        .and_then(|values| values.get(scalar))
+-                        .copied()
+-                        .filter(|value| value.is_finite() && *value >= 0.0)
+-                        .unwrap_or(size)
++                    font_advance.unwrap_or(size)
+                 };
+                 scalar += 1;
+                 let dy = if run.has_explicit_delta_y() {
+@@ -580,11 +580,16 @@ impl<'a> TextBuilder<'a> {
+                 };
+                 let next_x = finite_add(x, dx)?;
+                 let next_y = finite_add(y, dy)?;
+-                // Bound the horizontal baseline sweep with a direction-independent
+-                // font-size footprint. Explicit zero advances still receive
++                // A resolved glyph advance is the box width, so the boxes of a run
++                // tile it and a match rectangle hugs the matched text. Without one,
++                // bound the horizontal baseline sweep with a direction-independent
++                // font-size footprint instead; explicit zero advances still receive
+                 // nonempty conservative geometry.
+                 let left = x.min(next_x);
+-                let right = finite_add(left, dx.abs().max(size))?;
++                let right = finite_add(
++                    left,
++                    font_advance.map_or_else(|| dx.abs().max(size), f64::abs),
++                )?;
+                 let top = finite_add(y.min(next_y), -size)?;
+                 let bottom = y.max(next_y);
+                 let rect = transformed_box(left, top, right, bottom, transform)?;
+diff --git a/crates/rofd-core/tests/semantic_text.rs b/crates/rofd-core/tests/semantic_text.rs
+index 19e23e5..ee3f300 100644
+--- a/crates/rofd-core/tests/semantic_text.rs
++++ b/crates/rofd-core/tests/semantic_text.rs
+@@ -476,8 +476,12 @@ fn advance_provider_supplies_scalar_steps_where_deltas_are_absent() {
+     assert_eq!(without[1].rect_mm().unwrap().x - first.x, 4.0);
+     assert_eq!(with[1].rect_mm().unwrap().x - first.x, 2.0);
+     assert_eq!(with[3].rect_mm().unwrap().x - first.x, 6.0);
+-    // The footprint stays conservative: every box is at least Size wide.
+-    assert!(with[3].rect_mm().unwrap().width >= 4.0);
++    // A resolved advance is the box width (so the boxes tile the run), while an
++    // unresolved scalar keeps the conservative font-size footprint.
++    assert!((with[3].rect_mm().unwrap().width - 2.0).abs() < 1e-9);
++    assert!(without[3].rect_mm().unwrap().width >= 4.0);
++    let first_end = with[0].rect_mm().unwrap().x + with[0].rect_mm().unwrap().width;
++    assert!((first_end - with[1].rect_mm().unwrap().x).abs() < 1e-9);
+ 
+     // A provider that cannot resolve a font leaves the font-size footprint alone.
+     let failed = document_with_page_and_advances(
+diff --git a/crates/rofd-ffi/tests/semantic.rs b/crates/rofd-ffi/tests/semantic.rs
+index 636c530..086a254 100644
+--- a/crates/rofd-ffi/tests/semantic.rs
++++ b/crates/rofd-ffi/tests/semantic.rs
+@@ -997,7 +997,14 @@ fn text_geometry_and_search_rectangles_use_font_advances() {
+             (ab - 2.432).abs() < 1e-3 && (bz - 2.628).abs() < 1e-3,
+             "advances {ab} and {bz}"
+         );
+-        assert!(a.rect_mm.width_mm >= 4.0, "geometry stays conservative");
++        // A resolved advance is the box width, so the boxes tile the run: a match
++        // rectangle then hugs the matched text instead of overhanging it.
++        assert!(
++            (a.rect_mm.width_mm - 2.432).abs() < 1e-3,
++            "width {}",
++            a.rect_mm.width_mm
++        );
++        assert!((a.rect_mm.x_mm + a.rect_mm.width_mm - b.rect_mm.x_mm).abs() < 1e-9);
+ 
+         // Search rectangles come from the same geometry.
+         let query = CString::new("BZ").unwrap();
 -- 
 2.56.0
 

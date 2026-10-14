@@ -906,6 +906,29 @@ test_find_rectangles_cover_rendered_ink (const gchar *module_path,
 	 * ink the same library draws for it. */
 	g_assert_true (pps_document_text_get_text_layout (PPS_DOCUMENT_TEXT (document),
 	                                                  page, &areas, &n_areas));
+
+	/* Glyph boxes tile their run when the advance is resolved: a box that is
+	 * wider than its glyph widens every match rectangle by the overlap. A library
+	 * that resolves advances but still floors the box at the font size (our
+	 * librofd-ffi below 0.4.3-4) is reported instead of failing silently. */
+	{
+		guint i;
+
+		for (i = 0; i + 1 < n_areas; i++) {
+			if (areas[i].x2 <= areas[i].x1 || areas[i + 1].x2 <= areas[i + 1].x1)
+				continue; /* a separator or the gap between two runs */
+
+			g_assert_cmpfloat (areas[i + 1].x1, >=, areas[i].x1 - MM (tolerance_mm));
+			if (areas[i].x2 > areas[i + 1].x1 + MM (0.5)) {
+				g_error ("glyph boxes overlap by %.2f mm at scalar %u: this library "
+				         "resolves font advances but does not size the boxes by them. "
+				         "Install librofd-ffi >= 0.4.3-4 (patches/"
+				         "rofd-ffi-font-advances.patch, upstream PR #13).",
+				         (areas[i].x2 - areas[i + 1].x1) / 72.0 * 25.4, i);
+			}
+		}
+	}
+
 	/* The first line ends at the object separator, which has an empty box. */
 	g_assert_cmpuint (n_areas, >, 1);
 	{
