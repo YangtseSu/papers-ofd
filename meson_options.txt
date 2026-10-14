@@ -23,3 +23,7 @@ option('rofd_page_size',
        choices: ['auto', 'disabled'],
        value: 'auto',
        description: 'Use rofd_document_get_page_size_mm when the ABI has it (auto), or always fetch pages to size them (disabled; for the phase-1 open-latency comparison)')
+option('sushi_plugin_dir',
+       type: 'string',
+       value: '/usr/lib/sushi/plugins-1',
+       description: 'Sushi plugin directory (SYSTEM_PLUGIN_DIRECTORY in Sushi config.js); empty skips the OFD preview plugin')

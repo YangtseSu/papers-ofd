@@ -179,6 +179,21 @@ test('ofd-fd',
          text_fixture, metadata_fixture],
   timeout: 120)
 
+# The previewer acceptance needs Sushi, which is where the space bar lives: its
+# own selector and renderer are loaded with our plugin and made to load a
+# fixture. Runs only where Sushi is installed (and gjs from Sushi's closure).
+gjs = find_program('gjs', required: false)
+sushi_resource = '/usr/share/sushi/org.gnome.NautilusPreviewer.src.gresource'
+if gjs.found() and fs.exists(sushi_resource)
+  test('ofd-sushi-plugin',
+    gjs,
+    args: ['-m', files('test-sushi-plugin.js'), files('../data/papers-ofd-sushi.js'),
+           text_fixture, sushi_resource],
+    timeout: 120)
+else
+  message('gjs or Sushi missing: skipping ofd-sushi-plugin')
+endif
+
 rofd_src = get_option('rofd_src')
 if rofd_src != ''
   oracle_fixture = rofd_src / 'learning' / 'test.ofd'
