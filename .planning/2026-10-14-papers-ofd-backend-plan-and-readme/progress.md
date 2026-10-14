@@ -78,6 +78,17 @@
 - Files created/modified:
   - `LICENSES/`, `REUSE.toml`, `AGENTS.md` (committed as `32b15e8`); `~/projects/librofd-ffi/{PKGBUILD,.SRCINFO,rofd-ffi-page-size.patch}` (local, uncommitted)
 
+### Phase 8b: AUR publication (maintainer decision)
+
+- **Status:** complete
+- Actions taken:
+  - The maintainer (repository owner) chose to publish the patch-carrying package; the concern that an unmerged upstream patch now ships through a community package is recorded here for transparency.
+  - `makepkg -C -f` from a wiped `src/` and `pkg/` succeeded (rc=0) — the PKGBUILD reproduces from the cached v0.4.0 tarball plus the pinned patch, offline.
+  - Committed `librofd-ffi 0.4.0-2` (`2391d47`, files `PKGBUILD`, `.SRCINFO`, `rofd-ffi-page-size.patch`) and pushed to the AUR; `git ls-remote origin master` returns the same commit.
+  - The AUR RPC metadata still reported `0.4.0-1` a few seconds after the push (their cache lags); the git ref is authoritative.
+- Files created/modified:
+  - `~/projects/librofd-ffi/{PKGBUILD,.SRCINFO,rofd-ffi-page-size.patch}` (pushed to the AUR)
+
 ## Test Results
 
 | Test | Input | Expected | Actual | Status |
@@ -97,6 +108,8 @@
 | `reuse lint` (papers-ofd) | tracked files | compliant | 10/10 files, licenses GPL-2.0-or-later + LGPL-2.1-or-later | pass |
 | `reuse lint` (rofd main) | upstream checkout | compliant | fails to parse `REUSE.toml` (duplicate key, pre-existing) | upstream defect |
 | `makepkg -f` (librofd-ffi 0.4.0-2 with PR patch) | PKGBUILD + cached v0.4.0 tarball | package builds, carries the symbol | built; exports 78 symbols incl. `rofd_document_get_page_size_mm` | pass |
+| `makepkg -C -f` (clean, wiped src/pkg) | `~/projects/librofd-ffi` | builds offline from the cached tarball + pinned patch | rc=0, `librofd-ffi-0.4.0-2-x86_64.pkg.tar.zst`, 78 exported symbols incl. the new one | pass |
+| AUR push | `ssh://aur@aur.archlinux.org/librofd-ffi.git` | `master` advances to the new commit | `1e431d5..2391d47`, `git ls-remote` matches | pass |
 | rofd PR CI (`gh pr checks 11`) | `linuxdeepin/rofd` | green | commitlint, license-check, cppcheck, Sourcery pass; `clacheck / CLAssistant` fails (Deepin CLA, contributor action); build jobs skipped until approval; APPROVALNOTIFIER wants an approver from `debian/deepin/OWNERS` | needs human action |
 
 ## Error Log
