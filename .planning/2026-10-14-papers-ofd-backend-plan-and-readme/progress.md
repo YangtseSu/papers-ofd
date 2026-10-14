@@ -488,6 +488,9 @@
 | `ofd-sushi-plugin` test | `meson test -C _build` | the coupling is covered | 13/13; the test prints "the selector routes application/ofd to the Papers-backed document renderer" and "Sushi's document renderer loaded the OFD fixture: 2 pages" | pass |
 | Duplicate "Open With" row | user report + `gio mime application/ofd`, nautilus-app-chooser-widget.c | explain | `application/ofd` has exactly one registered entry (ours, also the default and recommended); Nautilus' chooser lists `g_app_info_get_all()` on top of default/recommended/fallback, so Papers' own entry ("文档查看器") appears as a second row that runs the same binary | explained (A26) |
 
+| AUR `papers-ofd 0.1.0-2` | `git push` to the AUR with the plugin release | the package carries the plugin | local mirror `c4952ad` (`pkgrel = 2`, `optdepends sushi`), `git ls-remote origin master` confirms it on the server; the AUR *web* index still rendered `0.1.0-1` a minute later (frontend/RPC lag, as with the first push) | pass |
+| Package `0.1.0-2` build | `makepkg -f --noconfirm`, empty `SRCDIR` | plugin installed, tests pass | anonymous download verified (sha256 `a8ec59ce…`), 12/12 tests in the build (ofd-sushi-plugin included), file list = the five previous paths + `usr/lib/sushi/plugins-1/papers-ofd-sushi.js`, namcap clean apart from the gcc-libs advisories | pass |
+
 ## Error Log
 
 | Timestamp | Error | Attempt | Resolution |
