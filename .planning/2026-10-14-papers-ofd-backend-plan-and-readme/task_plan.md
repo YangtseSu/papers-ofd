@@ -121,8 +121,9 @@ and #12 when convenient.
 - [x] Carried as `patches/rofd-ffi-font-advances.patch`; upstream PR <https://github.com/linuxdeepin/rofd/pull/13>
 - [x] Module side: ink-alignment regression test that classifies the linked ABI and asserts match rectangles overlap the rendered glyphs; selection test samples glyph centres
 - [x] AUR `librofd-ffi 0.4.3-3` built with both patches and verified (packaged library reproduces the font-aware geometry)
-- [ ] User: re-check Ctrl+F highlighting on the live session; decide whether the AUR package is pushed
-- **Status:** implementation and tests complete, user-facing items open
+- [x] AUR publication deferred by the user: `0.4.3-3` stays local until rofd#13 is reviewed or merged
+- [ ] User: re-check Ctrl+F highlighting on the live session (with `LD_LIBRARY_PATH="$ROFD_SRC/target/release"` or the local package installed)
+- **Status:** implementation, tests and the local package complete; the visual re-check is open
 
 ### Phase 0: loadable module skeleton
 

@@ -300,8 +300,13 @@
 
 ### Phase 16: rofd font-resolved text geometry (the Ctrl+F highlight offset)
 
-- **Status:** complete (code, tests, patch, AUR build, upstream PR); the AUR push and
-  the visual re-check are the user's call
+- **Status:** complete (code, tests, patch, AUR build, upstream PR); the visual
+  re-check is the user's call
+- User decision (2026-10-15): the AUR package `librofd-ffi 0.4.3-3` stays **local**
+  for now — it is built and verified in `~/projects/librofd-ffi`, and gets pushed once
+  rofd#13 is reviewed or merged, or when this machine should install the fix from the
+  package instead of `LD_LIBRARY_PATH`. Until then the fix is visible with
+  `LD_LIBRARY_PATH="$ROFD_SRC/target/release"` (or by installing the local package).
 - Reported by the user during the phase-2 GUI acceptance: with Ctrl+F, the highlight
   for English/number matches did not sit on the searched text but to its right; CJK
   was fine. Not a module bug — a rofd geometry model mismatch:
