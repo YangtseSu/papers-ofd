@@ -705,7 +705,10 @@ declarations but not line numbers or `.c` bodies.
   already requires both (`pactree -u papers` shows them) — namcap agrees.
 - `makedepends`: `meson`, `gtk4`, `poppler-glib` (the test suite links them).
 - `source`: the commit-pinned archive of `YangtseSu/papers-ofd` (public since
-  2026-10-15). `makepkg` verifies the sha256, builds with `--buildtype=plain` so
+  2026-10-15). A recipe cannot pin the commit that contains it, so the pinned tree
+  carries the previous revision of `packaging/PKGBUILD` and of these docs; the copy
+  in this repository and in the AUR repository is the published one.
+  `makepkg` verifies the sha256, builds with `--buildtype=plain` so
   the makepkg `CFLAGS`/`LDFLAGS` apply, and runs `check()` (`meson test`: 11 tests,
   `ofd-oracle` needs `-Drofd_src`; `ofd-print-file` skips itself when GTK has no
   display). The package was verified by a build with an empty `SRCDIR`, i.e. from
