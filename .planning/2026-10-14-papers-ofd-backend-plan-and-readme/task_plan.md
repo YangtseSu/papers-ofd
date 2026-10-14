@@ -126,9 +126,10 @@ render matrix, the metadata test and the GTK print-to-file PDF.
 - [x] Fixtures: `corner-marker`, `origin-offset`, `metadata`, `latency [count]` kinds in `generate_fixture.py`; `rofd_src`/`rofd_page_size` meson options
 - [x] Tests: rotation matrix, origin normalization, zoom matrix, same-options equivalence, print into a cairo PDF, GTK print-to-file with poppler text extraction, metadata fields/mask, invoice oracle, latency tool
 - [x] Acceptance observed: `meson test` 7/7 in both page-size builds; oracle 2115×1400 mean 3.28; GTK print-to-file PDF text extractable by poppler and `pdftotext`; Papers session run with 0 criticals; latency recorded in README limitations
+- [x] GUI acceptance observed on the live session (user-confirmed: rotation corners, zoom/fit, print preview + *Print to File* selectable text, properties dialog rows)
 - [x] Fixed the MIME magic for the real invoice layout (`Doc_0/`@30) — found by the oracle run
 - [x] Docs updated: plan §4 (uniform scale), §5 (phase-1 steps/evidence), §6 (setup command, fixture matrix), §7 (magic); README (status, build, latency limitation, roadmap)
-- **Status:** complete (one user-visible check left: the four GUI items on the live session)
+- **Status:** complete
 
 ## Key Questions
 

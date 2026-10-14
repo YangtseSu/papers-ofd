@@ -216,6 +216,12 @@
     `docs/plan.md` (§4 uniform-scale note, §5 phase-1 steps/evidence, §6 setup
     command + fixture matrix, §7 magic rules), `README.md` (status, build, latency
     limitation, roadmap status).
+- GUI acceptance: observed by the user on the live session (dev backend dir +
+  staged MIME) — rotation via `rotate right` twice moves the corner marker
+  top-left → top-right → bottom-right, zoom in/out and fit modes resize cleanly,
+  `Ctrl+P` shows the print preview and *Print to File* writes a PDF whose text
+  selects, and the properties dialog lists Title/Author/Subject/Keywords/"Source
+  file created with" plus the Created/Modified dates.
 
 ## Test Results
 
@@ -282,6 +288,7 @@
 | MIME magic | invoice (first entry `Doc_0/Annots/…`) and generated fixtures | `application/ofd` from data alone | `g_content_type_guess(NULL, 1024 bytes)` → `application/ofd` for both; a plain zip stays `application/zip` | pass |
 | Open latency | `latency-300pages.ofd`, 5 runs, both builds | record load → first page | fast: load 2.0 ms, metadata walk 20 ms, `setup_cache` 71 ms, first render 46 ms; fallback: load 2.0 ms, metadata walk 71 ms, `setup_cache` 0.1 ms, first render 47 ms | pass (recorded, no regression) |
 | Papers session run (phase 1) | `papers _build/tests/metadata.ofd` with the dev backend dir | no criticals | ran 15 s until `timeout` (124); 0 CRITICAL/ERROR; one unrelated `Gdk-WARNING` about frame timings; our diagnostics show CJK-capable font fallback on both text objects | pass |
+| GUI acceptance (visual) | live session, dev backend dir | rotation/zoom/print/properties behave | user-confirmed: marker top-left → top-right → bottom-right on `rotate right`, zoom and fit modes clean, `Ctrl+P` preview renders and *Print to File* text selects, properties dialog shows title/author/subject/keywords/creator/dates | pass |
 | REUSE after phase 1 | repository | compliant | 41/41 files with copyright + license | pass |
 
 ## Error Log
