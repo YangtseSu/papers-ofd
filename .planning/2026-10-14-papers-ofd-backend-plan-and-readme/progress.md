@@ -458,6 +458,9 @@
 | Our suites against the patched ABI | `_build-fork` (checkout tier, `PKG_CONFIG_LIBDIR` hides the `.pc`, `LD_LIBRARY_PATH` at run time) | 11/11 with the strict ink alignment | 11/11; the ink test reports `font-resolved geometry` (29.8 vs 28.2 mm) and every match overlaps its ink | pass |
 | Our suites against stock rofd | `_build`, `_build-slow` | 11/11 without alignment assertions | 11/11; the ink test reports `font-size footprint geometry` and checks only the well-formedness invariants | pass |
 | AUR `librofd-ffi 0.4.3-3` | PKGBUILD with both patches, clean `src/`+`pkg/` | builds, packaged library carries both fixes | `makepkg -f --noconfirm` rc=0; the packaged `librofd_ffi.so.0` exports 78 symbols incl. `rofd_document_get_page_size_mm` and reproduces the font-aware geometry under `LD_LIBRARY_PATH` | pass |
+| AUR `librofd-ffi 0.4.3-4` | PKGBUILD with both patches (the font one carrying the box-width commit) | builds; the packaged library reproduces the tightened boxes | `makepkg -f --noconfirm` rc=0; the packaged `librofd_ffi.so.0` gives the `on` match a 3.65 mm box (4.82 mm before that commit) | pass |
+| Suites with the installed `0.4.3-4` | `meson test` on `_build` and `_build-slow` | 11/11 including ink alignment and box tiling | 11/11; the classifier reports `layout 28.7 mm, ink 28.2 mm -> font-resolved geometry` | pass |
+| Phase-2 GUI acceptance (live session) | `papers` on the text and links fixtures from the installed package | every acceptance item observable | user-confirmed 2026-10-15: selection/copy, Ctrl+F rows, caret, I-beam, links and outline are correct, and the Ctrl+F highlight sits on the searched text after the geometry fix | pass |
 | Papers session with the patched library | `LD_LIBRARY_PATH=$ROFD_SRC/target/release papers text-2pages.ofd` | loads, no criticals | ran 12 s, 0 CRITICAL/ERROR (only the expected font-fallback diagnostics) | pass |
 
 ## Error Log
