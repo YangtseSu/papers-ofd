@@ -7,12 +7,13 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
-Wait for the rofd build/test result, then commit the rofd branch, push it to the
-fork, open the upstream PR, and copy the diff into `patches/rofd-ffi-page-size.patch`.
+Start phase 0 of `docs/plan.md`: the Meson project plus the `OfdDocument` skeleton
+(works against stock rofd through the page-size fallback, so upstream review of
+PR #11 does not block it).
 
 ## Current Phase
 
-Phase 7
+All phases complete
 
 ## Phases
 
@@ -62,11 +63,11 @@ Phase 7
 
 - [x] Implement the ABI function in `../rofd` (header, `document.rs`, `lib.rs`, symbol list, README, design doc)
 - [x] Add FFI tests (value parity, metadata-only on unloadable content, invalid args/indices/aliased outputs)
-- [ ] `cargo fmt`/`clippy`/`cargo test -p rofd-ffi`/`run_c_tests.sh` green
-- [ ] Commit on a rofd branch, push to the fork, open the upstream PR
-- [ ] Copy the diff to `patches/rofd-ffi-page-size.patch` + write `patches/README.md`
-- [ ] Create the private GitHub repo for papers-ofd and push (incl. `.planning/`)
-- **Status:** in_progress
+- [x] `cargo fmt --all -- --check`, `cargo clippy ... -D warnings`, `cargo test -p rofd-ffi` (3 new tests), `crates/rofd-ffi/tests/run_c_tests.sh` all green
+- [x] Commit `7f6d24d` on `feat/ffi-page-size-query`, fork `YangtseSu/rofd`, push, PR <https://github.com/linuxdeepin/rofd/pull/11>
+- [x] `patches/rofd-ffi-page-size.patch` (+ `patches/README.md`); verified with `git apply --check` in a detached worktree of `rofd` `main`
+- [x] Private repo <https://github.com/YangtseSu/papers-ofd> created and pushed (`.planning/` included)
+- **Status:** complete
 
 ## Key Questions
 
