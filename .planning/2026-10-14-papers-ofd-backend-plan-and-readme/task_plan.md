@@ -7,11 +7,50 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
-Phase 2 of `docs/plan.md` (§5) is **complete**: implemented, tested (11/11 in both
-page-size builds), documented and accepted on the live session by the user
-(2026-10-15), including the Ctrl+F highlight geometry that phase 16 fixed in rofd.
-Next: **phase 3** — `load_fd` (previewer), packaging and install checks; the MIME
-priority fix (A22) and the font-advance fixes (A24) are already in place.
+**Phase 3 starts in a new session** (the user's call, 2026-10-15). Everything the
+new session needs is in `docs/plan.md` §5 phase 3 and the notes below.
+
+### Phase 3 handoff (2026-10-15)
+
+State of the machine and the repository:
+
+- Phases 0–2 of `docs/plan.md` are complete, committed and user-accepted; the
+  branch is `main` with a clean tree.
+- `librofd-ffi 0.4.3-4` is **installed** (page-size query + font-resolved text
+  geometry, both from our fork branches). The module links it normally, no
+  `LD_LIBRARY_PATH` needed. rofd PRs [#11](https://github.com/linuxdeepin/rofd/pull/11)
+  and [#13](https://github.com/linuxdeepin/rofd/pull/13) are open upstream; the AUR
+  push of `0.4.3-4` is deferred by the user (the PKGBUILD lives in
+  `~/projects/librofd-ffi`, built and verified).
+- `meson test` is 11/11 in `_build` (fast page-size path), `_build-slow`
+  (`-Drofd_page_size=disabled`) and `_build-fork` (fork checkout; see §6 for the
+  `PKG_CONFIG_LIBDIR`/`LD_LIBRARY_PATH` traps).
+- Two `papers` windows may still be open from the acceptance run
+  (`pkill -f "papers _build/tests/"` if not).
+- Content-only MIME detection works (A22), which the previewer's fd path needs;
+  `tests/test-ofd-errors.c` asserts it.
+
+Phase-3 work, in order:
+
+1. `load_fd`: `load_fd` is *guarded* upstream (A10) but the previewer cannot open
+   OFD without it — the base wrapper answers `G_IO_ERROR_NOT_SUPPORTED` when the
+   vfunc is NULL. Implement `dup (fd)` → `rofd_document_open ("/proc/self/fd/<dup>")`
+   with the temp-copy fallback in `g_get_user_cache_dir()/papers-ofd/` (unlink at
+   finalize) per plan §3; the previewer passes the fd plus a sniffed MIME type
+   (`previewer/pps-previewer.c`, A13). Test: a fixture opened through
+   `pps_document_load_fd` behaves like the URI path, and the temp file is cleaned up.
+2. Packaging: **PKGBUILD for `papers-ofd`** is the route that fits this machine and
+   the AUR presence we already have (`librofd-ffi`) — `debian/` follows only if a
+   non-Arch consumer appears, like the plan allows for the pkg-config metadata.
+   Ship module + descriptor + MIME xml + thumbnailer + association entry; depends
+   on `librofd-ffi`, `papers>=51`, `papers<52`; install/uninstall checks are the
+   plan's acceptance but note the global rule **never pull container images**: use
+   `pacman -U` on this machine (ask the user), a `DESTDIR`/staged-prefix install, or
+   the existing dev-backend recipe, and say which one was used.
+3. Acceptance to observe: previewer (space bar in Nautilus) shows an OFD page;
+   Nautilus icon + rendered thumbnail and `papers-thumbnailer -s 256 <file> <out>`
+   standalone; double-click and `gio open` open Papers; app grid keeps a single
+   Papers entry.
 
 Phase 1 of `docs/plan.md` is complete and committed: rendering (rotation/zoom
 matrix on pixels, origin normalization, byte-equivalence with a direct FFI

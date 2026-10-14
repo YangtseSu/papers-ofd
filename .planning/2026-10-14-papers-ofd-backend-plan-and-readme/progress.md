@@ -493,7 +493,7 @@
 | Question | Answer |
 |----------|--------|
 | Where am I? | `docs/plan.md` phases 0–2 complete and accepted: skeleton, rendering/printing/metadata, text/selection/find/links/outline; `meson test` 11/11 in both page-size builds against the installed `librofd-ffi 0.4.3-4`; the phase-2 GUI acceptance is user-confirmed |
-| Where am I going? | Phase 3: `load_fd` (previewer), packaging and install checks — the MIME priority fix (A22) and the font-advance fixes (A24) are already in place and shipped through our package |
+| Where am I going? | Phase 3 starts in a new session (user's call): `load_fd` for the previewer, then a `papers-ofd` PKGBUILD and the install checks; the detailed handoff is in `task_plan.md` under *Phase 3 handoff*. The MIME priority fix (A22) and the font-advance fixes (A24) are already in place and installed |
 | What's the goal? | Ship the OFD backend for Papers 51.x, out-of-tree, on the rofd ABI we maintain (fork-first, AUR package) |
 | What have I learned? | Phase 16: rofd's semantic text geometry and its renderer disagreed for runs without explicit `DeltaX` (font size vs font advance) — a third rofd gap we now carry a patch for, and a reminder that rectangle-producing vfuncs must be validated against *pixels*. Phase 1: one uniform render scale (plan §4), rofd's rotation is clockwise and matches `rc->rotation` as-is, the invoice's first zip entry is `Doc_0/…`, and `setup_cache` fetches every page object. Phase 2: `PpsOutlines` has declared-but-unexported functions (A21), a nested MIME rule below `application/zip`'s priority silently loses content-only detection (A22), Papers refuses selection on rotated pages, rofd's fallback font advances ≈ `0.96 × Size` mm per glyph, and layout/find/selection rectangles must be re-based on the *target* page's box origin for GOTO destinations |
 | What have I done? | Plan/README machine-portable and REUSE-compliant; rofd page-size patch shipped via our AUR package and proposed upstream (#11), `rofd-ffi.pc` proposed upstream (#12) and shipped; phases 0–2 implemented and tested (10/10 in both builds), with the A21/A22 defects fixed; a PDF-session and an OFD-session log check done; the phase-2 GUI acceptance is the user's call |
@@ -501,3 +501,17 @@
 ---
 
 *Update this file after completing a phase, running validation, or encountering an error.*
+
+---
+
+## Session close (2026-10-15)
+
+- Delivered: phase 2 complete and user-accepted (text/selection/find/links/outline
+  with the ink-alignment and tiling regression tests), the rofd text-geometry fix
+  (`feat/font-text-advances`, PR #13, `patches/rofd-ffi-font-advances.patch`,
+  installed as `librofd-ffi 0.4.3-4`), the MIME magic priority fix (A22), the
+  headless Ctrl+F snippet test, and the plan/README/working-memory updates.
+- Repository: clean tree, `meson test` 11/11 in `_build`, `_build-slow` and
+  `_build-fork`; `reuse lint` compliant.
+- Open for the user: nothing blocking; the AUR push of `librofd-ffi 0.4.3-4` stays
+  deferred, and upstream reviews of rofd #11/#13 are opportunistic.
