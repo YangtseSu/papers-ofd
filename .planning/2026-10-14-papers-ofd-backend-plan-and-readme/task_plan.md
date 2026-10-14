@@ -17,12 +17,11 @@ matrix on pixels, origin normalization, byte-equivalence with a direct FFI
 render), printing (cairo PDF and a real GTK print-to-file, both verified with
 poppler), metadata (`get_info` + mask bits), the invoice oracle (mean channel
 difference 3.28) and the open-latency table for both page-size paths; `meson test`
-7/7 in both builds. Evidence is in `progress.md`.
+7/7 in both builds; the four GUI items were user-confirmed on the live session.
+Evidence is in `progress.md`.
 
-Open user action (not blocking): eyeball the four GUI items on the live session —
-rotate right/left, zoom in/out/fit, the properties dialog's metadata rows, and the
-print dialog preview plus *Print to File* — the automated evidence for those is the
-render matrix, the metadata test and the GTK print-to-file PDF.
+Open user action (not blocking): post the CLA sentence on upstream rofd PRs #11
+and #12 when convenient.
 
 ## Current Phase
 
