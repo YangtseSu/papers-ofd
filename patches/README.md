@@ -31,10 +31,19 @@ stay open as the exit path; they are not on the critical path.
   URL (with its sha256) instead of a `v0.4.3` tag, and `pkgver` is set by hand.
   Bump the pin deliberately: read the diff, re-run `git apply --check` for every
   patch here, rebuild, and re-check the exported symbol list.
-- No long-lived integration branch. The AUR PKGBUILD applies `patches/*.patch` in
-  order to the pinned upstream tree, which keeps the shipped ABI identical to a
-  stock checkout plus these patches; `git apply --check` stays the only
-  integration test needed.
+- The AUR PKGBUILD applies `patches/*.patch` in order to the pinned upstream tree,
+  which keeps the shipped ABI identical to a stock checkout plus these patches;
+  `git apply --check` (and the branch below) is the only integration check needed.
+- `feat/aur-carried` on the fork is a **build convenience**, not a development
+  branch: it is `main` plus these patch files replayed with `git am`, so a clone
+  reproduces the ABI the AUR package ships without applying anything by hand
+  (`git switch feat/aur-carried && cargo build --release -p rofd-ffi`). Verify it
+  after touching a patch with
+  `diff -r --exclude=.git --exclude=target . "$srcdir/rofd-$_commit"` against the
+  PKGBUILD build tree. Regenerate it whenever the upstream pin moves
+  (`git switch -C feat/aur-carried main && git am patches/*.patch` in order) and
+  never merge it upstream: the per-change `feat/…` branches and their PRs are the
+  upstream path, and `main` keeps mirroring upstream.
 - Sync routine when upstream moves: `git -C "$ROFD_SRC" switch main &&
   git -C "$ROFD_SRC" pull --ff-only upstream main`, rebase each `feat/…` branch,
   re-run `cargo fmt --all -- --check`,

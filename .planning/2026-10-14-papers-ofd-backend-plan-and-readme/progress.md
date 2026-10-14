@@ -504,6 +504,21 @@
 
 ---
 
+## AUR publication and the carried-ABI branch (2026-10-15)
+
+- The user asked for the AUR push: `librofd-ffi 0.4.3-4` is published —
+  `afab2b7` on `ssh://aur@aur.archlinux.org/librofd-ffi.git` (`master`), the AUR RPC
+  reports `0.4.3-4` (modified 02:26). Content: pinned upstream commit `140b936`,
+  `rofd-ffi-page-size.patch`, `rofd-ffi-font-advances.patch`, `rofd-ffi.pc.in`; the
+  packaged library was re-verified after a clean `makepkg -f` (exports
+  `rofd_document_get_page_size_mm`, `on` match 3.65 mm).
+- Our own repository is pushed to `YangtseSu/papers-ofd` (`7e5a573..0801cb4`).
+- New fork branch `feat/aur-carried` (the user asked for it): `main` plus both patch
+  files replayed with `git am`, i.e. exactly the tree the AUR package builds —
+  verified with `diff -r` against the PKGBUILD build tree (identical apart from a
+  `rofd.h.orig` backup that `patch` leaves in the build tree; the package installs
+  `rofd.h` by path and is unaffected). Documented in `patches/README.md` and D11.
+
 ## Session close (2026-10-15)
 
 - Delivered: phase 2 complete and user-accepted (text/selection/find/links/outline
