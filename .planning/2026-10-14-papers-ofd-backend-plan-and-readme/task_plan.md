@@ -7,7 +7,8 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
-Start phase 0 of `docs/plan.md`: the Meson project plus the `OfdDocument` skeleton
+Post the CLA signature sentence on PR #11 (user action) and install
+`librofd-ffi-0.4.0-2` manually; then start phase 0 of `docs/plan.md`: the Meson project plus the `OfdDocument` skeleton
 (works against stock rofd through the page-size fallback, so upstream review of
 PR #11 does not block it).
 
@@ -67,6 +68,15 @@ All phases complete
 - [x] Commit `7f6d24d` on `feat/ffi-page-size-query`, fork `YangtseSu/rofd`, push, PR <https://github.com/linuxdeepin/rofd/pull/11>
 - [x] `patches/rofd-ffi-page-size.patch` (+ `patches/README.md`); verified with `git apply --check` in a detached worktree of `rofd` `main`
 - [x] Private repo <https://github.com/YangtseSu/papers-ofd> created and pushed (`.planning/` included)
+- **Status:** complete
+
+### Phase 8: REUSE, AGENTS.md, PR triage, patched AUR package
+
+- [x] REUSE compliance for this repository (`LICENSES/`, `REUSE.toml`, `reuse lint` clean)
+- [x] Concise `AGENTS.md`
+- [x] Triage the upstream PR auto-replies and CI (CLA + ok-to-test + OWNERS approval are the only blockers)
+- [x] Found and documented an unrelated upstream defect: rofd's `REUSE.toml` does not parse
+- [x] AUR `librofd-ffi` built with the PR patch (`0.4.0-2`), verified to export the new symbol; install left to the user
 - **Status:** complete
 
 ## Key Questions
