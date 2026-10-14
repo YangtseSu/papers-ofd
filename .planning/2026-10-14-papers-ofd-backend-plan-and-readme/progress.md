@@ -222,6 +222,12 @@
   `Ctrl+P` shows the print preview and *Print to File* writes a PDF whose text
   selects, and the properties dialog lists Title/Author/Subject/Keywords/"Source
   file created with" plus the Created/Modified dates.
+  - Non-fatal observation from the same session: using the print dialog three
+    times logged `Gtk-WARNING: GtkPrintOperation::create-custom-widget not
+    supported with portal` — Papers' page-scale/autorotate options are hidden when
+    the print dialog runs through the xdg-desktop-portal (Papers 51 + GTK 4.24
+    behaviour, unrelated to this module; the preview and the produced PDF were
+    correct).
 
 ## Test Results
 
