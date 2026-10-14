@@ -1,0 +1,4 @@
+[Papers Backend]
+Module=ofddocument
+TypeDescription=Fixed-layout Documents
+MimeType=application/ofd;

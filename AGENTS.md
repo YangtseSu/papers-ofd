@@ -69,8 +69,10 @@ meson compile -C _build && meson test -C _build
 reuse lint
 ```
 
-Runtime checks (see plan §6 for the full playbook): build a dev backend directory
-containing this module plus the system `*.papers-backend` descriptors, then run
+Runtime checks (see plan §6 for the full playbook): copy the whole system backend
+directory (modules *and* descriptors — descriptors alone break the other backends)
+and overlay this module, stage `data/papers-ofd.xml` into a scratch
+`XDG_DATA_DIRS` tree so `application/ofd` resolves, then run
 `PPS_BACKENDS_DIR=$PWD/_build/devbackends papers <fixture>.ofd`,
 `papers <some>.pdf` (regression) and
 `papers-thumbnailer -s 256 <fixture>.ofd /tmp/out.png`. External fixtures live

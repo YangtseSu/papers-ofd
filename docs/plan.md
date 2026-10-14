@@ -203,7 +203,8 @@ Deliverable: a module Papers discovers and loads, with document/page geometry.
 
 Steps:
 1. `meson.build` + `meson_options.txt` (`papers-document-4.0 >= 51`, `rofd_libdir`,
-   `rofd_includedir`, `backend_dir`, `tests`); `shared_module('ofddocument', ...)`
+   `rofd_includedir`, `papers_backend_dir` (`backend_dir` is reserved in Meson),
+   `tests`); `shared_module('ofddocument', ...)`
    with `gnu_symbol_visibility: 'hidden'`, `-Wl,-z,now`, `-Wl,--no-undefined`.
    Detect the optional `rofd_document_get_page_size_mm` with
    `cc.has_function(..., prefix: '#include <rofd.h>')` → `HAVE_ROFD_PAGE_SIZE`.
@@ -236,6 +237,8 @@ Deliverable: correct pixels, working print path, populated document info.
 Steps:
 1. `ofd-render.c` (`ofd_render_page_onto` primitive + `ofd_render_page_surface`),
    `render` and `print_page` wired to it, report→`g_debug` diagnostics.
+   (The `render` half landed in phase 0: `pps_document_render` dereferences the
+   vfunc without a NULL check, so the phase-0 acceptance needs it — A20.)
 2. `ofd-metadata.c` (`get_info`), parse time (measure on a large fixture, §8).
 3. `get_text_mapping` is *not* part of this phase.
 
@@ -359,11 +362,19 @@ meson setup _build \
   -Drofd_includedir="$ROFD_INCLUDEDIR"
 meson compile -C _build && meson test -C _build
 
-# dev backend dir: ours + the system descriptors, so PDF/DjVu/TIFF keep working
+# dev backend dir: the whole system backend directory (modules + descriptors
+# live together; copying descriptors alone breaks PDF/DjVu/TIFF), ours on top
 mkdir -p _build/devbackends
+cp -a "$(pkg-config --variable=backenddir papers-document-4.0)/." _build/devbackends/
 cp _build/src/libofddocument.so _build/data/*.papers-backend _build/devbackends/
-cp "$(pkg-config --variable=backenddir papers-document-4.0)"/org.gnome.Papers.*.papers-backend _build/devbackends/
+
+# application/ofd is defined by data/papers-ofd.xml; stage it without installing
+mkdir -p _build/xdg/mime/packages
+cp data/papers-ofd.xml _build/xdg/mime/packages/
+update-mime-database _build/xdg/mime
+
 export PPS_BACKENDS_DIR=$PWD/_build/devbackends
+export XDG_DATA_DIRS=$PWD/_build/xdg:/usr/share
 ```
 
 Checks per change:
@@ -541,6 +552,7 @@ Evidence paths are repository-relative: Papers paths are files in tag `51.1` of
 | A16 | Zoom is clamped by the pixbuf-cache budget and `MAX_IMAGE_SIZE 32767`, so request sizes stay under rofd's raster budget | `libview/pps-view.c:5653,5663-5675` |
 | A17 | Pages' size-only query exists in rofd-core but not in the ABI; SONAME/packaging constraints for `librofd_ffi.so.0` | `$ROFD_SRC/crates/rofd-core/src/document.rs:664-735`; `$ROFD_SRC/crates/rofd-ffi/build.rs`; `$ROFD_SRC/crates/rofd-ffi/tests/run_c_tests.sh:36-46`; `$ROFD_SRC/debian/rules:27-36`; `$ROFD_SRC/debian/control` |
 | A18 | The exported FFI symbol set is pinned (77 names) and diffed by the C runner, so an added function must update that list; rofd's own rule is to extend the ABI additively | `$ROFD_SRC/crates/rofd-ffi/tests/c/expected-symbols.txt`; `$ROFD_SRC/crates/rofd-ffi/tests/run_c_tests.sh:74`; `$ROFD_SRC/AGENTS.md` ("Extend the ABI additively") |
+| A20 | `render` is dispatched without a NULL check as well (`pps_document_render` calls `klass->render` directly), so a module that implements loading but no rendering crashes Papers as soon as it displays the first page — a phase-0 skeleton without `render` segfaults (observed: exit 139) | tag `51.1` `libdocument/pps-document.c:637-643`; observed Papers run in phase 0 |
 | A19 | rofd ≤ 0.4.0 **aborts the whole page render** with `ROFD_STATUS_INTERNAL` on a document object carrying a singular transform (degenerate CTM, e.g. the empty text objects some converters emit); `0.4.2`+ maps the diagnostic to `ROFD_DIAGNOSTIC_SINGULAR_TRANSFORM` (7) and rendering continues. ABI v1 and the pinned 77-symbol set are unchanged, so the fix is free for us — but it makes 0.4.2 the minimum that matches D9 ("never fail a render because of a diagnostic") | `$ROFD_SRC/crates/rofd-ffi/include/rofd.h:75,147`; `$ROFD_SRC/crates/rofd-ffi/tests/c/expected-symbols.txt` (77); upstream commit `8cfb2f7` on `main` ("fix(ffi): map SingularTransform diagnostic to C ABI v1") |
 
 ## Appendix B — corrections to the previous draft

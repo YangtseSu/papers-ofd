@@ -83,6 +83,16 @@ All phases complete
 - [x] Published to the AUR at the maintainer's request: commit `2391d47` pushed to `ssh://aur@aur.archlinux.org/librofd-ffi.git` (ref confirmed with `git ls-remote`)
 - **Status:** complete
 
+### Phase 0: loadable module skeleton
+
+- [x] `meson.build`/`meson_options.txt`, `shared_module('ofddocument')`, `HAVE_ROFD_PAGE_SIZE` probe
+- [x] `ofd-backend.c` (`pps_backend_query_type` + ABI check), `ofd-document.c` (load/n_pages/get_page/get_page_size/get_backend_info/save), `ofd-page.c`, `ofd-units.c`
+- [x] `ofd-render.c` + `render` wired (needed by the acceptance: A20)
+- [x] `data/` (descriptor, MIME xml, thumbnailer, association entry) with install rules
+- [x] `tests/`: units, factory round-trip (3 pages, geometry), deliberate discovery failure
+- [x] Acceptance observed: `meson test` 3/3, dev-dir run in Papers with no criticals, PDF regression clean
+- **Status:** complete
+
 ### Phase 9: Portable dependency paths (machine move)
 
 - [x] Add `scripts/dev-env.sh`: resolves/validates `PAPERS_SRC` + `ROFD_SRC`, exports the ABI pair, reports a same-named wrong repository

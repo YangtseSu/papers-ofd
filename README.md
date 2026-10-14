@@ -95,14 +95,21 @@ meson setup _build \
 meson compile -C _build
 meson test -C _build
 
-# 3. dev backend directory: ours plus the system descriptors, so PDF keeps working
+# 3. dev backend directory: the whole system backend directory first — modules and
+#    descriptors live together, so descriptors alone break PDF/DjVu/TIFF — then ours
 mkdir -p _build/devbackends
+cp -a "$(pkg-config --variable=backenddir papers-document-4.0)/." _build/devbackends/
 cp _build/src/libofddocument.so _build/data/*.papers-backend _build/devbackends/
-cp "$(pkg-config --variable=backenddir papers-document-4.0)"/org.gnome.Papers.*.papers-backend _build/devbackends/
-PPS_BACKENDS_DIR=$PWD/_build/devbackends papers "$ROFD_SRC/learning/test.ofd"
 
-# 4. thumbnails
-PPS_BACKENDS_DIR=$PWD/_build/devbackends papers-thumbnailer -s 256 "$ROFD_SRC/learning/test.ofd" /tmp/ofd.png
+# 4. application/ofd comes from our own MIME file; stage it without installing
+mkdir -p _build/xdg/mime/packages
+cp data/papers-ofd.xml _build/xdg/mime/packages/
+update-mime-database _build/xdg/mime
+
+export PPS_BACKENDS_DIR=$PWD/_build/devbackends
+export XDG_DATA_DIRS=$PWD/_build/xdg:/usr/share
+papers "$ROFD_SRC/learning/test.ofd"
+papers-thumbnailer -s 256 "$ROFD_SRC/learning/test.ofd" /tmp/ofd.png   # thumbnails
 ```
 
 `scripts/dev-env.sh` prints the resolution table on its own

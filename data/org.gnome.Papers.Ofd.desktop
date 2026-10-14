@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Papers
+NoDisplay=true
+Exec=papers %U
+TryExec=papers
+Icon=org.gnome.Papers
+MimeType=application/ofd;
+Categories=GNOME;GTK;Office;Viewer;

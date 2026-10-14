@@ -1,0 +1,16 @@
+option('rofd_libdir',
+       type: 'string',
+       value: '',
+       description: 'Directory containing librofd_ffi.so; only needed when rofd-ffi.pc is unavailable')
+option('rofd_includedir',
+       type: 'string',
+       value: '',
+       description: 'Directory containing rofd.h; only needed when rofd-ffi.pc is unavailable')
+option('papers_backend_dir',
+       type: 'string',
+       value: '',
+       description: 'Papers backend directory (default: backenddir from papers-document-4.0)')
+option('tests',
+       type: 'boolean',
+       value: true,
+       description: 'Build and run the test suite')

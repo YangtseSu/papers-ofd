@@ -144,6 +144,17 @@
   - Docs: plan D11 already covers the policy; §9 item 1/5 and phase-4 route 1 updated to "owned, not blocked"; risks gained the "rofd < 0.4.2 renders whole pages blank" row; appendix A19 added; README requirement row now `≥ 0.4.2` with the AUR pin; `patches/README.md` documents the fork, the untagged-release pinning rule and the sync routine. `$ROFD_SRC` (`~/projects/rofd`) is a complete clone of the fork at `140b936`, with `upstream` remote added; `git apply --check` of the page-size patch against it is clean (7 files).
 - Files modified: `docs/plan.md`, `README.md`, `patches/README.md`, `scripts/dev-env.sh`, `findings.md`, `task_plan.md`; `~/projects/librofd-ffi/{PKGBUILD,.SRCINFO,rofd-ffi.pc.in}`
 
+### Phase 0: loadable module skeleton (implementation)
+
+- **Status:** complete
+- Actions taken:
+  - Meson project (`meson.build`, `meson_options.txt`): `papers-document-4.0 >= 51 < 52`, `rofd-ffi` by pkg-config with `-Drofd_libdir`/`-Drofd_includedir` as the fallback, `papers_backend_dir` (`backend_dir` is reserved in Meson), `tests`; module built with `gnu_symbol_visibility: 'hidden'`, `-Wl,-z,now`, `-Wl,--no-undefined`; `HAVE_ROFD_PAGE_SIZE` from `cc.has_function` (probe now passes cairo, see P38).
+  - `src/ofd-backend.c` (`pps_backend_query_type` + ABI-mismatch warning), `src/ofd-document.c` (load/save stub/get_n_pages/get_page/get_page_size with the fast path and a per-page geometry cache/get_backend_info + the renderer), `src/ofd-page.c` (PpsPage<->rofd_page_t attach, D1), `src/ofd-units.c` (mm<->pt and the origin-normalizing rect conversions, D3), `src/ofd-render.c` (render options per §4, canvas size from rofd, render + diagnostic logging per D9).
+  - `data/`: backend descriptor, `papers-ofd.xml`, `papers-ofd.thumbnailer`, `org.gnome.Papers.Ofd.desktop` + install rules.
+  - `tests/`: `generate_fixture.py` (deterministic 3-page OFD: A4/A5/landscape boxes), `test-ofd-units.c` (4 unit tests incl. the non-zero-origin case), `test-ofd-document.c` (stages module + descriptor + a scratch MIME database, loads through `pps_document_factory_get_document` + `pps_document_load`, asserts 3 pages and the exact point sizes, page index, backend info, out-of-range pages, the `save` refusal) and its `--expect-discovery-failure` mode (broken `Module=` → no backend for `application/ofd`, the plan's deliberate-failure check).
+  - Runtime acceptance observed on this host: `meson test -C _build` 3/3; `PPS_BACKENDS_DIR=_build/devbackends papers _build/tests/geometry-3pages.ofd` with the staged MIME tree ran until killed (`timeout` → 124) with **zero** critical/failed lines; the same setup opened a PDF cleanly (dev dir built by copying the whole system backend directory first).
+- Files created: `meson.build`, `meson_options.txt`, `src/{meson.build,ofd-backend.c,ofd-document.[ch],ofd-page.[ch],ofd-render.[ch],ofd-units.[ch]}`, `data/{meson.build,*.papers-backend,papers-ofd.xml,papers-ofd.thumbnailer,org.gnome.Papers.Ofd.desktop}`, `tests/{meson.build,generate_fixture.py,test-ofd-document.c,test-ofd-units.c}`
+
 ## Test Results
 
 | Test | Input | Expected | Actual | Status |
@@ -185,6 +196,12 @@
 | Pkg-config tier in the resolver | staged `.pc` from the built package | tier selects pkg-config and exports its dirs | `ABI_SOURCE pkg-config — rofd-ffi.pc 0.4.3`; `ROFD_INCLUDEDIR`/`ROFD_LIBDIR` from the file | pass |
 | Page-size patch against fork `main` | `$ROFD_SRC` @ `140b936` | applies cleanly | `git apply --check` OK, 7 files, no fuzz | pass |
 | `namcap` | package tarball + PKGBUILD | no errors | package: only the standard `gcc-libs` "may not be needed" warning; PKGBUILD clean | pass |
+| Phase-0 build | `meson setup _build` + `meson compile` | module + fixture + tests build | `libofddocument.so` (exports `pps_backend_query_type`), descriptor copy and `geometry-3pages.ofd` produced; no warnings | pass |
+| Phase-0 unit tests | `test-ofd-units` | conversions and origin normalization correct | mm↔pt exact, zero-origin and `PhysicalBox "10 20 …"` cases, inverted input order — 4/4 | pass |
+| Phase-0 factory round-trip | `test-ofd-document` | module discovered by MIME, document loads | 3 pages, A4/A5/landscape sizes within 0.01 pt, `backend_info.name == "rofd"`, out-of-range pages NULL, `save` → `G_IO_ERROR_NOT_SUPPORTED`, `setup_cache` clean | pass |
+| Phase-0 deliberate discovery failure | `test-ofd-document --expect-discovery-failure` | broken `Module=` leaves no backend for `application/ofd` | `pps_document_factory_get_document` → NULL with `PPS_DOCUMENT_ERROR_INVALID` ("File type … is not supported") | pass |
+| Phase-0 runtime (OFD) | `PPS_BACKENDS_DIR=_build/devbackends papers geometry-3pages.ofd` (+ staged MIME tree) | opens and renders without errors | ran until killed by `timeout` (124); 0 critical/failed lines; earlier SIGSEGV traced to the missing `render` vfunc (A20) and fixed | pass |
+| Phase-0 runtime (PDF regression) | same dev dir, ImageMagick tutorial PDF | other backends unaffected | ran until killed (124), 0 critical/failed lines | pass |
 
 ## Error Log
 
