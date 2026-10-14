@@ -1,0 +1,19 @@
+version = 1
+
+# 项目默认许可：与 COPYING / README 的 "GPL-2.0-or-later" 一致
+[[annotations]]
+path = "**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Yangtse Su <yangtsesu@gmail.com>"
+SPDX-License-Identifier = "GPL-2.0-or-later"
+
+# 随仓携带的 rofd 补丁：内容源自 rofd（LGPL-2.1-or-later），
+# 见 patches/README.md 与 docs/plan.md §9
+[[annotations]]
+path = "patches/rofd-ffi-page-size.patch"
+precedence = "override"
+SPDX-FileCopyrightText = [
+  "2024-2026 HualetWang <hualet@hualet.org>",
+  "2026 Yangtse Su <yangtsesu@gmail.com>",
+]
+SPDX-License-Identifier = "LGPL-2.1-or-later"
