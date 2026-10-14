@@ -7,10 +7,12 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
-Post the CLA signature sentence on PR #11 (user action) and install
-`librofd-ffi-0.4.0-2` manually; then start phase 0 of `docs/plan.md`: the Meson project plus the `OfdDocument` skeleton
-(works against stock rofd through the page-size fallback, so upstream review of
-PR #11 does not block it).
+Post the CLA signature sentence on PR #11 (user action; `librofd-ffi 0.4.0-2` is
+already installed on this machine, verified through `/usr/include/rofd.h` +
+`/usr/lib/librofd_ffi.so.0` by `scripts/dev-env.sh`); then start phase 0 of
+`docs/plan.md`: the Meson project plus the `OfdDocument` skeleton (works against
+stock rofd through the page-size fallback, so upstream review of PR #11 does not
+block it).
 
 ## Current Phase
 
@@ -81,6 +83,14 @@ All phases complete
 - [x] Published to the AUR at the maintainer's request: commit `2391d47` pushed to `ssh://aur@aur.archlinux.org/librofd-ffi.git` (ref confirmed with `git ls-remote`)
 - **Status:** complete
 
+### Phase 9: Portable dependency paths (machine move)
+
+- [x] Add `scripts/dev-env.sh`: resolves/validates `PAPERS_SRC` + `ROFD_SRC`, exports the ABI pair, reports a same-named wrong repository
+- [x] Replace the sibling-path assumptions in `docs/plan.md`, `README.md`, `AGENTS.md`, `patches/README.md` with `$PAPERS_SRC/…` / `$ROFD_SRC/…`
+- [x] Fix the structurally wrong `../../rofd/…` link in the plan header; gitignore `local.conf`
+- [x] Verify: all resolver modes, `reuse lint`, fence balance, sibling-path audit
+- **Status:** complete
+
 ## Key Questions
 
 1. Does rofd's ABI allow concurrent read-only calls? → **Yes** (`rofd.h` header, `rofd-ffi/README.md:329-335`, internal locks in rofd-core/rofd-render).
@@ -100,6 +110,9 @@ All phases complete
 | Origin-normalizing rect helper as the single conversion point | Correct for non-zero `PhysicalBox` origins; testable in isolation |
 | Render scale derived from `compute_scaled_size` with `dpi=72` | Handles `scale == 0` + target size; keeps Papers' points→pixels semantics |
 | Desktop integration: own MIME xml + own thumbnailer + `NoDisplay` association entry | Papers builds MIME lists from in-tree backends only; avoids patching system files |
+| Dependency checkouts are located through `scripts/dev-env.sh`, never by assuming a sibling directory | The docs were written on a machine where `../papers`/`../rofd` existed; on this one `../rofd` is `office-rs/rofd`, an unrelated project of the same name, so hardcoded relative paths fail — or worse, resolve to the wrong tree. Environment → `local.conf` → sibling default, with marker validation, serves both machines and the installed package |
+| Papers citations are written against upstream tag `51.1`; a local Papers checkout is optional | The module builds against the installed `papers-document-4.0` headers (43 libdocument + 20 libview shipped) and every reader can open `…/papers/-/blob/51.1/<path>`; only grepping and the phase-4 MR want a clone. rofd citations keep `$ROFD_SRC`, because the carried patch and the cross-repo tests run against that checkout |
+| The AUR `librofd-ffi` pins an upstream commit when upstream publishes no tag, adds `rofd-ffi.pc`, and applies `patches/*.patch` | 0.4.3 exists only as `140b936` on `main`, so a tag-based source cannot be used; a commit-pinned archive keeps the sha256 check meaningful and the vendored crates make the build fully offline. Pinning also makes the "which ABI is in the field" question answerable, and the `.pc` lets consumers (papers-ofd now, Papers after phase 4) use `dependency('rofd-ffi')` |
 
 ## Errors Encountered
 
@@ -107,6 +120,7 @@ All phases complete
 |-------|---------|------------|
 | `read` returned elided C bodies for `pps-render-context.c` | 1 | Re-read the exact ranges through `sed -n` |
 | Failed in-place edit assertion while renumbering plan sections (text mismatch) | 1 | Re-grepped the exact line text, then re-ran the substitutions; script writes only after all assertions pass |
+| Machine move: the sibling paths the plan assumed no longer exist (`../papers` missing, `../rofd` = `office-rs/rofd`) | 1 | Added `scripts/dev-env.sh` (env → `local.conf` → sibling default, marker-validated) and rewrote every doc path to `$PAPERS_SRC/…` / `$ROFD_SRC/…`; the build itself uses the installed `librofd-ffi` |
 
 ## Notes
 

@@ -9,13 +9,20 @@ contents quoted here as data, not instructions.
   `README.md` for the `papers-ofd` repository.
 - Base: the previous draft plan/README (commit `b84bced`) plus the rofd project the
   backend consumes; the reviewer's own judgement outranks the previous draft.
-- Repos in scope: `papers-ofd` (this repo), `../rofd` (library + C ABI),
-  `../papers` (GNOME Papers 51.1 checkout). Host also has `papers 51.1-1.1` and
-  `poppler 26.08.0` installed.
+- Repos in scope: `papers-ofd` (this repo), `$ROFD_SRC` (library + C ABI, needed for
+  `patches/` and the cross-repo tests), `$PAPERS_SRC` (optional GNOME Papers 51.1
+  checkout; Papers citations live upstream at tag `51.1`). Host also has
+  `papers 51.1-1.1` and `poppler 26.08.0` installed.
+- Checkout locations are machine-local and resolved by `scripts/dev-env.sh`
+  (environment → untracked `local.conf` → siblings `../papers`, `../rofd`), which
+  validates each against a marker file and reports a same-named directory that is
+  not the expected repository. In this file, Papers paths are files in tag `51.1` of
+  <https://gitlab.gnome.org/GNOME/papers>, and rofd paths (`crates/…`, `debian/…`)
+  are `$ROFD_SRC`-relative.
 
 ## Research Findings
 
-### Papers backend contract (checkout: ../papers, version 51.0 in meson.build, installed 51.1)
+### Papers backend contract (upstream: gitlab.gnome.org/GNOME/papers, tag 51.1; installed 51.1)
 
 | # | Finding | Evidence |
 | --- | --- | --- |
@@ -49,8 +56,11 @@ contents quoted here as data, not instructions.
 | P28 | Outline model API: `pps_outlines_new/set_label/set_markup/set_expand/set_link/set_children`, model is a `GListStore` | `pps-outlines.h`; PDF builds it from poppler's index iter (`pps-poppler.c:1323-1344`) |
 | P29 | `pps_selection_get_selection_region` returns device-pixel integer rects scaled by `compute_scales` (poppler scales and rounds) | `backend/pdf/pps-poppler.c:1985-2010` |
 | P30 | Host state: `papers 51.1-1.1` installed; `deepin-reader` ships `/usr/share/mime/packages/ofd.xml` defining `application/ofd` (+`sub-class-of application/zip`), so the type exists on this host but not in stock shared-mime-info; Papers' installed desktop file does not list `application/ofd`; thumbnails for OFD are unregistered | host inspection (`pacman -Qo`, `xdg-mime query filetype`) |
+| P31 | Host state after the machine move (2026-10-14): no `$PAPERS_SRC` and no usable `$ROFD_SRC` — `../rofd` first held `office-rs/rofd` (an unrelated project of the same name) and was later replaced by an unfinished clone of `YangtseSu/rofd` (`.git/HEAD` = `refs/heads/.invalid`, empty tree), so the resolver reports `wrong repository` and later `incomplete checkout`. `librofd-ffi 0.4.0-2` is installed from the AUR with `/usr/include/rofd.h` (`ROFD_ABI_VERSION 1u`) and `/usr/lib/librofd_ffi.so.0`, which exports `rofd_document_get_page_size_mm`. Building the module and re-verifying the ABI need no checkout; only citation re-verification does | `scripts/dev-env.sh`; `pacman -Ql librofd-ffi`; `nm -D --defined-only /usr/lib/librofd_ffi.so.0`; `sed -n 75p /usr/include/rofd.h` |
+| P32 | Build surface, no checkout needed: `papers-document-4.0` (51.1) ships the dev files — 43 `libdocument` + 20 `libview` headers under `/usr/include/papers/4.0/`, `libppsdocument-4.0.so.6` (SONAME), pkg-config with `backenddir`. `pps_backend_query_type` is declared in `pps-document.h:261` and exported by each backend module (all four installed ones: comics/djvu/pdf/tiff), not by the library; `pps-backend-info.h` is **not** installed and is not needed to compile a backend (Papers-side discovery only) | `pacman -Ql papers`; `pkg-config --cflags/--libs papers-document-4.0`; `nm -D --defined-only /usr/lib/papers/6/backends/*.so`; `grep -n pps_backend_query_type /usr/include/papers/4.0/libdocument/pps-document.h` |
+| P33 | Papers upstream URL for citations: <https://gitlab.gnome.org/GNOME/papers>, release tags `51.0`/`51.1` (`51.1` = commit `2c3976fb`, released 2026-10-09). Blob URL pattern `…/-/blob/51.1/<path>`; the header-only dev package cannot confirm `.c` line numbers, so citations are read upstream or from a clone | GitLab API `projects/GNOME%2Fpapers/repository/tags?search=51` |
 
-### rofd / rofd-ffi (checkout: ../rofd, ABI v1, rofd-ffi 0.4.0)
+### rofd / rofd-ffi (checkout: $ROFD_SRC, ABI v1, rofd-ffi 0.4.3 = main@140b936)
 
 | # | Finding | Evidence |
 | --- | --- | --- |
@@ -68,6 +78,9 @@ contents quoted here as data, not instructions.
 | R12 | `librofd_ffi.so` carries SONAME `librofd_ffi.so.0`; the repo's own C test runner symlinks the versioned name; Debian packaging installs `.so.0.4.0` + `.so.0` + `.so` | `crates/rofd-ffi/build.rs`, `crates/rofd-ffi/tests/run_c_tests.sh:36-46`, `debian/rules:27-36`, `debian/control` (`librofd-ffi0`, `librofd-ffi-dev`) |
 | R13 | Fallback/derived resources: reference PNG generated at 254 dpi with families `Noto Sans CJK SC`, `Noto Sans Mono` from `learning/test.ofd` (211.5×140 mm, no embedded fonts, 2 images, stamp annotation) | `crates/rofd-render/tests/real_fixture.rs:13-20,140-150`, `crates/rofd-render/README.md`; fixture zip listing |
 | R14 | Rich fixtures available for the smoke matrix: `learning/test.ofd`, `tests/ofd_files/6.1.00x`–`6.2.00x` (spec examples incl. embedded TTF and compression variants), `tests/ofdrw-compat/` | repo listing |
+| R15 | Upstream has **no meson.build and no `.pc` file** — building rofd-ffi means Cargo (`crates/rofd-ffi/build.rs` sets the SONAME, i.e. it is a build-script crate). Consequence for phase 4: Meson's native Cargo subproject interpreter refuses manifests with a `build.rs` ("no good way for us to convert them … an actual meson port will be required"), so a `subprojects/rofd-ffi.wrap` alone provides nothing; an in-tree build needs a `custom_target` driving `cargo`. Requesting a `rofd-ffi.pc` (plan §9 item 5) avoids all of it | upstream root listing (no `meson.build`/`*.pc`); `crates/rofd-ffi/build.rs`; Meson 1.12.1 `mesonbuild/cargo/interpreter.py` header |
+| R16 | Upstream state 2026-10-14: `main` = `140b936` = **0.4.3, published without a tag** (10 commits ahead of `v0.4.0`). Relevant to us: `fix(ffi): map SingularTransform diagnostic to C ABI v1` (unmapped diagnostics previously failed the whole page with `ROFD_STATUS_INTERNAL`); `chore(build): vendor all crates for offline intranet builds` (`.cargo/config.toml` has `net.offline = true` + `vendor/`, 8472 files — the package now builds fully offline); REUSE files and `README.zh_CN.md`. `ROFD_ABI_VERSION` is still `1u` and `expected-symbols.txt` still lists 77 names | GitHub compare `v0.4.0...main`; `$ROFD_SRC` @ `140b936` (`rofd.h:75,147`, `expected-symbols.txt`); commit subjects from the compare output |
+| R17 | Our AUR package `librofd-ffi` is pinned to that commit (`0.4.3-1`): source `https://github.com/linuxdeepin/rofd/archive/140b936….tar.gz`, sha256 `0d6300fb…`, our page-size patch, plus `rofd-ffi.pc` (0.4.3). Built offline in 35 s; packaged `.so.0` exports 78 symbols incl. `rofd_document_get_page_size_mm`; packaged `rofd.h` carries `ROFD_DIAGNOSTIC_SINGULAR_TRANSFORM 7u` | `~/projects/librofd-ffi` (PKGBUILD, .SRCINFO); `makepkg -f` output; `bsdtar xOf … \| nm -D --defined-only` |
 
 ## Technical Decisions
 
@@ -98,9 +111,10 @@ contents quoted here as data, not instructions.
 
 ## Resources
 
-- Papers source: `../papers` (51.x), installed copy `/usr/lib/papers/6/backends`, headers via `papers-document-4.0` pkg-config.
-- rofd source: `../rofd`; C ABI header `crates/rofd-ffi/include/rofd.h`; ABI notes `crates/rofd-ffi/README.md`; project rules `AGENTS.md`.
-- rofd reference/fixtures: `learning/test.ofd`, `tests/ofd_files/`, `tests/fixtures/reference/invoice-phase3.png`, `tests/ofdrw-compat/`.
+- Papers source: upstream <https://gitlab.gnome.org/GNOME/papers> at tag `51.1` (opt. checkout `$PAPERS_SRC`), installed copy `/usr/lib/papers/6/backends`, headers via `papers-document-4.0` pkg-config (43 `libdocument` + 20 `libview` headers shipped).
+- rofd source: `$ROFD_SRC`; C ABI header `crates/rofd-ffi/include/rofd.h`; ABI notes `crates/rofd-ffi/README.md`; project rules `AGENTS.md`. Installed fallback: `librofd-ffi` package (`/usr/include/rofd.h`, `/usr/lib/librofd_ffi.so.0`) — no pkg-config file, hence the meson options.
+- rofd reference/fixtures (under `$ROFD_SRC`): `learning/test.ofd`, `tests/ofd_files/`, `tests/fixtures/reference/invoice-phase3.png`, `tests/ofdrw-compat/`.
+- Dependency resolution: `scripts/dev-env.sh` (repo root), `local.conf` for per-machine overrides.
 - Host tooling for packaging checks: `xdg-mime`, `update-mime-database`, `update-desktop-database`, `papers-thumbnailer`.
 
 ## Visual/Browser Findings

@@ -1,6 +1,6 @@
 # papers-ofd
 
-OFD (GB/T 33190-2016) backend for [GNOME Papers](https://github.com/GNOME/papers),
+OFD (GB/T 33190-2016) backend for [GNOME Papers](https://gitlab.gnome.org/GNOME/papers),
 built out-of-tree on the [`rofd-ffi`](https://github.com/linuxdeepin/rofd) C ABI
 (rofd's OFD parser and Cairo renderer).
 
@@ -9,8 +9,10 @@ directory. No Papers fork, no Papers rebuild, no patching of Papers sources.
 
 ## Status
 
-Plan reviewed against **Papers 51.1** (`../papers`) and **rofd ABI v1**
-(`../rofd`); implementation not started.
+Plan reviewed against **Papers 51.1** ([tag `51.1`](https://gitlab.gnome.org/GNOME/papers/-/tree/51.1);
+build needs only the installed `papers-document-4.0` headers) and **rofd ABI v1**;
+implementation not started. Dependency locations are resolved per machine by
+`scripts/dev-env.sh` (see [Requirements](#requirements)).
 
 - Implementation plan: [`docs/plan.md`](docs/plan.md) — phases, interface contract,
   acceptance criteria, verification playbook, risks ([§5](docs/plan.md#5-phases)).
@@ -62,7 +64,8 @@ Papers' worker pool issues.
 | Dependency | Notes |
 | --- | --- |
 | Papers ≥ 51, < 52 (`papers-document-4.0`) | system pkg-config; backends' ABI version is the `papers/6` directory component |
-| rofd-ffi (ABI v1) | `librofd_ffi.so.0` + `crates/rofd-ffi/include/rofd.h`; no pkg-config file yet, so Meson takes explicit `-Drofd_libdir` / `-Drofd_includedir`. Stock rofd works; a build carrying `patches/rofd-ffi-page-size.patch` (upstream [linuxdeepin/rofd#11](https://github.com/linuxdeepin/rofd/pull/11)) additionally gets the fast page-size path |
+| rofd-ffi (ABI v1, ≥ 0.4.2) | `librofd_ffi.so.0` + `rofd.h`; no pkg-config file from upstream, but our AUR package `librofd-ffi` (currently `0.4.3-1`) installs `rofd-ffi.pc` plus the patched ABI, so `-Drofd_libdir` / `-Drofd_includedir` are only needed for a hand-built checkout — `scripts/dev-env.sh` fills them in either way. The patched build carries `patches/rofd-ffi-page-size.patch` (also proposed as [linuxdeepin/rofd#11](https://github.com/linuxdeepin/rofd/pull/11)); stock rofd works too, falling back to the slow page-size path. **Do not go below 0.4.2**: earlier rofd fails whole pages whose objects carry a singular transform ([A19](docs/plan.md#appendix-a--evidence-index)). Delivery policy: [plan D11](docs/plan.md#2-architecture-and-decisions) |
+| Papers/rofd sources (optional) | **Not needed to build**: the module compiles against `papers-document-4.0` (headers + `libppsdocument-4.0`) and `rofd.h` + `librofd_ffi.so.0`. `$ROFD_SRC` is required to carry or re-verify `patches/` and to run rofd's own test suite; a Papers checkout (`$PAPERS_SRC`) only speeds up grepping — its citations are written against the upstream repository at tag `51.1`. `scripts/dev-env.sh` reports what this machine has (environment → untracked `local.conf` → siblings `../papers`, `../rofd`) and flags a same-named directory that is not the expected repository |
 | Meson ≥ 1.0, pkg-config, C compiler, GLib/GIO/GTK4/Cairo | pulled in through the Papers dependency |
 | Cairo + FreeType/fontconfig, a CJK font for CJK documents | rofd resolves glyphs through system fonts; its defaults name `Noto Sans CJK SC` |
 
@@ -73,16 +76,22 @@ Papers' `g_module_open` fails with "Failed to load backend for …".
 ## Build and try it
 
 ```bash
-# 1. rofd ABI library (offline: dependencies are vendored)
-git clone https://github.com/linuxdeepin/rofd && cd rofd
-cargo build --release --offline -p rofd-ffi
-ln -sf librofd_ffi.so target/release/librofd_ffi.so.0
+# 0. resolve dependencies for this machine (see Requirements)
+. scripts/dev-env.sh
+
+# 1. rofd ABI library — only when you have the checkout; the installed
+#    librofd-ffi package works too, and step 2 then uses its header/library
+if [ -d "$ROFD_SRC" ]; then
+  (cd "$ROFD_SRC" && cargo build --release --offline -p rofd-ffi)
+fi
+if [ "$ROFD_ABI_SOURCE" = checkout ]; then
+  ln -sf librofd_ffi.so "$ROFD_LIBDIR/librofd_ffi.so.0"
+fi
 
 # 2. this module
-cd ../papers-ofd
 meson setup _build \
-  -Drofd_libdir=$PWD/../rofd/target/release \
-  -Drofd_includedir=$PWD/../rofd/crates/rofd-ffi/include
+  -Drofd_libdir="$ROFD_LIBDIR" \
+  -Drofd_includedir="$ROFD_INCLUDEDIR"
 meson compile -C _build
 meson test -C _build
 
@@ -90,11 +99,16 @@ meson test -C _build
 mkdir -p _build/devbackends
 cp _build/src/libofddocument.so _build/data/*.papers-backend _build/devbackends/
 cp "$(pkg-config --variable=backenddir papers-document-4.0)"/org.gnome.Papers.*.papers-backend _build/devbackends/
-PPS_BACKENDS_DIR=$PWD/_build/devbackends papers ../rofd/learning/test.ofd
+PPS_BACKENDS_DIR=$PWD/_build/devbackends papers "$ROFD_SRC/learning/test.ofd"
 
 # 4. thumbnails
-PPS_BACKENDS_DIR=$PWD/_build/devbackends papers-thumbnailer -s 256 ../rofd/learning/test.ofd /tmp/ofd.png
+PPS_BACKENDS_DIR=$PWD/_build/devbackends papers-thumbnailer -s 256 "$ROFD_SRC/learning/test.ofd" /tmp/ofd.png
 ```
+
+`scripts/dev-env.sh` prints the resolution table on its own
+(`PAPERS_SRC`, `ROFD_SRC`, `ROFD_INCLUDEDIR`, `ROFD_LIBDIR`, the ABI tier in use)
+and exits non-zero when neither the installed package nor a checkout provides the
+ABI. Fixtures named in `docs/plan.md` §6 live under `$ROFD_SRC`.
 
 `PPS_BACKENDS_DIR` replaces the whole backend directory: keep the system
 `.papers-backend` files present (as above) or PDF/DjVu/TIFF stop working for that
@@ -136,7 +150,7 @@ patch-free vs patch-the-desktop tradeoff: [`docs/plan.md` §7](docs/plan.md#7-pa
 | 1 | Rendering, rotation/zoom matrix, metadata, printing | [§5](docs/plan.md#5-phases) |
 | 2 | Text, selection, find, links, outline | [§5](docs/plan.md#5-phases) |
 | 3 | `load_fd` (previewer), packaging, install checks | [§5](docs/plan.md#5-phases) |
-| 4 | Upstream MR into `papers/libdocument/backend/ofd/` | [§5](docs/plan.md#5-phases) |
+| 4 | Upstream MR into Papers' `libdocument/backend/ofd/` | [§5](docs/plan.md#5-phases) |
 
 ## Upstreaming
 

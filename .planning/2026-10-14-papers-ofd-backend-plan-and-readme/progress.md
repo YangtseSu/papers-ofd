@@ -89,6 +89,61 @@
 - Files created/modified:
   - `~/projects/librofd-ffi/{PKGBUILD,.SRCINFO,rofd-ffi-page-size.patch}` (pushed to the AUR)
 
+### Phase 9: Portable dependency paths (machine move)
+
+- **Status:** complete
+- Actions taken:
+  - Problem: `docs/plan.md`, `README.md`, `AGENTS.md` and `patches/README.md` located both
+    dependency checkouts as `../papers` and `../rofd`, and `docs/plan.md` opened with a
+    structurally wrong link (`../../rofd/…` from `docs/`, resolving outside the projects
+    directory). On this machine `../papers` does not exist and `../rofd` is
+    `office-rs/rofd` — an unrelated project of the same name — so the documented build
+    commands and every rofd citation silently pointed at the wrong tree.
+  - Added `scripts/dev-env.sh`: resolves `PAPERS_SRC`/`ROFD_SRC` (environment → untracked
+    `local.conf` → sibling defaults), validates each against a marker file
+    (`libdocument/pps-document.h`, `crates/rofd-ffi/include/rofd.h`), reports a same-named
+    directory that is not the expected repository, and exports the ABI pair
+    `ROFD_INCLUDEDIR`/`ROFD_LIBDIR` from a built checkout or from the installed
+    `librofd-ffi` package. Bare run prints the resolution table and exits non-zero when
+    the ABI is unresolved; sourced, it only warns and never changes shell options.
+  - Docs now use `$PAPERS_SRC/…` / `$ROFD_SRC/…`: plan header, §6 environment block,
+    fixture matrix and cross-repo check, phase 4, §9, Appendix A (legend + rofd rows);
+    README status/requirements/build/roadmap; AGENTS.md layout table, hard rules and
+    build block; `patches/README.md` apply step. `/local.conf` is gitignored.
+- Files created/modified:
+  - `scripts/dev-env.sh` (new), `.gitignore`, `docs/plan.md`, `README.md`, `AGENTS.md`,
+    `patches/README.md`
+
+### Phase 10: Dependency requirements answered, Papers cited upstream
+
+- **Status:** complete
+- Actions taken:
+  - Verified on this host what the implementation actually needs: `papers-document-4.0` 51.1 ships 43 `libdocument` + 20 `libview` headers, `libppsdocument-4.0.so.6` and pkg-config (incl. `backenddir`); `pps_backend_query_type` is declared in `pps-document.h:261` and exported by each backend module (verified on all four installed modules); `pps-backend-info.h` is not installed and is not needed to compile a backend. `librofd-ffi 0.4.0-2` provides `/usr/include/rofd.h` + `/usr/lib/librofd_ffi.so.0` with the page-size symbol. → neither checkout is needed to build phases 0–3.
+  - Reclassified the checkouts in the docs: `$ROFD_SRC` is needed only to carry/re-verify `patches/` and to run rofd's own test suite; a Papers checkout is optional (grepping + phase 4).
+  - Papers citations now name upstream tag `51.1` (`https://gitlab.gnome.org/GNOME/papers/-/blob/51.1/<path>`), matching the user's instruction; tag `51.1` = commit `2c3976fb`, confirmed through the GitLab API. Plan header/§6/Appendix A legend, README (link, status, requirements, roadmap), AGENTS.md and the resolver's hint/header follow the convention.
+- Files modified:
+  - `docs/plan.md`, `README.md`, `AGENTS.md`, `scripts/dev-env.sh`, `findings.md`, `task_plan.md`
+
+### Phase 11: Meson subproject/wrap clarified for the Papers move
+
+- **Status:** complete
+- Actions taken:
+  - Answered with checked facts instead of assuming the mechanism works: rofd upstream has no `meson.build` and no `.pc` file, and `crates/rofd-ffi/build.rs` makes rofd-ffi a build-script crate; Meson 1.12.1's Cargo interpreter refuses any manifest with a `build.rs` ("no good way for us to convert them … an actual meson port will be required"), so a `subprojects/rofd-ffi.wrap` alone gives Meson nothing to consume.
+  - Plan §5 phase 4 now specifies how Papers declares the ABI dependency: (1) `dependency('rofd-ffi', version: '>= 0.4')` once a `.pc` exists (target state), (2) otherwise a `[wrap-git]` file pinned to a revision plus a small `meson.build` that drives `cargo build --release --offline -p rofd-ffi` in a `custom_target` and exposes it via `declare_dependency()`. A wrap adds no sources to the repository (`subprojects/` stays untracked; a submodule would vendor them) and does not change the link step.
+  - Added plan §9 item 5: request `rofd-ffi.pc` upstream (`Name`/`Version`/`Cflags`/`Libs`), which also retires the hand-rolled library lookup in `scripts/dev-env.sh`; README requirement row links to it.
+- Files modified: `docs/plan.md`, `README.md`, `findings.md` (R15), `progress.md`
+
+### Phase 12: Fork-first delivery — 0.4.3 package with pkg-config metadata
+
+- **Status:** complete
+- Actions taken:
+  - User decisions applied: rofd dependency is fork-first (upstream PRs are opportunistic), the `.pc` and the AUR package are ours to write and maintain, and later upstream commits may be used when they help.
+  - Evaluated upstream `v0.4.0...main` (10 commits): `0.4.3` exists only as commit `140b936` (no tag); the load-bearing one for us is `fix(ffi): map SingularTransform diagnostic to C ABI v1` (before it, an unmapped diagnostic failed the whole page with `ROFD_STATUS_INTERNAL`), plus crate vendoring (`net.offline = true`, offline builds) and licence/README chores. `ROFD_ABI_VERSION` is still `1u`, `expected-symbols.txt` still 77 names.
+  - Rewrote the AUR package to `librofd-ffi 0.4.3-1`: source pinned to the commit archive (sha256 `0d6300fb…`), page-size patch on top, `rofd-ffi.pc` installed at `/usr/lib/pkgconfig/rofd-ffi.pc`, `prepare()`/`build()` now offline (vendor + `--frozen`). `makepkg -f --noconfirm` → package built in 35 s; verification below. Local commit made; not pushed to the AUR.
+  - `scripts/dev-env.sh` gained a pkg-config tier (built checkout > `rofd-ffi.pc` > `/usr/include` + `/usr/lib`, per-variable env overrides); verified against a staged `.pc`.
+  - Docs: plan D11 already covers the policy; §9 item 1/5 and phase-4 route 1 updated to "owned, not blocked"; risks gained the "rofd < 0.4.2 renders whole pages blank" row; appendix A19 added; README requirement row now `≥ 0.4.2` with the AUR pin; `patches/README.md` documents the fork, the untagged-release pinning rule and the sync routine. `$ROFD_SRC` (`~/projects/rofd`) is a complete clone of the fork at `140b936`, with `upstream` remote added; `git apply --check` of the page-size patch against it is clean (7 files).
+- Files modified: `docs/plan.md`, `README.md`, `patches/README.md`, `scripts/dev-env.sh`, `findings.md`, `task_plan.md`; `~/projects/librofd-ffi/{PKGBUILD,.SRCINFO,rofd-ffi.pc.in}`
+
 ## Test Results
 
 | Test | Input | Expected | Actual | Status |
@@ -111,6 +166,25 @@
 | `makepkg -C -f` (clean, wiped src/pkg) | `~/projects/librofd-ffi` | builds offline from the cached tarball + pinned patch | rc=0, `librofd-ffi-0.4.0-2-x86_64.pkg.tar.zst`, 78 exported symbols incl. the new one | pass |
 | AUR push | `ssh://aur@aur.archlinux.org/librofd-ffi.git` | `master` advances to the new commit | `1e431d5..2391d47`, `git ls-remote` matches | pass |
 | rofd PR CI (`gh pr checks 11`) | `linuxdeepin/rofd` | green | commitlint, license-check, cppcheck, Sourcery pass; `clacheck / CLAssistant` fails (Deepin CLA, contributor action); build jobs skipped until approval; APPROVALNOTIFIER wants an approver from `debian/deepin/OWNERS` | needs human action |
+| `scripts/dev-env.sh` bare run | this host | report the resolution; exit 0 iff the ABI is available | `PAPERS_SRC ~/projects/papers missing`; `ROFD_SRC …/rofd` first `wrong repository (origin https://github.com/office-rs/rofd)`, later `incomplete checkout (no crates/rofd-ffi/include/rofd.h)` after the sibling directory was replaced by an unfinished clone; `ROFD_INCLUDEDIR /usr/include` (`ROFD_ABI_VERSION 1`); `ROFD_LIBDIR /usr/lib` with page-size fast path present; exit 0 | pass |
+| `scripts/dev-env.sh` modes | fixture checkout, env override, broken override, `local.conf` | each mode behaves as documented | checkout → both dirs from the tree, SONAME warning + exit 1 while `librofd_ffi.so.0` is absent, exit 0 after `ln -s`; valid override → `ABI_SOURCE override`, exit 0; `ROFD_INCLUDEDIR=/nonexistent ROFD_LIBDIR=/nonexistent` → exit 1; `local.conf` values honored; sourced mode warns only, exports all four variables | pass |
+| `bash -n scripts/dev-env.sh` | resolver | clean | clean | pass |
+| Sibling-path audit (`git grep -E '(\.\./)+(papers\|rofd)/'`) | tracked files | no bare sibling paths outside the documented resolution-order default | one hit, the historical Phase-8 log line about the old rofd checkout (kept as history); all other references use `$PAPERS_SRC`/`$ROFD_SRC` | pass |
+| `reuse lint` with `scripts/` added | repo | compliant | 11/11 files with copyright + license, GPL-2.0-or-later + LGPL-2.1-or-later | pass |
+| Markdown fence balance | `docs/plan.md`, `README.md`, `AGENTS.md`, `patches/README.md` | even fence counts | 14 / 6 / 2 / 6, all balanced | pass |
+| Papers dev surface (does the build need the source?) | installed `papers 51.1-1.1` | full backend API available without a checkout | `papers-document-4.0` 51.1; 43 `libdocument` + 20 `libview` headers under `/usr/include/papers/4.0/`; `-lppsdocument-4.0`, SONAME `libppsdocument-4.0.so.6`; `pps_backend_query_type` declared in `pps-document.h:261` and exported by all four installed backend modules (not by the library); `pps-backend-info.h` absent — Papers-side discovery only, no backend needs it | pass |
+| rofd ABI surface (does the build need the source?) | installed `librofd-ffi 0.4.0-2` | header + library with the page-size fast path | `/usr/include/rofd.h` (`ROFD_ABI_VERSION 1u`), `/usr/lib/librofd_ffi.so.0` exporting `rofd_document_get_page_size_mm` | pass |
+| Papers upstream tag for citations | GitLab API `projects/GNOME%2Fpapers/repository/tags?search=51` | tag `51.1` resolvable | <https://gitlab.gnome.org/GNOME/papers> tag `51.1` = commit `2c3976fb` (2026-10-09); blob base `…/-/blob/51.1/` | pass |
+| Resolver report after the convention change | bare run | Papers described as optional, hint points upstream | `Papers sources are optional: … cites Papers files at https://gitlab.gnome.org/GNOME/papers/-/blob/51.1/<path>`; rofd hint unchanged; exit 0 | pass |
+| Meson Cargo-subproject capability for rofd | Meson 1.12.1 `mesonbuild/cargo/interpreter.py`, `modules/rust.py` | what Meson can consume without a meson port | interpreter refuses manifests with a `build.rs` ("an actual meson port will be required"): the rust module compiles sources through rustc, Cargo itself is never driven | pass |
+| rofd upstream packaging surface | GitHub API root + `crates/rofd-ffi` listing | no Meson build, no `.pc` | root has Cargo/`debian`/`learning`/`resources`/`src`/`tests`/docs only; `crates/rofd-ffi/` = `Cargo.toml`, `build.rs` (88 B, SONAME), `include/`, `src/`, `tests/`, `README.md` | pass |
+| Upstream `v0.4.0...main` review | GitHub compare API | know what later commits change | 10 commits; `0.4.3` = `140b936`, no tag; load-bearing: `fix(ffi): map SingularTransform diagnostic to C ABI v1` + crate vendoring; `ROFD_ABI_VERSION` still `1u`, `expected-symbols.txt` still 77 | pass |
+| `librofd-ffi 0.4.3-1` build | pinned commit archive + page-size patch + `.pc.in` | package builds, offline | `makepkg -f --noconfirm` rc 0 in 35 s (`cargo build --frozen`, vendored crates); 1.4 MB package | pass |
+| Package contents | `bsdtar`, `nm -D` | ABI + header + `.pc` | `usr/lib/librofd_ffi.so{,.0}`, `usr/include/rofd.h`, `usr/lib/pkgconfig/rofd-ffi.pc`, licence; `.so.0` exports 78 symbols incl. `rofd_document_get_page_size_mm`; header has `ROFD_ABI_VERSION 1u` (:75) and `ROFD_DIAGNOSTIC_SINGULAR_TRANSFORM 7u` (:147) | pass |
+| `.pc` metadata | staged `PKG_CONFIG_PATH` | valid, queryable | `--modversion` 0.4.3; `includedir` `/usr/include`; `libdir` `/usr/lib`; libs `-lrofd_ffi`; `--validate` reports nothing for the file | pass |
+| Pkg-config tier in the resolver | staged `.pc` from the built package | tier selects pkg-config and exports its dirs | `ABI_SOURCE pkg-config — rofd-ffi.pc 0.4.3`; `ROFD_INCLUDEDIR`/`ROFD_LIBDIR` from the file | pass |
+| Page-size patch against fork `main` | `$ROFD_SRC` @ `140b936` | applies cleanly | `git apply --check` OK, 7 files, no fuzz | pass |
+| `namcap` | package tarball + PKGBUILD | no errors | package: only the standard `gcc-libs` "may not be needed" warning; PKGBUILD clean | pass |
 
 ## Error Log
 
@@ -123,11 +197,11 @@
 
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 2 (redoing `docs/plan.md`) |
-| Where am I going? | Phases 3–5: README, verification, delivery |
-| What's the goal? | Execution-ready `docs/plan.md` + matching `README.md` grounded in verified Papers 51.1 / rofd ABI v1 behaviour |
-| What have I learned? | See `findings.md` (evidence index with `file:line`) |
-| What have I done? | State restored, research consolidated, plan + README reworked and verified; delivery in progress |
+| Where am I? | Phase 9 complete (portable dependency paths after the machine move); `docs/plan.md` phases 0–4 not started |
+| Where am I going? | Phase 0 of `docs/plan.md`: the Meson project plus the `OfdDocument` skeleton |
+| What's the goal? | Execution-ready `docs/plan.md` + matching `README.md` grounded in verified Papers 51.1 / rofd ABI v1 behaviour, followed by the implementation |
+| What have I learned? | Checkout locations are machine-local and validated by `scripts/dev-env.sh`; on this host `../rofd` is an unrelated project, the ABI comes from the installed `librofd-ffi 0.4.0-2`; full evidence in `findings.md` |
+| What have I done? | Plan + README reworked and verified; rofd page-size PR opened and its patch published via AUR; repository made REUSE-compliant; dependency paths made machine-portable |
 
 ---
 
