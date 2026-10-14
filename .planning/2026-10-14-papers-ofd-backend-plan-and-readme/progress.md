@@ -164,6 +164,59 @@
   - New rofd change: `feat/pkgconfig` — `debian/rofd-ffi.pc.in` plus the `librofd-ffi-dev` install rule in `debian/rules` (version from `dpkg-parsechangelog`, `DEB_HOST_MULTIARCH`, `Requires: cairo`). Pushed to the fork and proposed upstream as <https://github.com/linuxdeepin/rofd/pull/12>; PR #11 remains open.
   - Recorded the delivery policy in the plan (§9 item 5) and `patches/README.md` (upstream requests in flight, with the drop criterion for each).
 
+### Phase 1: rendering, metadata, printing (implementation)
+
+- **Status:** complete
+- Actions taken:
+  - `src/ofd-metadata.[ch]` (new): `get_info` mapping from the rofd metadata
+    snapshot — title/author/subject/keywords (joined `", "`, empties skipped, since
+    rofd distinguishes missing from explicitly empty), creator (`Creator` +
+    `CreatorVersion`; the ABI has no producer field, so the producer row stays
+    unset), creation/modification datetimes (ISO 8601 with offset, naive values
+    read as UTC, plus the date-only form the invoice and the GB/T 33190 examples
+    use), `n_pages`, and the per-page sizes in millimetres with the
+    `PPS_DOCUMENT_INFO_N_PAGES`/`PAPER_SIZE` bits — `pps_document_info_pages` and
+    `_regular_paper_size` both gate on `PAPER_SIZE`, which is what makes the
+    properties dialog's page count and paper-size rows appear.
+  - `src/ofd-document.c`: `OfdDocument` now implements `PpsDocumentPrint`
+    (`G_DEFINE_FINAL_TYPE_WITH_CODE` + `G_IMPLEMENT_INTERFACE`); `print_page`
+    draws at dpi 72/scale 1/rotation 0 into the borrowed context (the print
+    operation owns the transform). Page-handle acquisition is factored into
+    `ofd_document_page_handle`, shared by `render` and `print_page`. The renderer
+    comes from `ofd_renderer_new` (below) and `get_info` is wired to the metadata
+    module, walking the geometry cache and falling back to per-page queries.
+  - `src/ofd-render.[ch]`: `ofd_renderer_new` reads
+    `PAPERS_OFD_FALLBACK_FAMILIES` (colon-separated; an empty value disables
+    fallback via rofd's non-NULL/zero-count contract) and otherwise passes NULL
+    options for rofd's defaults; `ofd_render_options_init_print` is the print
+    option set.
+  - `meson_options.txt`/`meson.build`: `rofd_page_size` = `auto|disabled` (build
+    switch for the phase-1 latency comparison) and `rofd_src` (enables the oracle
+    test against `$ROFD_SRC`); the oracle test is only defined when both the
+    fixture and the reference exist, with a warning otherwise.
+  - `data/papers-ofd.xml`: the magic rules now cover both producer layouts —
+    `PK\x03\x04`@0 plus `OFD.xml`@30 **or** `Doc_0/`@30. Found while wiring the
+    oracle: the real invoice starts with `Doc_0/Annots/Annotations.xml`, so the
+    `OFD.xml`-only rule matched nothing and GLib's data-only guess returned
+    `application/zip` (`OFD.xml` only appears at byte 21707). Verified with
+    `g_content_type_guess(NULL, first 1024 bytes)` and `xdg-mime query filetype`.
+  - `tests/`: `ofd-test-utils.[ch]` (shared staging: MIME database +
+    `PPS_BACKENDS_DIR` + `pps_init`), `generate_fixture.py` now generates
+    `geometry`, `corner-marker`, `origin-offset`, `metadata` and `latency [count]`
+    fixtures; `test-ofd-render.c` (rotation matrix on pixels, origin
+    normalization, zoom matrix, same-options byte equivalence, print into a cairo
+    PDF surface), `ofd-print-file.c` (real GTK `GtkPrintOperation` with
+    `ACTION_EXPORT` and the same transform as
+    `pps_print_operation_print_draw_page`, then poppler text extraction),
+    `test-ofd-metadata.c`, `test-ofd-oracle.c`, `ofd-latency.c`.
+- Files created/modified:
+  - `src/{ofd-metadata.[ch],ofd-document.c,ofd-render.[ch],meson.build}`,
+    `meson.build`, `meson_options.txt`, `data/papers-ofd.xml`,
+    `tests/{ofd-test-utils.[ch],generate_fixture.py,test-ofd-render.c,ofd-print-file.c,test-ofd-metadata.c,test-ofd-oracle.c,ofd-latency.c,meson.build}`,
+    `docs/plan.md` (§4 uniform-scale note, §5 phase-1 steps/evidence, §6 setup
+    command + fixture matrix, §7 magic rules), `README.md` (status, build, latency
+    limitation, roadmap status).
+
 ## Test Results
 
 | Test | Input | Expected | Actual | Status |
@@ -215,6 +268,21 @@
 | Fork sync | `git fetch upstream main`, `rev-list --left-right --count` | fork `main` mirrors upstream | `0 0` at `140b936`; branches `feat/ffi-page-size-query` (`7f6d24d`) and `feat/pkgconfig` on the fork | pass |
 | Upstream PR #12 | `gh pr create` on `linuxdeepin/rofd` | PR opens with the diff | <https://github.com/linuxdeepin/rofd/pull/12> (`feat/pkgconfig`, OPEN); `gh pr list --author YangtseSu` shows #11 and #12 both open | pass |
 | Generated `.pc` (Debian path) | same `sed` as `debian/rules` with `0.4.3` / `x86_64-linux-gnu` | metadata correct | `Version: 0.4.3`, `Requires: cairo`, `--libs` → `-L/usr/lib/x86_64-linux-gnu -lrofd_ffi -lcairo`; `--validate` clean; recipe lines tab-indented (`cat -A`) | pass |
+| Phase-1 build (fast path) | `meson setup _build -Drofd_src=$ROFD_SRC` + compile | module, 6 test programs, 5 fixtures | built without warnings; `rofd_document_get_page_size_mm` probe passes | pass |
+| Phase-1 build (fallback path) | `meson setup _build-slow -Drofd_page_size=disabled` | same tests on the per-page path | built; `meson test` 7/7 | pass |
+| `meson test -C _build` | 7 tests | all pass | 7/7 OK (units, document, discovery-failure, render, print-file, metadata, oracle) | pass |
+| Rotation matrix | `corner-marker.ofd` via `pps_document_render` at 0/90/180/270 | marker in the expected corner, others white | marker top-left/top-right/bottom-right/bottom-left; canvas dims swap at 90/270; rofd's clockwise rotation matches `rotation_degrees = rc->rotation` (no flip needed) | pass |
+| Origin normalization | `origin-offset.ofd` (`PhysicalBox "10 20 210 297"`, marker covering the box) | whole canvas painted | 220/220 sampled pixels dark (a missing origin subtraction would leave it blank) | pass |
+| Zoom matrix | scales 0.5/1.0/1.5/2.0/3.25 and `target_size` 800×ceil | surface == `rofd_renderer_get_pixel_canvas_size`, Papers' request ±1 px | exact match with rofd's canvas in every case; ≤1 px from `pps_render_context_compute_scaled_size` | pass |
+| Same-options equivalence | `metadata.ofd` (glyphs included) | byte-identical to a direct FFI render | identical (row-wise `memcmp` over the whole surface) | pass |
+| Print into cairo PDF | `print_page` → `cairo_pdf_surface` | vector text extractable | poppler text extraction returns "Invoice 42" and "发票编号 42" | pass |
+| GTK print to file | `ofd-print-file` (real `GtkPrintOperation`, `ACTION_EXPORT`) | PDF with selectable text | wrote `_build/phase1-print-to-file.pdf`; poppler in-test and `pdftotext` both extract "Invoice 42 / 发票编号 42" | pass |
+| Metadata mapping | `metadata.ofd` + `geometry-3pages.ofd` | fields, mask bits, page sizes | title/author/subject/keywords "alpha, beta"/creator "fixture-generator 1.0", creation 2025-01-06, mod 2024-10-22; `PAPER_SIZE`+`N_PAGES` set, `pps_document_info_pages` → 1; three pages 210×297/148×210/297×210 mm; no bits set without DocInfo | pass |
+| Oracle vs `invoice-phase3.png` | 254 dpi, `PAPERS_OFD_FALLBACK_FAMILIES="Noto Sans CJK SC:Noto Sans Mono"` | same size, within tolerance | 2115×1400 both; mean channel difference 3.283, >8 2.61 %, >64 1.86 % (limits 10 / 8 % / 5 %) | pass |
+| MIME magic | invoice (first entry `Doc_0/Annots/…`) and generated fixtures | `application/ofd` from data alone | `g_content_type_guess(NULL, 1024 bytes)` → `application/ofd` for both; a plain zip stays `application/zip` | pass |
+| Open latency | `latency-300pages.ofd`, 5 runs, both builds | record load → first page | fast: load 2.0 ms, metadata walk 20 ms, `setup_cache` 71 ms, first render 46 ms; fallback: load 2.0 ms, metadata walk 71 ms, `setup_cache` 0.1 ms, first render 47 ms | pass (recorded, no regression) |
+| Papers session run (phase 1) | `papers _build/tests/metadata.ofd` with the dev backend dir | no criticals | ran 15 s until `timeout` (124); 0 CRITICAL/ERROR; one unrelated `Gdk-WARNING` about frame timings; our diagnostics show CJK-capable font fallback on both text objects | pass |
+| REUSE after phase 1 | repository | compliant | 41/41 files with copyright + license | pass |
 
 ## Error Log
 
@@ -222,16 +290,20 @@
 |-----------|-------|---------|------------|
 | 2026-10-14 | `read` elided C function bodies (declarations-only view) | 1 | Re-read the exact byte ranges with `sed -n` |
 | 2026-10-14 | Python in-place edit assertion failed during plan section renumbering | 1 | Re-grepped the exact strings, re-ran the script; it only writes after all assertions pass |
+| 2026-10-14 | Oracle run failed with "File type Zip archive (application/zip) is not supported" on the real invoice | 1 | The `OFD.xml`@30 magic only matched archives whose first entry is `OFD.xml`; the invoice starts with `Doc_0/Annots/Annotations.xml` (`OFD.xml` sits at byte 21707), so GLib's data-only guess fell back to `application/zip`. Added a `Doc_0/`@30 alternative to `data/papers-ofd.xml` and verified with `g_content_type_guess(NULL, first 1024 bytes)` and `xdg-mime query filetype`; a plain zip still reports `application/zip` |
+| 2026-10-14 | `ofd-latency` printed the same value for every phase | 1 | `milliseconds_since()` was called with the wrong base at print time; the tool now records a timestamp per phase and computes explicit deltas |
+| 2026-10-14 | `ofd-render` target-size case failed (1132 px instead of 600) | 1 | rofd's options carry a single uniform scale, so a target with a different aspect ratio than the page cannot be reproduced (poppler scales the axes independently). Papers always derives target sizes from the page size (`pps-pixbuf-cache.c:1041-1044,1113-1118`), so the test now does too; the deviation is documented in plan §4 and the README limitations |
+| 2026-10-14 | Headless GUI rendering via GTK broadway abandoned | 3 | `broadwayd` binds its TCP port but creates no unix socket in this environment and GTK4's broadway client needs it (`BROADWAY_DISPLAY=:N` → `$XDG_RUNTIME_DIR/broadwayN`); TCP display strings are not accepted. GNOME Shell's screenshot D-Bus API answers "Access denied", and no Xvfb/nested compositor is installed. GUI acceptance is therefore observed on the live session (log-level) plus the user's visual check |
 
 ## 5-Question Reboot Check
 
 | Question | Answer |
 |----------|--------|
-| Where am I? | `docs/plan.md` phase 0 complete (module skeleton, `meson test` 3/3, Papers runtime clean); phase 1 next |
-| Where am I going? | Phase 1: rotation/zoom matrix, printing, metadata, oracle and latency measurements |
+| Where am I? | `docs/plan.md` phases 0 and 1 complete: module skeleton, rendering/rotation/zoom matrix, printing (vector text), metadata, oracle comparison and the latency table; `meson test` 7/7 in both page-size builds |
+| Where am I going? | Phase 2: `PpsDocumentText` (five vfuncs), `PpsSelection`, `PpsDocumentFind`, links and the outline; then phase 3 (fd loading, packaging, install checks) |
 | What's the goal? | Ship the OFD backend for Papers 51.x, out-of-tree, on the rofd ABI we maintain (fork-first, AUR package) |
-| What have I learned? | See `findings.md`: Papers/rofd contracts (P1–P38, R1–R19), the dev-run recipe (whole backend dir + staged MIME), `render` must exist (A20), and the delivery/fork policy (D11) |
-| What have I done? | Plan/README verified and machine-portable; REUSE-compliant; rofd page-size patch shipped via our AUR package and proposed upstream (#11), `rofd-ffi.pc` proposed upstream (#12) and shipped in the package; phase 0 implemented, tested and committed |
+| What have I learned? | See `findings.md` + the phase-1 log: the render path needs one uniform scale (plan §4), rofd's rotation is clockwise and matches `rc->rotation` as-is, the real invoice's first zip entry is `Doc_0/…` (so the MIME magic needs both layouts), and `setup_cache` fetches every page object — which is why the metadata-only page-size query does not change the shell's open time (plan §5 phase 1) |
+| What have I done? | Plan/README machine-portable and REUSE-compliant; rofd page-size patch shipped via our AUR package and proposed upstream (#11), `rofd-ffi.pc` proposed upstream (#12) and shipped; phases 0 and 1 implemented, tested and committed; GUI acceptance run on the live session |
 
 ---
 

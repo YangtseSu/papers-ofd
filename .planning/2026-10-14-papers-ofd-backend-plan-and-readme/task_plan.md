@@ -7,22 +7,26 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
-Start **phase 1** of `docs/plan.md` (§5): rotation/zoom matrix with a corner-marker
-fixture, `print_page` on top of `ofd-render.c`, `print`-to-PDF text selectability,
-`get_info` metadata (plus the `fields_mask` bits), the same-options equivalence
-check against a direct FFI render, the 254-dpi oracle against
-`$ROFD_SRC/tests/fixtures/reference/invoice-phase3.png`, and the open-latency
-measurement on a generated 300-page fixture for both `HAVE_ROFD_PAGE_SIZE` paths.
+Start **phase 2** of `docs/plan.md` (§5): `PpsDocumentText` (all five vfuncs),
+`PpsSelection` (three), `PpsDocumentFind` (two, with the per-page result cap),
+`ofd-links.c` and `ofd-outline.c` + `PpsDocumentLinks::get_links_model`, plus the
+generated CJK/image/links fixtures and the selection/copy/find/caret acceptance.
 
-Environment: `. scripts/dev-env.sh`; build and tests per README/AGENTS. Phase 0 is
-complete and committed (`f3ade9b`) with its evidence in `progress.md`.
+Phase 1 of `docs/plan.md` is complete and committed: rendering (rotation/zoom
+matrix on pixels, origin normalization, byte-equivalence with a direct FFI
+render), printing (cairo PDF and a real GTK print-to-file, both verified with
+poppler), metadata (`get_info` + mask bits), the invoice oracle (mean channel
+difference 3.28) and the open-latency table for both page-size paths; `meson test`
+7/7 in both builds. Evidence is in `progress.md`.
 
-Open user actions (not blocking): install `librofd-ffi 0.4.3-2` locally, and post
-the CLA sentence on upstream PRs #11/#12 when convenient.
+Open user action (not blocking): eyeball the four GUI items on the live session —
+rotate right/left, zoom in/out/fit, the properties dialog's metadata rows, and the
+print dialog preview plus *Print to File* — the automated evidence for those is the
+render matrix, the metadata test and the GTK print-to-file PDF.
 
 ## Current Phase
 
-`docs/plan.md` phase 0 complete; phase 1 next
+`docs/plan.md` phases 0 and 1 complete; phase 2 next
 
 ## Phases
 
@@ -114,6 +118,17 @@ the CLA sentence on upstream PRs #11/#12 when convenient.
 - [x] Fix the structurally wrong `../../rofd/…` link in the plan header; gitignore `local.conf`
 - [x] Verify: all resolver modes, `reuse lint`, fence balance, sibling-path audit
 - **Status:** complete
+
+### Phase 14: docs/plan.md phase 1 — rendering, metadata, printing
+
+- [x] `PpsDocumentPrint::print_page` wired to `ofd_render_page_onto` (dpi 72/scale 1/rotation 0) + `PpsDocumentPrint` registered on `OfdDocument`
+- [x] `PAPERS_OFD_FALLBACK_FAMILIES` override in the renderer factory, `get_info`/`ofd-metadata.c` with the `fields_mask` bits, `n_pages` and mm page sizes
+- [x] Fixtures: `corner-marker`, `origin-offset`, `metadata`, `latency [count]` kinds in `generate_fixture.py`; `rofd_src`/`rofd_page_size` meson options
+- [x] Tests: rotation matrix, origin normalization, zoom matrix, same-options equivalence, print into a cairo PDF, GTK print-to-file with poppler text extraction, metadata fields/mask, invoice oracle, latency tool
+- [x] Acceptance observed: `meson test` 7/7 in both page-size builds; oracle 2115×1400 mean 3.28; GTK print-to-file PDF text extractable by poppler and `pdftotext`; Papers session run with 0 criticals; latency recorded in README limitations
+- [x] Fixed the MIME magic for the real invoice layout (`Doc_0/`@30) — found by the oracle run
+- [x] Docs updated: plan §4 (uniform scale), §5 (phase-1 steps/evidence), §6 (setup command, fixture matrix), §7 (magic); README (status, build, latency limitation, roadmap)
+- **Status:** complete (one user-visible check left: the four GUI items on the live session)
 
 ## Key Questions
 

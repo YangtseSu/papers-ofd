@@ -13,6 +13,65 @@ ofd_render_log_diagnostic (const rofd_render_diagnostic_t *diagnostic)
 	         diagnostic->message != NULL ? diagnostic->message : "(no message)");
 }
 
+rofd_renderer_t *
+ofd_renderer_new (void)
+{
+	const gchar *families_env = g_getenv ("PAPERS_OFD_FALLBACK_FAMILIES");
+	rofd_renderer_options_t options;
+	rofd_renderer_t *renderer = NULL;
+	rofd_error_t *rerror = NULL;
+	rofd_status_t status;
+
+	if (families_env == NULL) {
+		/* NULL options select rofd's built-in defaults, which already include a
+		 * CJK family (D8, rofd renderer.rs DEFAULT_FALLBACK_FAMILIES). */
+		status = rofd_renderer_new (NULL, &renderer, &rerror);
+	} else {
+		g_auto (GStrv) split = g_strsplit (families_env, ":", -1);
+		g_autofree const char **families = NULL;
+		gsize total = g_strv_length (split);
+		gsize count = 0;
+		gsize i;
+
+		/* Compact the list into a separate array: g_strfreev must keep owning
+		 * exactly one pointer per entry, and rofd requires a non-NULL array both
+		 * for "these families" and for the explicit zero-count disable. */
+		families = g_new0 (const char *, total + 1);
+		for (i = 0; i < total; i++) {
+			if (split[i][0] != '\0')
+				families[count++] = split[i];
+		}
+
+		rofd_renderer_options_init (&options, sizeof (options));
+		options.fallback_families = families;
+		options.fallback_family_count = count;
+		status = rofd_renderer_new (&options, &renderer, &rerror);
+
+		if (status == ROFD_STATUS_OK && count == 0)
+			g_debug ("PAPERS_OFD_FALLBACK_FAMILIES set but empty: fallback disabled");
+	}
+
+	if (status != ROFD_STATUS_OK) {
+		g_debug ("renderer creation failed: %s",
+		         rerror != NULL ? rofd_error_get_message (rerror) : "unknown error");
+		renderer = NULL;
+	}
+	if (rerror != NULL)
+		rofd_error_free (rerror);
+
+	return renderer;
+}
+
+void
+ofd_render_options_init_print (rofd_render_options_t *options)
+{
+	rofd_render_options_init (options, sizeof (*options));
+	options->dpi = 72.0;
+	options->scale = 1.0;
+	options->rotation_degrees = 0;
+	options->background_rgba = 0xFFFFFFFF;
+}
+
 void
 ofd_render_options_from_context (PpsRenderContext *rc,
                                  double width_pt,

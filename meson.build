@@ -51,9 +51,11 @@ endif
 ofd_conf = configuration_data()
 # rofd.h includes <cairo.h>, so even the probe needs cairo's include path; the
 # installed .pc declares the same through Requires: cairo.
-if cc.has_function('rofd_document_get_page_size_mm',
-                   prefix: '#include <rofd.h>',
-                   dependencies: [rofd_dep, cairo_dep])
+if get_option('rofd_page_size') == 'disabled'
+  message('rofd_page_size=disabled: always fetching pages to size them')
+elif cc.has_function('rofd_document_get_page_size_mm',
+                     prefix: '#include <rofd.h>',
+                     dependencies: [rofd_dep, cairo_dep])
   ofd_conf.set('HAVE_ROFD_PAGE_SIZE', 1)
   message('rofd_document_get_page_size_mm present: metadata-only page sizes')
 else

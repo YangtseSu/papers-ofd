@@ -5,6 +5,7 @@
 #include "ofd-document.h"
 
 #include "ofd-page.h"
+#include "ofd-metadata.h"
 #include "ofd-render.h"
 #include "ofd-units.h"
 
@@ -36,7 +37,11 @@ struct _OfdDocument {
 	gint geometry_len;
 };
 
-G_DEFINE_FINAL_TYPE (OfdDocument, ofd_document, PPS_TYPE_DOCUMENT)
+static void ofd_document_print_iface_init (PpsDocumentPrintInterface *iface);
+
+G_DEFINE_FINAL_TYPE_WITH_CODE (OfdDocument, ofd_document, PPS_TYPE_DOCUMENT,
+                               G_IMPLEMENT_INTERFACE (PPS_TYPE_DOCUMENT_PRINT,
+                                                      ofd_document_print_iface_init))
 
 /* rofd frees take a bare pointer; NULL handling is ours either way. */
 static void
@@ -258,22 +263,46 @@ static rofd_renderer_t *
 ofd_document_get_renderer (OfdDocument *self)
 {
 	rofd_renderer_t *renderer = NULL;
-	rofd_error_t *rerror = NULL;
 
 	g_mutex_lock (&self->mutex);
-	if (self->renderer == NULL) {
-		if (rofd_renderer_new (NULL, &self->renderer, &rerror) != ROFD_STATUS_OK) {
-			g_debug ("renderer creation failed: %s",
-			         rerror != NULL ? rofd_error_get_message (rerror) : "unknown error");
-			if (rerror != NULL)
-				rofd_error_free (rerror);
-			self->renderer = NULL;
-		}
-	}
+	if (self->renderer == NULL)
+		self->renderer = ofd_renderer_new ();
 	renderer = self->renderer;
 	g_mutex_unlock (&self->mutex);
 
 	return renderer;
+}
+
+/* The rofd page handle a page vfunc renders from: the one attached at get_page
+ * (D1), or a handle fetched for this call when the caller built its own
+ * PpsPage. Sets *borrowed when the caller must free the result. */
+static rofd_page_t *
+ofd_document_page_handle (OfdDocument *self, PpsPage *page, gboolean *borrowed)
+{
+	rofd_page_t *rpage;
+	rofd_error_t *rerror = NULL;
+
+	*borrowed = FALSE;
+
+	rpage = ofd_page_get_rofd_page (page);
+	if (rpage != NULL)
+		return rpage;
+
+	if (self->rofd_document == NULL || page->index < 0 ||
+	    page->index >= self->n_pages)
+		return NULL;
+
+	if (rofd_document_get_page (self->rofd_document, (size_t) page->index,
+	                            &rpage, &rerror) != ROFD_STATUS_OK) {
+		g_debug ("rofd page %d could not be opened: %s", page->index,
+		         rerror != NULL ? rofd_error_get_message (rerror) : "unknown error");
+		if (rerror != NULL)
+			rofd_error_free (rerror);
+		return NULL;
+	}
+
+	*borrowed = TRUE;
+	return rpage;
 }
 
 static cairo_surface_t *
@@ -304,20 +333,9 @@ ofd_document_render (PpsDocument *document, PpsRenderContext *rc)
 	if (width_pt <= 0.0 || height_pt <= 0.0)
 		return NULL;
 
-	rpage = ofd_page_get_rofd_page (page);
-	if (rpage == NULL) {
-		/* A page object that did not come from our get_page (e.g. built by a
-		 * caller); borrow a fresh handle for this call only. */
-		rofd_error_t *rerror = NULL;
-
-		if (rofd_document_get_page (self->rofd_document, (size_t) page->index,
-		                            &rpage, &rerror) != ROFD_STATUS_OK) {
-			if (rerror != NULL)
-				rofd_error_free (rerror);
-			return NULL;
-		}
-		borrowed_page = TRUE;
-	}
+	rpage = ofd_document_page_handle (self, page, &borrowed_page);
+	if (rpage == NULL)
+		return NULL;
 
 	renderer = ofd_document_get_renderer (self);
 	if (renderer != NULL)
@@ -327,6 +345,69 @@ ofd_document_render (PpsDocument *document, PpsRenderContext *rc)
 		rofd_page_free (rpage);
 
 	return surface;
+}
+
+/* PpsDocumentPrint is dispatched without a NULL check upstream (A9), so it must
+ * draw from this vfunc alone: no target size, no rotation, 1 point per point —
+ * the print operation has already transformed the context. */
+static void
+ofd_document_print_page (PpsDocumentPrint *document_print,
+                         PpsPage *page,
+                         cairo_t *cr)
+{
+	OfdDocument *self = OFD_DOCUMENT (document_print);
+	rofd_page_t *rpage;
+	rofd_renderer_t *renderer;
+	rofd_render_options_t options;
+	gboolean borrowed_page = FALSE;
+
+	if (page == NULL || cr == NULL || self->rofd_document == NULL)
+		return;
+
+	rpage = ofd_document_page_handle (self, page, &borrowed_page);
+	if (rpage == NULL)
+		return;
+
+	renderer = ofd_document_get_renderer (self);
+	if (renderer != NULL) {
+		ofd_render_options_init_print (&options);
+		ofd_render_page_onto (renderer, rpage, cr, &options);
+	}
+
+	if (borrowed_page)
+		rofd_page_free (rpage);
+}
+
+static PpsDocumentInfo *
+ofd_document_get_info (PpsDocument *document)
+{
+	OfdDocument *self = OFD_DOCUMENT (document);
+	g_autofree PpsDocumentPageSize *sizes = NULL;
+	gint resolved = 0;
+	gint i;
+
+	/* The shell always sizes every page during the load job (setup_cache), so
+	 * this normally reads the geometry cache only; querying is the fallback for
+	 * callers that never populated it. */
+	if (self->n_pages > 0) {
+		sizes = g_new0 (PpsDocumentPageSize, self->n_pages);
+
+		for (i = 0; i < self->n_pages; i++) {
+			rofd_rect_t box_mm = { 0, };
+
+			if (!ofd_document_page_box (self, i, &box_mm))
+				continue;
+
+			/* Millimetres, like the PDF backend's page_sizes: the properties
+			 * dialog compares them against GTK paper sizes in mm (A12). */
+			sizes[i].width = box_mm.width_mm;
+			sizes[i].height = box_mm.height_mm;
+			resolved++;
+		}
+	}
+
+	return ofd_metadata_new (self->rofd_document, self->n_pages,
+	                         resolved > 0 ? sizes : NULL);
 }
 
 static gboolean
@@ -357,6 +438,12 @@ ofd_document_finalize (GObject *object)
 }
 
 static void
+ofd_document_print_iface_init (PpsDocumentPrintInterface *iface)
+{
+	iface->print_page = ofd_document_print_page;
+}
+
+static void
 ofd_document_class_init (OfdDocumentClass *klass)
 {
 	GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
@@ -371,6 +458,7 @@ ofd_document_class_init (OfdDocumentClass *klass)
 	document_class->get_page_size = ofd_document_get_page_size;
 	document_class->render = ofd_document_render;
 	document_class->get_backend_info = ofd_document_get_backend_info;
+	document_class->get_info = ofd_document_get_info;
 }
 
 static void

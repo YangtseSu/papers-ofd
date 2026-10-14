@@ -1,9 +1,35 @@
+fs = import('fs')
+
 fixture_generator = find_program('generate_fixture.py')
 
 fixtures = custom_target('ofd-test-fixture',
   output: 'geometry-3pages.ofd',
-  command: [fixture_generator, '@OUTPUT@'],
+  command: [fixture_generator, 'geometry', '@OUTPUT@'],
   build_by_default: true)
+
+corner_marker_fixture = custom_target('ofd-test-fixture-corner-marker',
+  output: 'corner-marker.ofd',
+  command: [fixture_generator, 'corner-marker', '@OUTPUT@'],
+  build_by_default: true)
+
+origin_offset_fixture = custom_target('ofd-test-fixture-origin-offset',
+  output: 'origin-offset.ofd',
+  command: [fixture_generator, 'origin-offset', '@OUTPUT@'],
+  build_by_default: true)
+
+metadata_fixture = custom_target('ofd-test-fixture-metadata',
+  output: 'metadata.ofd',
+  command: [fixture_generator, 'metadata', '@OUTPUT@'],
+  build_by_default: true)
+
+latency_fixture = custom_target('ofd-test-fixture-latency-300',
+  output: 'latency-300pages.ofd',
+  command: [fixture_generator, 'latency', '@OUTPUT@', '300'],
+  build_by_default: true)
+
+poppler_glib_dep = dependency('poppler-glib')
+gtk_dep = dependency('gtk4')
+papers_view_dep = dependency('papers-view-4.0', version: ['>= 51', '< 52'])
 
 test_ofd_units = executable('test-ofd-units',
   files('test-ofd-units.c', '../src/ofd-units.c'),
@@ -13,6 +39,26 @@ test_ofd_units = executable('test-ofd-units',
 
 test_ofd_document = executable('test-ofd-document',
   files('test-ofd-document.c'),
+  include_directories: ofd_include,
+  dependencies: [papers_dep, glib_dep, gio_dep])
+
+test_ofd_render = executable('test-ofd-render',
+  files('test-ofd-render.c', 'ofd-test-utils.c'),
+  include_directories: ofd_include,
+  dependencies: [papers_dep, papers_view_dep, glib_dep, gio_dep, rofd_dep, poppler_glib_dep])
+
+test_ofd_print_file = executable('test-ofd-print-file',
+  files('ofd-print-file.c', 'ofd-test-utils.c'),
+  include_directories: ofd_include,
+  dependencies: [papers_dep, papers_view_dep, glib_dep, gio_dep, poppler_glib_dep, gtk_dep])
+
+ofd_latency = executable('ofd-latency',
+  files('ofd-latency.c', 'ofd-test-utils.c'),
+  include_directories: ofd_include,
+  dependencies: [papers_dep, glib_dep, gio_dep])
+
+test_ofd_metadata = executable('test-ofd-metadata',
+  files('test-ofd-metadata.c', 'ofd-test-utils.c'),
   include_directories: ofd_include,
   dependencies: [papers_dep, glib_dep, gio_dep])
 
@@ -29,3 +75,41 @@ test('ofd-discovery-failure',
          files('../data/papers-ofd.xml'),
          fixtures],
   timeout: 60)
+
+test('ofd-render',
+  test_ofd_render,
+  args: [ofd_module, descriptor_in_build, files('../data/papers-ofd.xml'),
+         corner_marker_fixture, origin_offset_fixture, metadata_fixture],
+  timeout: 120)
+
+test('ofd-print-file',
+  test_ofd_print_file,
+  args: [ofd_module, descriptor_in_build, files('../data/papers-ofd.xml'),
+         metadata_fixture, 'phase1-print-to-file.pdf'],
+  timeout: 120)
+
+test('ofd-metadata',
+  test_ofd_metadata,
+  args: [ofd_module, descriptor_in_build, files('../data/papers-ofd.xml'),
+         metadata_fixture, fixtures],
+  timeout: 60)
+
+rofd_src = get_option('rofd_src')
+if rofd_src != ''
+  oracle_fixture = rofd_src / 'learning' / 'test.ofd'
+  oracle_reference = rofd_src / 'tests' / 'fixtures' / 'reference' / 'invoice-phase3.png'
+  if fs.exists(oracle_fixture) and fs.exists(oracle_reference)
+    test_ofd_oracle = executable('test-ofd-oracle',
+      files('test-ofd-oracle.c', 'ofd-test-utils.c'),
+      include_directories: ofd_include,
+      dependencies: [papers_dep, glib_dep, gio_dep])
+
+    test('ofd-oracle',
+      test_ofd_oracle,
+      args: [ofd_module, descriptor_in_build, files('../data/papers-ofd.xml'),
+             oracle_fixture, oracle_reference],
+      timeout: 120)
+  else
+    warning('rofd_src is set but the oracle fixture or reference is missing; skipping ofd-oracle')
+  endif
+endif

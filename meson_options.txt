@@ -14,3 +14,12 @@ option('tests',
        type: 'boolean',
        value: true,
        description: 'Build and run the test suite')
+option('rofd_src',
+       type: 'string',
+       value: '',
+       description: 'rofd checkout holding the external fixtures (learning/test.ofd and tests/fixtures/reference/invoice-phase3.png); the oracle test runs only when it is set')
+option('rofd_page_size',
+       type: 'combo',
+       choices: ['auto', 'disabled'],
+       value: 'auto',
+       description: 'Use rofd_document_get_page_size_mm when the ABI has it (auto), or always fetch pages to size them (disabled; for the phase-1 open-latency comparison)')

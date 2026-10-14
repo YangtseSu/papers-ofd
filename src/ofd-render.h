@@ -7,6 +7,16 @@
 
 G_BEGIN_DECLS
 
+/* Renderer for this module: rofd's built-in defaults, or the colon-separated
+ * family list in PAPERS_OFD_FALLBACK_FAMILIES when that variable is set (an
+ * empty value disables fallback). Returns NULL when rofd fails to create it. */
+rofd_renderer_t *ofd_renderer_new (void);
+
+/* Print options: the GTK print context is in points and the print operation
+ * applies the page transform itself, so the page is drawn at 1 point per point
+ * with no rotation (plan §3). */
+void ofd_render_options_init_print (rofd_render_options_t *options);
+
 /* Map a Papers render context onto rofd render options (plan §4).
  * pps_render_context_compute_scaled_size is the only correct source of the
  * pixel size, and dpi=72 makes rofd's scale numerically identical to Papers'

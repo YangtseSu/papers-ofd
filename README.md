@@ -9,15 +9,24 @@ directory. No Papers fork, no Papers rebuild, no patching of Papers sources.
 
 ## Status
 
-Plan reviewed against **Papers 51.1** ([tag `51.1`](https://gitlab.gnome.org/GNOME/papers/-/tree/51.1);
-build needs only the installed `papers-document-4.0` headers) and **rofd ABI v1**;
-implementation not started. Dependency locations are resolved per machine by
-`scripts/dev-env.sh` (see [Requirements](#requirements)).
+Phases 0 and 1 are implemented and tested against **Papers 51.1** ([tag `51.1`](https://gitlab.gnome.org/GNOME/papers/-/tree/51.1);
+the build needs only the installed `papers-document-4.0` headers) and **rofd ABI v1**:
+the module loads through Papers' own backend discovery, renders pages correctly at
+every rotation and zoom step, prints (vector text), and reports metadata.
 
-- Implementation plan: [`docs/plan.md`](docs/plan.md) — phases, interface contract,
-  acceptance criteria, verification playbook, risks ([§5](docs/plan.md#5-phases)).
-- Research notebook (raw evidence with `file:line`): `.planning/` in the working
-  copy.
+- `meson test -C _build` runs the unit conversions, the factory round-trip with a
+  deliberate discovery failure, the rotation/zoom/origin render matrix, the
+  same-options equivalence against a direct FFI render, a real GTK print-to-file
+  whose PDF text is verified with poppler, the metadata fields and mask bits, and
+  — with `-Drofd_src=<rofd checkout>` — the invoice oracle against rofd's
+  reference render.
+- Remaining: text/selection/find/links/outline (phase 2), fd loading, packaging
+  and desktop integration (phase 3), upstream MR (phase 4).
+
+Implementation plan: [`docs/plan.md`](docs/plan.md) — phases, interface contract,
+acceptance criteria, verification playbook, risks ([§5](docs/plan.md#5-phases)).
+Research notebook (raw evidence with `file:line`): `.planning/` in the working
+copy.
 
 ## What it will do
 
@@ -88,10 +97,12 @@ if [ "$ROFD_ABI_SOURCE" = checkout ]; then
   ln -sf librofd_ffi.so "$ROFD_LIBDIR/librofd_ffi.so.0"
 fi
 
-# 2. this module
+# 2. this module (-Drofd_src=<checkout> also builds the invoice oracle test;
+#    -Drofd_page_size=disabled builds the per-page fallback for latency runs)
 meson setup _build \
   -Drofd_libdir="$ROFD_LIBDIR" \
-  -Drofd_includedir="$ROFD_INCLUDEDIR"
+  -Drofd_includedir="$ROFD_INCLUDEDIR" \
+  -Drofd_src="$ROFD_SRC"
 meson compile -C _build
 meson test -C _build
 
@@ -138,26 +149,37 @@ patch-free vs patch-the-desktop tradeoff: [`docs/plan.md` §7](docs/plan.md#7-pa
 
 ## Limitations
 
-- Opening a large document parses every page up front: Papers asks for every page
-  size and the released ABI has no size-only call. The patch in `patches/` adds
-  `rofd_document_get_page_size_mm` (rofd-core already implements the query); Meson
-  detects it and the module falls back to the per-page fetch when it is absent.
-  Open latency is measured and published per [§5](docs/plan.md#5-phases) phase 1.
+- **Open latency** on a 300-page generated fixture (content on every page,
+  5 runs, best of): load 2 ms, then ~70 ms for the page walk (`setup_cache`,
+  which fetches every page object) and ~48 ms for the first rendered page —
+  ~120 ms from `pps_document_load` to the first page being visible. The
+  metadata-only page-size query (`patches/`, `rofd_document_get_page_size_mm`)
+  makes the size walk itself 20 ms instead of 71 ms, but the end-to-end time is
+  the same in the shell's flow because `setup_cache` fetches the page objects
+  either way; the fast path pays off for callers that only need sizes
+  (`tests/ofd-latency.c`, both builds).
 - Selection highlights are drawn as filled rectangles; the glyphs underneath are
   not recoloured, because rofd's ABI exposes no text mask. Invisible on systems
   whose poppler has transparent-selection support (the common case).
 - A wrapped multi-line search match is reported as a single result rectangle.
 - Named destinations (`find_link_dest`/`find_link_page`) are stubs.
+- rofd's render options carry a **single uniform scale**: a render target whose
+  aspect ratio differs from the page is not stretched (poppler's backend scales
+  the axes independently). Papers always derives target sizes from the page size,
+  so this is unobservable there ([§4](docs/plan.md#4-units-coordinates-and-render-math)).
 
 ## Roadmap
 
-| Phase | Content | Plan |
+| Phase | Content | Status |
 | --- | --- | --- |
-| 0 | Loadable module, discovery, page geometry | [§5](docs/plan.md#5-phases) |
-| 1 | Rendering, rotation/zoom matrix, metadata, printing | [§5](docs/plan.md#5-phases) |
-| 2 | Text, selection, find, links, outline | [§5](docs/plan.md#5-phases) |
-| 3 | `load_fd` (previewer), packaging, install checks | [§5](docs/plan.md#5-phases) |
-| 4 | Upstream MR into Papers' `libdocument/backend/ofd/` | [§5](docs/plan.md#5-phases) |
+| 0 | Loadable module, discovery, page geometry | done |
+| 1 | Rendering, rotation/zoom matrix, metadata, printing | done |
+| 2 | Text, selection, find, links, outline | next |
+| 3 | `load_fd` (previewer), packaging, install checks | planned |
+| 4 | Upstream MR into Papers' `libdocument/backend/ofd/` | planned |
+
+Per-phase deliverables, steps and acceptance criteria:
+[`docs/plan.md` §5](docs/plan.md#5-phases).
 
 ## Upstreaming
 

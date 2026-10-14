@@ -8,6 +8,7 @@ ofd_module = shared_module('ofddocument',
   files(
     'ofd-backend.c',
     'ofd-document.c',
+    'ofd-metadata.c',
     'ofd-page.c',
     'ofd-render.c',
     'ofd-units.c',

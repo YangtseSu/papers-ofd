@@ -8,8 +8,17 @@
     <comment xml:lang="zh_CN">开放式版式文档</comment>
     <sub-class-of type="application/zip"/>
     <magic priority="50">
+      <!-- Producers differ in what the first zip entry is: OFD.xml, or the
+           Doc_0 directory the DocRoot points into (the invoice fixture in the
+           rofd checkout starts with Doc_0/Annots/Annotations.xml, so OFD.xml
+           only appears much later in the archive). Both layouts get the
+           application/ofd magic, which is what the extension-less
+           /proc/self/fd path of the previewer relies on. -->
       <match type="string" value="PK\x03\x04" offset="0">
         <match type="string" value="OFD.xml" offset="30"/>
+      </match>
+      <match type="string" value="PK\x03\x04" offset="0">
+        <match type="string" value="Doc_0/" offset="30"/>
       </match>
     </magic>
     <glob pattern="*.ofd"/>
