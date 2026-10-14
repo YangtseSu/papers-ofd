@@ -463,6 +463,25 @@
 | Phase-2 GUI acceptance (live session) | `papers` on the text and links fixtures from the installed package | every acceptance item observable | user-confirmed 2026-10-15: selection/copy, Ctrl+F rows, caret, I-beam, links and outline are correct, and the Ctrl+F highlight sits on the searched text after the geometry fix | pass |
 | Papers session with the patched library | `LD_LIBRARY_PATH=$ROFD_SRC/target/release papers text-2pages.ofd` | loads, no criticals | ran 12 s, 0 CRITICAL/ERROR (only the expected font-fallback diagnostics) | pass |
 
+| Phase-3 build (three configurations) | `meson setup --reconfigure` + compile on `_build`, `_build-slow`, `_build-fork` | module + the new test build without warnings | built in all three; `meson test` 12/12 in each (the new `ofd-fd` included) | pass |
+| fd vs URI equivalence | `test-2pages.ofd` and `metadata.ofd` through `pps_document_factory_get_document_for_fd` + `pps_document_load_fd` | the same document as the URI path | page count, page sizes, page text, rendered pixels (memcmp at scale 1.5) and document info (fields, mask, datetimes) identical; the caller's descriptor is closed, the load job's duplicate too | pass |
+| fd ownership and rejection | pipe, directory, write-only regular file, plus the success path | descriptor consumed in every outcome | `G_FILE_ERROR_BADF` for all three rejections ("Not a regular file."/"Not a readable file descriptor.") with the fd closed; on success the passed fd is closed and the document still renders | pass |
+| Unlinked file over fd | copy of the fixture, `unlink` before the load | loads through `/proc/self/fd`, no temp copy | 2 pages, page text equal to the URI document, `$XDG_CACHE_HOME/papers-ofd` never created | pass |
+| Temp-copy fallback | descriptor whose read permission was withdrawn (`chmod 000`) after the open | copy made, used, removed | loads and matches the URI document; exactly one `ofd-fd-XXXXXX` in `$XDG_CACHE_HOME/papers-ofd` while in use, none after a URI reload or at finalize | pass |
+| fd error parity | truncated copy of the text fixture | same error as the URI path | both `G_IO_ERROR_INVALID_DATA` with an identical message; the same object then loads a good descriptor (2 pages) | pass |
+| fd test under MALLOC_PERTURB_ | `G_SLICE=always-malloc MALLOC_PERTURB_=165 ./tests/test-ofd-fd …` | clean | exit 0, no criticals | pass |
+| Package build | `packaging/PKGBUILD`, `makepkg -f --noconfirm` | package with module + 4 data files | `papers-ofd 0.1.0-1` (47.5 KB); file list: `usr/lib/papers/6/backends/{libofddocument.so,org.gnome.Papers.OfdDocument.papers-backend}`, `usr/share/{mime/packages/papers-ofd.xml,thumbnailers/papers-ofd.thumbnailer,applications/org.gnome.Papers.Ofd.desktop}` | pass |
+| Package `check()` | the suite inside `makepkg` | tests pass in the build | 11/11 (`ofd-oracle` needs `-Drofd_src`); `ofd-print-file` ran for real (exit 0, no display skip) | pass |
+| `namcap` | package tarball + PKGBUILD | no errors | package: only the `gcc-libs` advisories; PKGBUILD: silent; the `shared-mime-info`/`desktop-file-utils` warnings disappeared once they were dropped (both arrive through `papers`) | pass |
+| Source pin | anonymous download of the pinned commit archive | sha256 matches | `64c1797d6bcc5fb4baa66400f8e2f3cd0d6de6ab22ef8a595fbaac259b28853b` from an unauthenticated `curl`, and a `makepkg` run that downloaded it itself (empty `SRCDIR`) | pass |
+| AUR publication | `git push ssh://aur@aur.archlinux.org/papers-ofd.git` | package appears | `master` = `86e4929` (`papers-ofd 0.1.0-1`), package page HTTP 200; the RPC index still reported `resultcount 0` when checked minutes later (indexing lag) | pass |
+| Staged install checks | package extracted to a prefix + `update-mime-database`/`update-desktop-database` | MIME and association resolve | `desktop-file-validate` clean; `xdg-mime query filetype` → `application/ofd`; `xdg-mime query default application/ofd` → `org.gnome.Papers.Ofd.desktop`, also the recommended application in `gio mime` | pass |
+| Thumbnailer (packaged module) | `papers-thumbnailer -s 256` with `PPS_BACKENDS_DIR` = system dir + the package's files | PNG with a rendered page | 181x256 (text fixture), 256x170 with mean 63934/65535 and sd 6312 (real invoice); the PDF regression thumbnail is 198x256 | pass |
+| Previewer fd path | `papers-previewer --fd 3 < text-2pages.ofd` (dev dir, then installed) | document loads and renders | both runs: 334 lines of this module's render diagnostics, 0 CRITICAL/ERROR, window up until `timeout` | pass |
+| `papers` and `gio open` | installed package, no env overrides | OFD opens | `papers <fixture>`: 670 debug lines from the module, 0 CRITICAL/ERROR; `gio open` starts `/usr/bin/papers …/text-2pages.ofd` | pass |
+| Installed package | `pacman -U /tmp/ofd-makepkg/papers-ofd-0.1.0-1-x86_64.pkg.tar.zst` (user) | clean install | installed 03:15:37 from the current recipe (`Depends On: cairo gcc-libs glib2 glibc librofd-ffi>=0.4.3 papers>=51 papers<52`), no file conflicts; installed `libofddocument.so` md5 matches the built package; `xdg-mime query filetype/default` and `papers-thumbnailer` work from `/usr` with no overrides | pass |
+| GUI acceptance (phase 3) | live session: Nautilus space bar, Nautilus icon/thumbnail, double-click, app grid | visible behaviour | **user-confirmed** (see the session section) | pass |
+
 ## Error Log
 
 | Timestamp | Error | Attempt | Resolution |
@@ -488,15 +507,20 @@
 | 2026-10-14 | `ofd-render` target-size case failed (1132 px instead of 600) | 1 | rofd's options carry a single uniform scale, so a target with a different aspect ratio than the page cannot be reproduced (poppler scales the axes independently). Papers always derives target sizes from the page size (`pps-pixbuf-cache.c:1041-1044,1113-1118`), so the test now does too; the deviation is documented in plan §4 and the README limitations |
 | 2026-10-14 | Headless GUI rendering via GTK broadway abandoned | 3 | `broadwayd` binds its TCP port but creates no unix socket in this environment and GTK4's broadway client needs it (`BROADWAY_DISPLAY=:N` → `$XDG_RUNTIME_DIR/broadwayN`); TCP display strings are not accepted. GNOME Shell's screenshot D-Bus API answers "Access denied", and no Xvfb/nested compositor is installed. GUI acceptance is therefore observed on the live session (log-level) plus the user's visual check |
 
+| 2026-10-15 | `test-ofd-fd` aborted with `application/x-zerosize` for the MIME type it sniffed | 1 | The rejected-descriptor cases (pipe, directory, write-only) called the sniffing path, which legitimately reads nothing from them. Split the helper: real fixtures sniff the type (that is the previewer's step and is asserted), the rejection cases pass `application/ofd` explicitly |
+| 2026-10-15 | `test-ofd-fd` segfaulted in `open_fixture_copy` from `main` | 1 | The helper dereferenced its optional `path_out` unconditionally; guarded it |
+| 2026-10-15 | `curl` of the pinned source archive returned 404 although `git ls-remote` showed the commit | 1 | The GitHub repository was still **private** (`gh repo view` → `isPrivate: true`), so archives need auth and the AUR source would be unfetchable; the user chose to publish the repository, after which the anonymous download matched the checksum exactly |
+| 2026-10-15 | `/tmp/pc-norofd` was not writable when re-creating the checkout-tier pkg-config directory | 1 | The directory was a leftover from the previous session with different contents; used a fresh `/tmp/pc-norofd3` instead of fighting it |
+
 ## 5-Question Reboot Check
 
 | Question | Answer |
 |----------|--------|
-| Where am I? | `docs/plan.md` phases 0–2 complete and accepted: skeleton, rendering/printing/metadata, text/selection/find/links/outline; `meson test` 11/11 in both page-size builds against the installed `librofd-ffi 0.4.3-4`; the phase-2 GUI acceptance is user-confirmed |
-| Where am I going? | Phase 3 starts in a new session (user's call): `load_fd` for the previewer, then a `papers-ofd` PKGBUILD and the install checks; the detailed handoff is in `task_plan.md` under *Phase 3 handoff*. The MIME priority fix (A22) and the font-advance fixes (A24) are already in place and installed |
+| Where am I? | `docs/plan.md` phases 0–3 implemented: skeleton, rendering/printing/metadata, text/selection/find/links/outline, and now fd loading plus the Arch package (AUR `papers-ofd 0.1.0-1`, installed on this machine at 03:15). `meson test` is 12/12 in `_build`, `_build-slow` and `_build-fork`; the packaged module passes the previewer fd path, `papers-thumbnailer` and the MIME/desktop association checks |
+| Where am I going? | Phase 3 is code-complete and shipped; what is left is the user's visual acceptance on the live session (Nautilus icon/thumbnail, space-bar preview window, double-click, single app-grid entry) and optionally the `pacman -Rns papers-ofd` uninstall regression. Then phase 4 (the upstream MR) is the only planned work left |
 | What's the goal? | Ship the OFD backend for Papers 51.x, out-of-tree, on the rofd ABI we maintain (fork-first, AUR package) |
-| What have I learned? | Phase 16: rofd's semantic text geometry and its renderer disagreed for runs without explicit `DeltaX` (font size vs font advance) — a third rofd gap we now carry a patch for, and a reminder that rectangle-producing vfuncs must be validated against *pixels*. Phase 1: one uniform render scale (plan §4), rofd's rotation is clockwise and matches `rc->rotation` as-is, the invoice's first zip entry is `Doc_0/…`, and `setup_cache` fetches every page object. Phase 2: `PpsOutlines` has declared-but-unexported functions (A21), a nested MIME rule below `application/zip`'s priority silently loses content-only detection (A22), Papers refuses selection on rotated pages, rofd's fallback font advances ≈ `0.96 × Size` mm per glyph, and layout/find/selection rectangles must be re-based on the *target* page's box origin for GOTO destinations |
-| What have I done? | Plan/README machine-portable and REUSE-compliant; rofd page-size patch shipped via our AUR package and proposed upstream (#11), `rofd-ffi.pc` proposed upstream (#12) and shipped; phases 0–2 implemented and tested (10/10 in both builds), with the A21/A22 defects fixed; a PDF-session and an OFD-session log check done; the phase-2 GUI acceptance is the user's call |
+| What have I learned? | Phase 3: `/proc/self/fd/<n>` re-enters a file the caller already unlinked and always starts at offset 0, but it re-checks the file's permission — withdrawing read permission after the open is a deterministic trigger for the temp-copy fallback (A25). An AUR package cannot fetch from a private GitHub repository, so the repository had to become public before the source pin was publishable. Phase 16: rofd's semantic text geometry and its renderer disagreed for runs without explicit `DeltaX` (font size vs font advance) — a third rofd gap we now carry a patch for, and a reminder that rectangle-producing vfuncs must be validated against *pixels*. Phase 1: one uniform render scale (plan §4), rofd's rotation is clockwise and matches `rc->rotation` as-is, the invoice's first zip entry is `Doc_0/…`, and `setup_cache` fetches every page object. Phase 2: `PpsOutlines` has declared-but-unexported functions (A21), a nested MIME rule below `application/zip`'s priority silently loses content-only detection (A22), Papers refuses selection on rotated pages, rofd's fallback font advances ≈ `0.96 × Size` mm per glyph, and layout/find/selection rectangles must be re-based on the *target* page's box origin for GOTO destinations |
+| What have I done? | Plan/README machine-portable and REUSE-compliant; rofd patches shipped via our AUR packages and proposed upstream (#11/#12/#13); phases 0–3 implemented and tested (12/12 in three build configurations), with the A21/A22/A24/A25 findings recorded; `packaging/PKGBUILD` published to the AUR as `papers-ofd 0.1.0-1` and installed here; the phase-3 visual acceptance is the user's call |
 
 ---
 
@@ -530,3 +554,66 @@
   `_build-fork`; `reuse lint` compliant.
 - Open for the user: nothing blocking; the AUR push of `librofd-ffi 0.4.3-4` stays
   deferred, and upstream reviews of rofd #11/#13 are opportunistic.
+
+## Phase 3 — fd loading, packaging, install checks (2026-10-15, new session)
+
+- **Status:** complete except the user's visual acceptance.
+
+### fd loading
+
+- `src/ofd-document.c` gained `load_fd`: `dup(fd)` (the base class hands the
+  descriptor over), `rofd_document_open("/proc/self/fd/<dup>")`, then a temp copy
+  below `g_get_user_cache_dir()/papers-ofd/ofd-fd-XXXXXX` when that path cannot be
+  re-entered; the descriptor and the copy are dropped on reload and at finalize
+  (`ofd_document_drop_source`). `load` was split into `load` (URI → path) and the
+  shared `load_path`, so both entry points swap the document identically.
+- `tests/test-ofd-fd.c` drives the previewer's sequence
+  (`pps_file_get_mime_type_from_fd` → `pps_document_factory_get_document_for_fd` →
+  `pps_document_load_fd`) and compares the result with the URI document in page
+  count, page sizes, page text, rendered pixels and document info; it also covers
+  the unlinked-file case, the temp-copy fallback with its lifetime, the three
+  descriptor rejections of the base class and error parity with the URI path. The
+  fallback is reached deterministically by withdrawing read permission after the
+  open (A25) — no production code exists just for the test.
+
+### Packaging
+
+- `packaging/PKGBUILD`: Arch recipe, source = commit-pinned archive of this
+  repository (`6936c96`, sha256 `64c1797d…b28853b`), `--buildtype=plain` so the
+  makepkg flags apply, `check()` = the suite, `depends` = `librofd-ffi>=0.4.3`,
+  `papers>=51`, `papers<52`, `cairo`, `gcc-libs`, `glib2`, `glibc`. The
+  `shared-mime-info`/`desktop-file-utils` dependencies were dropped after
+  `pactree -u papers` showed both arrive through `papers` and namcap called them
+  unneeded; the hooks they own still index our files.
+- The repository went **public** (the user's decision) so the pinned source is
+  fetchable; the anonymous download then matched the checksum, and a `makepkg` run
+  with an empty `SRCDIR` built and tested the package from that URL.
+- Published to the AUR: `papers-ofd 0.1.0-1`, `master` = `86e4929`, mirror in
+  `~/projects/papers-ofd-aur` (same working copy convention as `librofd-ffi`).
+- `plan §7` now documents the Arch route (recipe, depends, hooks, verification),
+  and `plan §6` gained the packaging/staged-install recipes plus the previewer's
+  own invocation.
+
+### Install and runtime checks
+
+- The user installed the package (`pacman -U /tmp/ofd-makepkg/…-0.1.0-1-….pkg.tar.zst`,
+  03:15:37) — no file conflicts, `Depends On` as designed, installed module md5
+  identical to the built one.
+- From `/usr` with no environment overrides: `xdg-mime query filetype` →
+  `application/ofd` (the pacman hook indexed our xml), `xdg-mime query default
+  application/ofd` → `org.gnome.Papers.Ofd.desktop`, `papers-thumbnailer -s 256`
+  → 181×256, `papers-previewer --fd 3` → the document loads and renders with zero
+  CRITICAL/ERROR, `papers <fixture>` likewise, `gio open` starts Papers with the
+  file.
+- Staged-tree checks (before the install): `desktop-file-validate` clean,
+  `xdg-mime` and `gio mime` resolve as above, thumbnails 181×256 / 256×170, and the
+  PDF regression thumbnail 198×256 from a backend directory that mixes the system
+  backends with the package's module.
+
+### Open for the user
+
+- Visual acceptance on the live session (Nautilus is running): the OFD icon and a
+  rendered thumbnail in Files, the space-bar preview window, a double-click, and
+  the single Papers entry in the app grid.
+- Optional: `sudo pacman -Rns papers-ofd` as the uninstall regression (the five
+  paths are ours alone, so Papers and its other backends are unaffected).
