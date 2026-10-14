@@ -74,7 +74,7 @@ Papers' worker pool issues.
 | Dependency | Notes |
 | --- | --- |
 | Papers ≥ 51, < 52 (`papers-document-4.0`) | system pkg-config; backends' ABI version is the `papers/6` directory component |
-| rofd-ffi (ABI v1, ≥ 0.4.2) | `librofd_ffi.so.0` + `rofd.h`; no pkg-config file from upstream, but our AUR package `librofd-ffi` (currently `0.4.3-1`) installs `rofd-ffi.pc` plus the patched ABI, so `-Drofd_libdir` / `-Drofd_includedir` are only needed for a hand-built checkout — `scripts/dev-env.sh` fills them in either way. The patched build carries `patches/rofd-ffi-page-size.patch` (also proposed as [linuxdeepin/rofd#11](https://github.com/linuxdeepin/rofd/pull/11)); stock rofd works too, falling back to the slow page-size path. **Do not go below 0.4.2**: earlier rofd fails whole pages whose objects carry a singular transform ([A19](docs/plan.md#appendix-a--evidence-index)). Delivery policy: [plan D11](docs/plan.md#2-architecture-and-decisions) |
+| rofd-ffi (ABI v1, ≥ 0.4.2) | `librofd_ffi.so.0` + `rofd.h`; no pkg-config file from upstream, but our AUR package `librofd-ffi` (currently `0.4.3-3`) installs `rofd-ffi.pc` plus the patched ABI, so `-Drofd_libdir` / `-Drofd_includedir` are only needed for a hand-built checkout — `scripts/dev-env.sh` fills them in either way. The patched build carries `patches/rofd-ffi-page-size.patch` ([#11](https://github.com/linuxdeepin/rofd/pull/11)) and `patches/rofd-ffi-font-advances.patch` ([#13](https://github.com/linuxdeepin/rofd/pull/13)); stock rofd works too, falling back to the slow page-size path and to rofd's size-based text geometry. **Do not go below 0.4.2**: earlier rofd fails whole pages whose objects carry a singular transform ([A19](docs/plan.md#appendix-a--evidence-index)). Delivery policy: [plan D11](docs/plan.md#2-architecture-and-decisions) |
 | Papers/rofd sources (optional) | **Not needed to build**: the module compiles against `papers-document-4.0` (headers + `libppsdocument-4.0`) and `rofd.h` + `librofd_ffi.so.0`. `$ROFD_SRC` is required to carry or re-verify `patches/` and to run rofd's own test suite; a Papers checkout (`$PAPERS_SRC`) only speeds up grepping — its citations are written against the upstream repository at tag `51.1`. `scripts/dev-env.sh` reports what this machine has (environment → untracked `local.conf` → siblings `../papers`, `../rofd`) and flags a same-named directory that is not the expected repository |
 | Meson ≥ 1.0, pkg-config, C compiler, GLib/GIO/GTK4/Cairo | pulled in through the Papers dependency |
 | Cairo + FreeType/fontconfig, a CJK font for CJK documents | rofd resolves glyphs through system fonts; its defaults name `Noto Sans CJK SC` |
@@ -166,6 +166,14 @@ patch-free vs patch-the-desktop tradeoff:
   not recoloured, because rofd's ABI exposes no text mask. Invisible on systems
   whose poppler has transparent-selection support (the common case).
 - A wrapped multi-line search match is reported as a single result rectangle.
+- **Text geometry follows the ABI.** For a text run that declares no explicit
+  `DeltaX`, rofd advances each scalar by the resolved font's advance only in our
+  patched build ([#13](https://github.com/linuxdeepin/rofd/pull/13),
+  `patches/rofd-ffi-font-advances.patch`, shipped by the AUR package): with a stock
+  `librofd-ffi`, rofd's semantic layer uses the font size instead, so search
+  highlights, caret positions and selection regions on such text can sit right of
+  the glyphs. Everything else is unaffected, and `meson test` reports which model
+  the linked library uses.
 - Named destinations (`find_link_dest`/`find_link_page`) are stubs.
 - Selection is declined on rotated pages, which is where Papers refuses to start
   one itself ("Selection in rotated documents has never worked", `pps-view.c`).

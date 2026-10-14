@@ -113,6 +113,17 @@ and #12 when convenient.
 - [ ] GUI acceptance on the live session (user)
 - **Status:** implementation complete, GUI acceptance open
 
+### Phase 16: rofd font-resolved text geometry (Ctrl+F highlight offset)
+
+- [x] Diagnosed the reported offset as a rofd model mismatch (semantic layer: font size per scalar; renderer: font advance), measured against rendered ink (A24)
+- [x] Implemented on the fork `feat/font-text-advances` (`6f98928`): `TextAdvanceProvider`, `Document::*_with_advances`, `PositionedGlyph::advance`, `FontTextAdvances`, FFI loads with the default font stack
+- [x] Tests in all three rofd crates + C ABI runner green; `cargo fmt`/`clippy -D warnings` clean
+- [x] Carried as `patches/rofd-ffi-font-advances.patch`; upstream PR <https://github.com/linuxdeepin/rofd/pull/13>
+- [x] Module side: ink-alignment regression test that classifies the linked ABI and asserts match rectangles overlap the rendered glyphs; selection test samples glyph centres
+- [x] AUR `librofd-ffi 0.4.3-3` built with both patches and verified (packaged library reproduces the font-aware geometry)
+- [ ] User: re-check Ctrl+F highlighting on the live session; decide whether the AUR package is pushed
+- **Status:** implementation and tests complete, user-facing items open
+
 ### Phase 0: loadable module skeleton
 
 - [x] `meson.build`/`meson_options.txt`, `shared_module('ofddocument')`, `HAVE_ROFD_PAGE_SIZE` probe

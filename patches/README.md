@@ -10,12 +10,20 @@ retires it. Delivery is the AUR package `librofd-ffi` (ours), which applies thes
 patch files to the upstream release tarball — see `docs/plan.md` D11. Upstream PRs
 stay open as the exit path; they are not on the critical path.
 
+## Carried patches
+
+| Patch | Change | Retired when |
+| --- | --- | --- |
+| `rofd-ffi-page-size.patch` | `rofd_document_get_page_size_mm` (metadata-only page sizes) | upstream exposes the query in the C ABI ([#11](https://github.com/linuxdeepin/rofd/pull/11)) |
+| `rofd-ffi-font-advances.patch` | runs without an explicit `DeltaX` take their scalar advances from the resolved font, so page geometry and search/selection rectangles match the drawn glyphs | upstream loads documents with a font-resolved advance provider ([PR](https://github.com/YangtseSu/rofd) on `feat/font-text-advances`) |
+
 ## The fork
 
 - Fork: [`YangtseSu/rofd`](https://github.com/YangtseSu/rofd). Its `main` mirrors
   upstream (`git remote add upstream https://github.com/linuxdeepin/rofd &&
   git fetch upstream`), and every carried change lives on its own `feat/…` branch
-  with one upstream PR per branch — `feat/ffi-page-size-query` at `7f6d24d` today.
+  with one upstream PR per branch — `feat/ffi-page-size-query` at `7f6d24d` and
+  `feat/font-text-advances` today.
   The clone used by this project is `$ROFD_SRC` (`~/projects/rofd`); it carries
   both remotes.
 - Upstream releases are not always tagged: `0.4.3` exists only as commit

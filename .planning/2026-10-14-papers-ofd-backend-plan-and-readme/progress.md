@@ -298,6 +298,61 @@
     `tests/{generate_fixture.py,meson.build,test-ofd-text.c,test-ofd-links.c,test-ofd-errors.c,ofd-print-file.c}`,
     `data/papers-ofd.xml`, `docs/plan.md` (§2/§3/§5/§6/§7/§8, A21/A22), `README.md`
 
+### Phase 16: rofd font-resolved text geometry (the Ctrl+F highlight offset)
+
+- **Status:** complete (code, tests, patch, AUR build, upstream PR); the AUR push and
+  the visual re-check are the user's call
+- Reported by the user during the phase-2 GUI acceptance: with Ctrl+F, the highlight
+  for English/number matches did not sit on the searched text but to its right; CJK
+  was fine. Not a module bug — a rofd geometry model mismatch:
+  - `rofd-core` advanced every scalar of a run **without** an explicit `DeltaX` by the
+    font size (`semantic.rs`: `dx = … else size`), while `rofd-render`'s positioner
+    places such a scalar by the resolved font's advance ("only a genuinely absent
+    axis uses the selected glyph advance"), i.e. the layer that draws and the layer
+    that reports rectangles disagreed for every document whose producers rely on font
+    metrics. CJK aligns because a full-width glyph's advance *is* the font size.
+  - Measured on our own fixture (21-character line at size 3 mm, no `DeltaX`): boxes
+    spanned 63.0 mm, the drawn ink 28.2 mm, and the `42` match rectangle sat at
+    60.0–66.0 mm while the line ends at 43.4 mm → the highlight landed in blank space
+    4.5 mm right of the text (A24).
+- Fix (fork-first, D11): `feat/font-text-advances` on `YangtseSu/rofd`, commit
+  `6f98928`, upstream PR <https://github.com/linuxdeepin/rofd/pull/13>:
+  - `rofd-core`: `TextAdvanceProvider` trait, `Document::from_bytes_with_advances` /
+    `open_with_advances`, and the builder asks it per text object when a run has no
+    explicit delta; without a provider nothing changes (the font-size footprint
+    stays, still flagged conservative). Explicit deltas stay authoritative.
+  - `rofd-render`: `PositionedGlyph::advance` (the advance each glyph contributed)
+    and `FontTextAdvances`, which reuses `position_glyph_runs` so the provider cannot
+    drift from the positioner.
+  - `rofd-ffi`: documents load with a provider built from the default font stack
+    (the one a renderer created with NULL options uses); `rofd.h` documents the
+    caveat for renderers configured with other families.
+  - Verified on the rofd side: `cargo fmt --all -- --check`,
+    `cargo clippy -p rofd-core -p rofd-render -p rofd-ffi --all-targets -- -D warnings`,
+    `cargo test` for the three crates (new tests: provider seam in the core builder,
+    provider/positioner agreement on an embedded subset font, ABI layout + search
+    rectangles following font metrics), `crates/rofd-ffi/tests/run_c_tests.sh` (rc=0,
+    symbol list unchanged). Pre-existing and unrelated: `rofd-render`'s
+    `decoded_limits_have_exact_and_one_over_boundaries` fails on `main` too.
+  - Carried as `patches/rofd-ffi-font-advances.patch` (applies cleanly to the fork's
+    `main`, verified with `git apply --check`) and applied by the AUR package
+    `librofd-ffi 0.4.3-3`; the packaged library reproduces the font-aware geometry
+    (44.84 mm span instead of 78.00 mm for the fixture's first line).
+- Module side: no code change was needed (the ABI is unchanged; only behaviour). New
+  regression test `test_find_rectangles_cover_rendered_ink` renders the page through
+  rofd, measures the ink of the line, classifies the linked library (font-resolved vs
+  size-based) and asserts that every left-column match rectangle overlaps the ink of
+  its own line — which fails on the pre-fix geometry (`42` at 170 pt vs ink ≤ 123 px)
+  and passes after it (96.1–109.3 pt). The selection test now samples glyph centres
+  from the layout instead of the fixture's declared column boxes, because the glyphs
+  are narrower than those boxes.
+- Files modified (here): `patches/rofd-ffi-font-advances.patch` (new),
+  `patches/README.md`, `tests/test-ofd-text.c`, `docs/plan.md` (§3/§6/§8/§9 + A24),
+  `README.md`, `.planning/.../{progress,task_plan}.md`
+- Files modified (in `~/projects/rofd`): `crates/rofd-core/src/{semantic,document,lib}.rs`,
+  `crates/rofd-render/src/{fonts,lib}.rs`, `crates/rofd-ffi/src/{document,renderer}.rs`,
+  `crates/rofd-ffi/include/rofd.h`, tests in all three crates, the semantic-API design doc
+
 ## Test Results
 
 | Test | Input | Expected | Actual | Status |
@@ -389,6 +444,13 @@
 | `reuse lint` after phase 2 | repository | compliant | 50/50 files with copyright + license | pass |
 | Search snippets (Ctrl+F rows) | `text-2pages.ofd` through `PpsSearchContext` | 2 hits for `invoice` on page 0 with the surrounding words, 1 for the case-sensitive query, 0 for `invo` with whole words, 2 CJK hits on page 1 | markup contains `<span weight="bold">` + the source spelling + `total: 42 EUR` / `appears lowercase` / `中文搜索测试` as applicable; `first_match_page` 0, 0, -1, 1 | pass |
 | Memory checking | the two new test programs under `G_SLICE=always-malloc MALLOC_PERTURB_` | no crash | pass; valgrind is not installed on this host, so no leak report was produced | pass (limited) |
+| rofd geometry model (diagnosis) | `text-2pages.ofd` page 0 rendered + ink-scanned; layout spans compared | decide whether the offset is ours or rofd's | rofd's semantic span 63.0 mm vs ink 28.2 mm (`dx = size`), patched build 29.8 mm vs 28.2 mm; `42` match at 60.0–66.0 mm before, 33.9–38.6 mm after | root cause in rofd |
+| rofd fork tests after the fix | `cargo test -p rofd-core -p rofd-render -p rofd-ffi` | all green apart from the pre-existing image test | green; the images test fails on `main` as well | pass |
+| rofd C ABI runner | `crates/rofd-ffi/tests/run_c_tests.sh` | rc=0, symbols unchanged | rc=0 (export list, C/C++ headers, smoke) | pass |
+| Our suites against the patched ABI | `_build-fork` (checkout tier, `PKG_CONFIG_LIBDIR` hides the `.pc`, `LD_LIBRARY_PATH` at run time) | 11/11 with the strict ink alignment | 11/11; the ink test reports `font-resolved geometry` (29.8 vs 28.2 mm) and every match overlaps its ink | pass |
+| Our suites against stock rofd | `_build`, `_build-slow` | 11/11 without alignment assertions | 11/11; the ink test reports `font-size footprint geometry` and checks only the well-formedness invariants | pass |
+| AUR `librofd-ffi 0.4.3-3` | PKGBUILD with both patches, clean `src/`+`pkg/` | builds, packaged library carries both fixes | `makepkg -f --noconfirm` rc=0; the packaged `librofd_ffi.so.0` exports 78 symbols incl. `rofd_document_get_page_size_mm` and reproduces the font-aware geometry under `LD_LIBRARY_PATH` | pass |
+| Papers session with the patched library | `LD_LIBRARY_PATH=$ROFD_SRC/target/release papers text-2pages.ofd` | loads, no criticals | ran 12 s, 0 CRITICAL/ERROR (only the expected font-fallback diagnostics) | pass |
 
 ## Error Log
 
@@ -405,6 +467,9 @@
 | 2026-10-15 | `test-ofd-search` segfaulted while dropping the `PpsSearchContext` (frames: `g_object_unref` → `pps_search_context_dispose` → `g_type_check_instance_is_fundamentally_a`) | 2 | Papers' dispose calls `g_clear_object ()` on a `GHashTable *` (`pps-search-context.c:421`) instead of `g_clear_pointer (..., g_hash_table_unref)`; `g_object_unref` then reads the hash table as a `GTypeInstance` and dies. Reviewed the field (`:433`) and the tag-51.1 source, bisected it to the dispose (the test passed once the context was no longer freed), and recorded it as A23; the test now leaks the context deliberately |
 | 2026-10-15 | `test-ofd-search` logged `pps_document_get_page_label: assertion 'priv->cache_loaded == TRUE' failed` | 1 | The search context labels its pages from the document's page cache, which the shell fills in the load job; the test now calls `pps_document_setup_cache` after loading, like the shell does |
 | 2026-10-15 | `test-ofd-search` logged three GLib-GObject criticals before any of its own code ran | 1 | `PpsDocumentModel::constructed` connects to its annotation model unconditionally, and `pps_document_model_new ()` passes none; upstream noise, swallowed by a scoped log handler with a comment (the test's own criticals still show) |
+| 2026-10-15 | Building against `$ROFD_SRC` silently linked the *installed* library, so the font-advance fix looked ineffective | 3 | `rofd-ffi.pc` (installed by our AUR package) wins over `-Drofd_libdir` by design, and at run time the module's SONAME resolves to `/usr/lib`; a checkout build needs `PKG_CONFIG_LIBDIR` without `rofd-ffi.pc` plus `LD_LIBRARY_PATH="$ROFD_LIBDIR"`. Both traps are now in the plan playbook (§6) |
+| 2026-10-15 | My first ink measurement compared a whole-row ink span (both columns) with one object's geometry and "proved" the renderer was wrong | 1 | Restricted the scan to the column under test (`INK_XMAX`), which showed the geometry, not the renderer, was at fault — the numbers for A24 come from the corrected measurement |
+| 2026-10-15 | `test_render_selection` failed against the font-aware geometry (its sample point used the declared column box centre, now blank) | 1 | The test samples the *layout* centre of a glyph (new `glyph_centre_after` helper) for both the "covered" and the "cleared on reuse" pixels |
 
 
 | 2026-10-14 | Oracle run failed with "File type Zip archive (application/zip) is not supported" on the real invoice | 1 | The `OFD.xml`@30 magic only matched archives whose first entry is `OFD.xml`; the invoice starts with `Doc_0/Annots/Annotations.xml` (`OFD.xml` sits at byte 21707), so GLib's data-only guess fell back to `application/zip`. Added a `Doc_0/`@30 alternative to `data/papers-ofd.xml` and verified with `g_content_type_guess(NULL, first 1024 bytes)` and `xdg-mime query filetype`; a plain zip still reports `application/zip` |
@@ -419,7 +484,7 @@
 | Where am I? | `docs/plan.md` phases 0–2 implemented: skeleton, rendering/printing/metadata, and text/selection/find/links/outline; `meson test` 10/10 in both page-size builds; the phase-2 GUI acceptance is the one open item |
 | Where am I going? | Phase 3: `load_fd` (previewer), packaging and install checks — with the MIME priority fix (A22) already in place, content-only detection now works for the previewer path |
 | What's the goal? | Ship the OFD backend for Papers 51.x, out-of-tree, on the rofd ABI we maintain (fork-first, AUR package) |
-| What have I learned? | Phase 1: one uniform render scale (plan §4), rofd's rotation is clockwise and matches `rc->rotation` as-is, the invoice's first zip entry is `Doc_0/…`, and `setup_cache` fetches every page object. Phase 2: `PpsOutlines` has declared-but-unexported functions (A21), a nested MIME rule below `application/zip`'s priority silently loses content-only detection (A22), Papers refuses selection on rotated pages, rofd's fallback font advances ≈ `0.96 × Size` mm per glyph, and layout/find/selection rectangles must be re-based on the *target* page's box origin for GOTO destinations |
+| What have I learned? | Phase 16: rofd's semantic text geometry and its renderer disagreed for runs without explicit `DeltaX` (font size vs font advance) — a third rofd gap we now carry a patch for, and a reminder that rectangle-producing vfuncs must be validated against *pixels*. Phase 1: one uniform render scale (plan §4), rofd's rotation is clockwise and matches `rc->rotation` as-is, the invoice's first zip entry is `Doc_0/…`, and `setup_cache` fetches every page object. Phase 2: `PpsOutlines` has declared-but-unexported functions (A21), a nested MIME rule below `application/zip`'s priority silently loses content-only detection (A22), Papers refuses selection on rotated pages, rofd's fallback font advances ≈ `0.96 × Size` mm per glyph, and layout/find/selection rectangles must be re-based on the *target* page's box origin for GOTO destinations |
 | What have I done? | Plan/README machine-portable and REUSE-compliant; rofd page-size patch shipped via our AUR package and proposed upstream (#11), `rofd-ffi.pc` proposed upstream (#12) and shipped; phases 0–2 implemented and tested (10/10 in both builds), with the A21/A22 defects fixed; a PDF-session and an OFD-session log check done; the phase-2 GUI acceptance is the user's call |
 
 ---

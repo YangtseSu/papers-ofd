@@ -135,6 +135,16 @@ Full mapping (Papers vfunc → rofd call → rule):
 | *Links* URIs | `rofd_action_t.uri` / `.uri_base` | rofd preserves both unresolved; the module resolves a relative URI against `Base` with `g_uri_resolve_relative` (the shell hands the string to the desktop), falling back to the raw string when resolution fails |
 | *Links* `find_link_dest` / `find_link_page` | — | stubs returning `NULL` / `-1` (no ABI counterpart) |
 
+All rectangles the text, find and selection vfuncs publish follow rofd's page-space
+geometry. A run that declares no `DeltaX` is placed by its font's advance, which
+stock rofd resolves only for the renderer: the semantic layer advanced those
+scalars by the font size, so highlights, caret positions and selection regions
+drifted away from the drawn glyphs (A24). Our fork carries the fix
+(`patches/rofd-ffi-font-advances.patch`, upstream PR #13); with a stock library the
+module still publishes rofd's model unchanged, and `tests/test-ofd-text.c`
+classifies the linked ABI against the rendered ink and only asserts alignment when
+the library resolves font advances.
+
 Interface discipline (from the upstream NULL-check survey, Appendix A9/A10):
 
 - If an interface is implemented, **every** vfunc of it is implemented — using
@@ -451,7 +461,17 @@ meson compile -C _build && meson test -C _build
 # ofd-metadata, ofd-text, ofd-links, ofd-search, ofd-errors, and ofd-oracle with
 # -Drofd_src. ofd-search runs Papers' own search context over the text fixture,
 # i.e. the snippets the Ctrl+F sidebar shows; it leaks that context on purpose
-# (A23).
+# (A23). ofd-text compares find rectangles with the ink rofd renders and asserts
+# alignment when the linked library resolves font advances (A24).
+
+# Building against a *checkout* instead of the installed package: rofd-ffi.pc wins
+# over -Drofd_libdir, so hide it from pkg-config, and set LD_LIBRARY_PATH at
+# runtime (the module's DT_NEEDED resolves the SONAME from the default paths):
+#   mkdir -p /tmp/pc-norofd && cp /usr/lib/pkgconfig/*.pc /tmp/pc-norofd/ \
+#     && rm /tmp/pc-norofd/rofd-ffi.pc
+#   PKG_CONFIG_LIBDIR=/tmp/pc-norofd meson setup _build-fork \
+#     -Drofd_libdir="$ROFD_LIBDIR" -Drofd_includedir="$ROFD_INCLUDEDIR"
+#   PKG_CONFIG_LIBDIR=/tmp/pc-norofd LD_LIBRARY_PATH="$ROFD_LIBDIR" meson test -C _build-fork
 
 # dev backend dir: the whole system backend directory (modules + descriptors
 # live together; copying descriptors alone breaks PDF/DjVu/TIFF), ours on top
@@ -577,6 +597,7 @@ declarations but not line numbers or `.c` bodies.
 | A find result cap of 4096 per page | documents with more occurrences on one page lose the tail on that page | documented constant (`OFD_FIND_MAX_RESULTS_PER_PAGE`); rofd itself bounds a page's matches by its own resource limit, and the shell materialises a result row per match |
 | `find_link_dest` / `find_link_page` stubs | named destinations / history restore incomplete | revisit if rofd gains a name→page lookup |
 | `application/ofd` may already be defined by another package | duplicate definition | distinct file name + magic rules; verify with `xdg-mime query filetype` |
+| Stock rofd sizes text runs without an explicit `DeltaX` by the font size while the renderer draws their font advances | search highlights, caret positions and selection regions drifts off the glyphs (observed: a `42` match rectangle 4.5 mm right of the end of the line) | fixed on the fork and carried as `patches/rofd-ffi-font-advances.patch` (A24, upstream PR #13); a stock library keeps rofd's model, documented in `README.md`, and the ink-alignment test only asserts when the linked ABI is font-aware |
 | `PpsSearchContext` cannot be finalized (A23) | a crash in any Papers process that disposes a search context — not reachable from this module, but the shell may hit it when it drops a context | documented, worked around in the headless search test (no dispose), worthy of an upstream report in phase 4 |
 | A nested magic rule below `application/zip`'s priority | content-only detection (previewer, `load_fd`) answers `application/zip` and the document never reaches the module | priority 70 (A22) plus the byte-level assertion in `tests/test-ofd-errors.c` |
 | rofd falls back to a uniform glyph advance when a font is missing | fixture text is wider than a real font would set it | size fixture text for `0.96 × Size` per glyph (§6); real documents still render through the font fallback chain |
@@ -638,6 +659,25 @@ item blocks a phase; an upstream merge only deletes the matching entry in
    `dpkg-parsechangelog`, `DEB_HOST_MULTIARCH`, `Requires: cairo`). Once merged,
    the AUR copy and the Debian one describe the same file.
 
+6. **Font-resolved advances for runs without an explicit `DeltaX`.** rofd's page
+   text geometry must agree with the glyphs the renderer draws; today the semantic
+   layer advances such scalars by the font size (A24), so every consumer that draws
+   or hit-tests from those rectangles is offset for producers that rely on font
+   metrics. Shape agreed with upstream in the PR: the core keeps its font-free
+   design and takes the advances through an injected `TextAdvanceProvider`, which
+   `rofd-render` implements over the positioner's own resolution and `rofd-ffi`
+   supplies from the default font stack.
+   Status (2026-10-15): **implemented on the fork and shipped** —
+   <https://github.com/linuxdeepin/rofd/pull/13> (branch `feat/font-text-advances`)
+   is the request; the delivery is `patches/rofd-ffi-font-advances.patch`, which the
+   AUR `librofd-ffi` package applies on top of the page-size patch. Verified before
+   shipping: `cargo fmt --all -- --check`,
+   `cargo clippy -p rofd-core -p rofd-render -p rofd-ffi --all-targets -- -D warnings`,
+   `cargo test` for the three crates, `crates/rofd-ffi/tests/run_c_tests.sh`
+   (symbol list unchanged), plus `git apply --check` against the fork's `main`.
+   One caveat documented in `rofd.h`: a renderer created with fallback families
+   other than the defaults may draw advances the semantic layer did not resolve.
+
 ## Appendix A — evidence index
 
 Evidence paths are repository-relative: Papers paths are files in tag `51.1` of
@@ -671,6 +711,7 @@ Evidence paths are repository-relative: Papers paths are files in tag `51.1` of
 | A21 | `PpsOutlines` has declared-but-undefined public functions: `pps_outlines_new` and `pps_outlines_set_link` are in the installed `pps-outlines.h` but neither the source nor the library provides them, so a module that calls them fails to link (`-Wl,--no-undefined`, observed). Use `g_object_new (PPS_TYPE_OUTLINES, NULL)` and the `link` property (whose setter takes its own reference); `pps_outlines_set_children` **is** defined and takes a reference, while the `children` property setter stores a borrowed pointer | `libdocument/pps-outlines.[ch]` (`new`/`set_link` declared, no definition); `nm -D --defined-only /usr/lib/libppsdocument-4.0.so.6 \| grep outlines` lists `get_type`, `get/set_children`, `get_expand`, `get_link`, `set_expand`, `set_label`, `set_markup` only; the module link error on `pps_outlines_new` |
 | A22 | MIME detection from bytes alone (no file name) answers `application/zip` for OFD files when the nested `application/ofd` magic rule is below `application/zip`'s priority 60: the nested rule only wins at 70, which is what the shared-mime-info container formats use. Measured with `g_content_type_guess (NULL, first 1024 bytes, n)` after `update-mime-database` for a generated fixture, the real invoice and a malformed zip (all `application/ofd` at 70, all `application/zip` at 50); a plain zip and a zip whose first entry is `hello.txt` stay `application/zip` at 70. The previewer and `load_fd` only have bytes (`libdocument/pps-file-helpers.c:337-378`, `previewer/pps-previewer.c`) | `data/papers-ofd.xml` (priority), `tests/test-ofd-errors.c` (`test_detection_from_bytes`), `/usr/share/mime/packages/freedesktop.org.xml` (`application/zip` at priority 60, `application/epub+zip` nested at 70) |
 | A23 | `PpsSearchContext` cannot be finalized: its dispose calls `g_clear_object ()` on the `GHashTable *per_page_store` instead of `g_clear_pointer (..., g_hash_table_unref)`, and `g_object_unref` then reads the hash table as a `GTypeInstance` and segfaults. Any process that drops the last reference to a search context crashes; the headless search test therefore leaks the context and the model on purpose | `libview/context/pps-search-context.c:421` (dispose) vs `:433` (the field is a `GHashTable *` created in `init`); observed: `tests/test-ofd-search` segfaults in `g_type_check_instance_is_fundamentally_a` under `g_object_unref` from that dispose, with the installed `libppsview-4.0.so.5`; the same code is in tag `51.1` (the only `libview` difference between the checkout and the tag is `pps-print-operation.c`) |
+| A24 | rofd's page text geometry positioned a scalar without an explicit `DeltaX` by the font size, while the renderer positions it by the resolved font's advance ("only a genuinely absent axis uses the selected glyph advance"), so layout, search and selection rectangles drifted from the drawn glyphs. Measured on the phase-2 text fixture (21-character line, size 3 mm, no `DeltaX`): boxes spanned 63.0 mm and the ink 28.2 mm, and the `42` match rectangle sat at 60.0–66.0 mm while the drawn line ends at 43.4 mm. Fixed on the fork by resolving advances through an injected provider (`patches/rofd-ffi-font-advances.patch`, upstream PR #13): the same line then spans 29.8 mm and the match rectangle sits at 33.9–38.6 mm, inside the ink | `crates/rofd-core/src/semantic.rs` (`text_object`: `dx = … else size`) vs `crates/rofd-render/src/fonts.rs` (`position_glyph_runs`, advance from the selected face); measured with a throwaway renderer + ink scan against the installed `librofd_ffi.so.0` and the fork build; guarded by `tests/test-ofd-text.c::test_find_rectangles_cover_rendered_ink` |
 
 ## Appendix B — corrections to the previous draft
 
