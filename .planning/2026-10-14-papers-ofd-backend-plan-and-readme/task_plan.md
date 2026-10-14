@@ -7,8 +7,59 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
-**Phase 3 starts in a new session** (the user's call, 2026-10-15). Everything the
-new session needs is in `docs/plan.md` §5 phase 3 and the notes below.
+**Phase 3 starts in a new session** (the user's call, 2026-10-15). The paste-ready
+hand-off prompt is the block below; the detailed state is in *Phase 3 handoff*.
+
+```text
+在 ~/projects/papers-ofd 开始 docs/plan.md §5 的 phase 3：fd 加载（预览器）、打包、安装检查。
+
+先按序读：AGENTS.md、docs/plan.md（§3 的 load_fd 行、§5 phase 3、§6 playbook、§7 打包）、
+.planning/2026-10-14-papers-ofd-backend-plan-and-readme/{task_plan.md,progress.md}；
+task_plan.md 的 "Phase 3 handoff" 一节是全部现状，本提示词只列要点。
+
+现状（已核对，不用重查）
+- phases 0–2 完成、提交、用户实机验收；工作树干净，origin/main == 本地。
+- 已安装 librofd-ffi 0.4.3-4（含 rofd_document_get_page_size_mm 与字体 advance 几何），
+  模块直接链接 /usr/lib 下的它，无需 LD_LIBRARY_PATH。
+- meson test：_build / _build-slow / _build-fork 各 11/11；reuse lint 合规。
+- rofd fork YangtseSu/rofd：main=140b936、feat/ffi-page-size-query=7f6d24d、
+  feat/pkgconfig=137442f、feat/font-text-advances=812073e、
+  feat/aur-carried=21dbf8f（= main + patches/*.patch，即 AUR 包构建的树）。
+  上游 PR #11/#12/#13 均 open，不阻塞。AUR librofd-ffi 0.4.3-4 已发布（afab2b7）。
+- 我们的 PKGBUILD（papers-ofd 本体）还没做。
+
+本阶段三步
+1. load_fd：dup(fd) → rofd_document_open("/proc/self/fd/<dup>")；失败回退到
+   g_get_user_cache_dir()/papers-ofd/ 临时副本，finalize 时 unlink。注意 load_fd 上游有
+   NULL 保护（返回 G_IO_ERROR_NOT_SUPPORTED），所以预览器现在打不开 OFD —— 这正是要补的。
+   测试：经 pps_document_load_fd 打开夹具与 URI 路径行为一致、临时文件被清理、坏 fd 报错。
+2. 打包：先做 papers-ofd 的 PKGBUILD（本机 Arch、AUR 已有我们的 librofd-ffi）；装 module +
+   descriptor + MIME xml + thumbnailer + 关联 desktop 文件；depends: librofd-ffi、
+   papers>=51、papers<52。debian/ 只在出现非 Arch 消费者时再加。
+3. 安装检查（plan §5 的验收）：预览器（Nautilus 空格）显示 OFD 页；
+   papers-thumbnailer -s 256 <file> <out> 与 Nautilus 缩略图；双击 / gio open 打开 Papers；
+   应用网格仍只有一个 Papers 条目。全局规则禁止拉容器镜像：用本机 pacman -U（先问用户）、
+   DESTDIR/暂存前缀安装或现有 dev-backend 方案，并在文档里写明用了哪种。
+
+已知坑（plan §6 与 progress.md 有完整记录）
+- 依赖定位：. scripts/dev-env.sh。
+- 对 checkout 构建时 rofd-ffi.pc 优先于 -Drofd_libdir：需 PKG_CONFIG_LIBDIR 指向去掉
+  rofd-ffi.pc 的 .pc 目录，运行时再给 LD_LIBRARY_PATH。
+- 测试的 argv 相对路径按构建目录解析（传 src/libofddocument.so，不是 ../src/...）。
+- dev backend 目录要整体复制系统目录（只放 descriptor 会破坏 PDF/DjVu/TIFF）；
+  application/ofd 需要暂存 XDG_DATA_DIRS + update-mime-database。
+- 纯内容 MIME 探测（预览器 fd 路径依赖）靠 magic priority 70（A22），
+  tests/test-ofd-errors.c 有断言；几何类断言需要 librofd-ffi >= 0.4.3-4（A24）。
+- A23：PpsSearchContext 无法析构（上游 bug），ofd-search 测试故意泄漏 context。
+- 需要人眼的验收项按 phase 1/2 的做法交给用户实机确认（本机没有可用的 headless GUI）。
+
+完成标准
+- 每项验收都"观察到"并写进 .planning/.../progress.md（命令 + 输出片段）；同步更新
+  plan §5 phase 3 evidence、§6/§7、README 的状态/能力/限制、task_plan 的 Status 与 Next Step。
+- 新文件带 REUSE 头（reuse lint 必须过）；提交信息英文祈使句、正文列验证命令。
+- 结束前跑 meson test（_build、_build-slow，必要时 _build-fork）与 reuse lint，并
+  git push origin main。
+```
 
 ### Phase 3 handoff (2026-10-15)
 
