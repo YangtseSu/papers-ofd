@@ -482,6 +482,12 @@
 | Installed package | `pacman -U /tmp/ofd-makepkg/papers-ofd-0.1.0-1-x86_64.pkg.tar.zst` (user) | clean install | installed 03:15:37 from the current recipe (`Depends On: cairo gcc-libs glib2 glibc librofd-ffi>=0.4.3 papers>=51 papers<52`), no file conflicts; installed `libofddocument.so` md5 matches the built package; `xdg-mime query filetype/default` and `papers-thumbnailer` work from `/usr` with no overrides | pass |
 | GUI acceptance (phase 3) | live session: Nautilus space bar, Nautilus icon/thumbnail, double-click, app grid | visible behaviour | **user-confirmed** (see the session section) | pass |
 
+| Space-bar preview, first acceptance run | user, Nautilus 51.1 + Sushi 51.2, space on an OFD file | preview window with the page | **no preview**: only the file-information panel | observed (user) |
+| Previewer root cause | Sushi 51.2 sources + the installed resource | decide whether it is ours | not ours and not `load_fd`: Sushi renders documents in-process via `gi://PapersDocument`/`PapersView` and loads by URI; its document renderer claims only the MIME types of `org.gnome.Papers.desktop`, which lacks `application/ofd` → `FallbackRenderer` (A26) | root cause identified |
+| Sushi plugin mechanism | gjs against the installed Sushi 51.2 | the selector can be taught the type | with `data/papers-ofd-sushi.js` imported as Sushi does (plugins load before the selector's map is built) `selectRenderer('application/ofd')` returns the Papers-backed `PdfRenderer` instead of the fallback, and the renderer loads the fixture (2 pages) | pass |
+| `ofd-sushi-plugin` test | `meson test -C _build` | the coupling is covered | 13/13; the test prints "the selector routes application/ofd to the Papers-backed document renderer" and "Sushi's document renderer loaded the OFD fixture: 2 pages" | pass |
+| Duplicate "Open With" row | user report + `gio mime application/ofd`, nautilus-app-chooser-widget.c | explain | `application/ofd` has exactly one registered entry (ours, also the default and recommended); Nautilus' chooser lists `g_app_info_get_all()` on top of default/recommended/fallback, so Papers' own entry ("文档查看器") appears as a second row that runs the same binary | explained (A26) |
+
 ## Error Log
 
 | Timestamp | Error | Attempt | Resolution |
@@ -511,6 +517,8 @@
 | 2026-10-15 | `test-ofd-fd` segfaulted in `open_fixture_copy` from `main` | 1 | The helper dereferenced its optional `path_out` unconditionally; guarded it |
 | 2026-10-15 | `curl` of the pinned source archive returned 404 although `git ls-remote` showed the commit | 1 | The GitHub repository was still **private** (`gh repo view` → `isPrivate: true`), so archives need auth and the AUR source would be unfetchable; the user chose to publish the repository, after which the anonymous download matched the checksum exactly |
 | 2026-10-15 | `/tmp/pc-norofd` was not writable when re-creating the checkout-tier pkg-config directory | 1 | The directory was a leftover from the previous session with different contents; used a fresh `/tmp/pc-norofd3` instead of fighting it |
+
+| 2026-10-15 | Recorded the phase-3 previewer evidence as "the invocation Nautilus uses" for `papers-previewer --fd 3` | 1 | Wrong: Nautilus/Sushi never pass a descriptor — the space bar is Sushi rendering in-process through Papers by URI, and `--fd` is the previewer's own contract (Papers' print preview passes paths). The user's acceptance run exposed it; the plan, README and this log now say what was measured (A26) |
 
 ## 5-Question Reboot Check
 
@@ -617,3 +625,27 @@
   the single Papers entry in the app grid.
 - Optional: `sudo pacman -Rns papers-ofd` as the uninstall regression (the five
   paths are ours alone, so Papers and its other backends are unaffected).
+
+## Phase 3 follow-up — the space bar (2026-10-15)
+
+The user's acceptance run found the preview showing only file information, which
+turned out to be a wrong premise in the plan rather than a module defect: the space
+bar is Sushi, Sushi renders documents in-process through Papers' libraries and
+loads them **by URI**, and it picks the renderer from the MIME types of
+`org.gnome.Papers.desktop` — which does not list `application/ofd` out of tree.
+`load_fd` (the phase's first step) is the previewer binary's own contract and is
+exercised by nothing on this stack.
+
+Fix, shipped in the package: `data/papers-ofd-sushi.js` is installed into Sushi's
+system plugin directory (option `sushi_plugin_dir`). Sushi imports plugins before
+it builds its renderer map, so adding the type to the document renderer's content
+types makes the space bar render OFD files like PDFs, through PapersView.JobLoad
+and therefore through this backend. `tests/test-sushi-plugin.js` drives Sushi's
+own selector and renderer against the fixture (2 pages) and is skipped where gjs
+or Sushi is missing; the plugin and the test go away once Papers lists the type in
+its own desktop file (phase 4), which is also when our association entry can be
+retired.
+
+Before the package is rebuilt, the plugin was copied into
+`~/.local/share/sushi/plugins-1/` so the user can press space immediately; the
+copy is redundant once the package carries it and should be removed then.

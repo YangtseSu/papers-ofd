@@ -393,7 +393,10 @@ builds, `.planning/2026-10-14-papers-ofd-backend-plan-and-readme/progress.md`):
 Deliverable: previewer support and installable artefacts.
 
 Steps:
-1. `load_fd` (`dup` + `/proc/self/fd/<dup>`, temp-copy fallback, cleanup at finalize).
+1. `load_fd` (`dup` + `/proc/self/fd/<dup>`, temp-copy fallback, cleanup at
+   finalize) — the previewer binary's contract. Note that the *space bar* does not
+   go through it: Sushi renders documents in-process through Papers' libraries and
+   loads them by URI, which is what step 4 addresses.
 2. Packaging, Arch route (decided): `packaging/PKGBUILD` in this repository,
    mirrored to the AUR as `papers-ofd`; module + descriptor + mime xml +
    thumbnailer + association entry; `depends: librofd-ffi, papers>=51, papers<52`.
@@ -403,9 +406,17 @@ Steps:
 3. Install/uninstall checks: a real install on this machine (`pacman -U`) plus the
    staged-tree checks below — no container or VM, which the machine's rules rule
    out.
+4. Sushi (the space bar) picks its document renderer from the MimeType line of
+   `org.gnome.Papers.desktop`, which does not list `application/ofd` out of tree,
+   so the preview falls back to the file-information panel (A26). Ship
+   `data/papers-ofd-sushi.js` into Sushi's system plugin directory and a test that
+   drives Sushi's own selector and renderer; drop both once Papers lists the type
+   itself (phase 4).
 
 Acceptance:
-- GNOME previewer (space bar) shows an OFD page.
+- GNOME previewer (space bar) shows an OFD page: Sushi's document renderer loads
+  the file through Papers (step 4; observed for the fixture, panel itself is the
+  user's to see).
 - Nautilus shows the OFD icon and a rendered thumbnail;
   `papers-thumbnailer -s 256 file.ofd out.png` works standalone.
 - Double-click and `gio open` open Papers; uninstalling leaves Papers working.
@@ -460,10 +471,20 @@ Phase-3 evidence as observed (2026-10-15, `meson test` 12/12 in `_build`,
   181×256 for the text fixture and 256×170 (mean 63934/65535, sd 6312) for the
   real invoice; the PDF regression thumbnail is 198×256, i.e. the other backends
   still work from that directory.
-- Previewer: `papers-previewer --fd 3 < text-2pages.ofd` (the invocation Nautilus
-  uses, MIME sniffed from the descriptor) loads and renders the document — 334
-  log lines of render diagnostics from this module, zero CRITICAL/ERROR.
-  `papers text-2pages.ofd` and `gio open text-2pages.ofd` both start Papers with
+- Previewer binary: `papers-previewer --fd 3 < text-2pages.ofd` (MIME sniffed
+  from the descriptor) loads and renders the document — 334 log lines of render
+  diagnostics from this module, zero CRITICAL/ERROR. This is the previewer's own
+  `--fd` contract, not the space bar: nothing in the stack passes a descriptor
+  (Papers' print preview spawns `papers-previewer` with paths,
+  `libview/pps-print-operation.c:556`; A26).
+- Space bar: the first acceptance run showed the file-information panel instead
+  of a preview, and A26 is the diagnosis — Sushi's document renderer claims only
+  the types of `org.gnome.Papers.desktop`, which lacks `application/ofd`. With
+  `data/papers-ofd-sushi.js` in place, `ofd-sushi-plugin` drives Sushi's own
+  selector and renderer against the fixture: the selector returns the
+  Papers-backed renderer instead of the fallback, and the renderer's load job
+  finishes with the fixture's 2 pages (`meson test -C _build`, 13/13).
+- `papers text-2pages.ofd` and `gio open text-2pages.ofd` both start Papers with
   that file (`/usr/bin/papers …/text-2pages.ofd`), the latter through the
   association entry.
 - Open in this phase: the `pacman -U` install and the visual acceptance it enables
@@ -647,6 +668,7 @@ declarations but not line numbers or `.c` bodies.
 | `/usr/share/mime/packages/papers-ofd.xml` | registers `application/ofd`: glob `*.ofd`, `sub-class-of application/zip`, nested magic at **priority 70**: `PK\x03\x04`@0 plus `OFD.xml`@30 **or** `Doc_0/`@30 (producers differ in what the first zip entry is; the invoice fixture starts with `Doc_0/Annots/Annotations.xml`, so an `OFD.xml`-only rule would fall back to `application/zip` on real invoices) |
 | `/usr/share/thumbnailers/papers-ofd.thumbnailer` | `Exec=papers-thumbnailer -s %s %u %o`, `MimeType=application/ofd;` |
 | `/usr/share/applications/org.gnome.Papers.Ofd.desktop` | `NoDisplay=true`, `Exec=papers %U`, `MimeType=application/ofd;` |
+| `/usr/lib/sushi/plugins-1/papers-ofd-sushi.js` | makes Sushi's document renderer claim `application/ofd`, so the space-bar preview shows the page instead of file information (A26); `-Dsushi_plugin_dir` moves it, empty skips it |
 
 - Use the distinct MIME file name `papers-ofd.xml`: another package may already
   install `ofd.xml` for the same type (the dev host has `deepin-reader`'s). Both
@@ -733,6 +755,8 @@ declarations but not line numbers or `.c` bodies.
 | `PpsSearchContext` cannot be finalized (A23) | a crash in any Papers process that disposes a search context — not reachable from this module, but the shell may hit it when it drops a context | documented, worked around in the headless search test (no dispose), worthy of an upstream report in phase 4 |
 | A nested magic rule below `application/zip`'s priority | content-only detection (previewer, `load_fd`) answers `application/zip` and the document never reaches the module | priority 70 (A22) plus the byte-level assertion in `tests/test-ofd-errors.c` |
 | rofd's ABI opens by path, so fd loading needs `/proc/self/fd`; a sandbox without `/proc` (or a descriptor whose file cannot be re-entered) breaks it | the previewer would not open any OFD file | temp-copy fallback below `g_get_user_cache_dir()/papers-ofd`, removed on reload and at finalize (§3); both halves are observed by `tests/test-ofd-fd.c` (A25) |
+| Sushi derives its renderer's content types from `org.gnome.Papers.desktop`, so out of tree `application/ofd` has no preview renderer (A26) | the space bar shows only file information for OFD files | `data/papers-ofd-sushi.js` adds the type from Sushi's plugin directory; the coupling to Sushi internals is bounded by `tests/test-sushi-plugin.js`, which drives Sushi's own selector and renderer, and the plugin disappears with the phase-4 move |
+| Two desktop entries that both run `papers` (`org.gnome.Papers.desktop` and our `NoDisplay` association entry) show up as two rows in Nautilus' "Open With" chooser, which lists every installed application (`nautilus-app-chooser-widget.c:301-330`, A26) | cosmetic duplicate in that dialog only: the app grid, the window grouping and the context menu's single "Open" entry show one Papers | accepted for the out-of-tree phase: `application/ofd` is registered on exactly one entry (`gio mime application/ofd`), and the duplicate disappears when Papers' own MimeType line carries the type (phase 4), which also retires our entry |
 | rofd falls back to a uniform glyph advance when a font is missing | fixture text is wider than a real font would set it | size fixture text for `0.96 × Size` per glyph (§6); real documents still render through the font fallback chain |
 | No CJK font installed | missing-glyph boxes | rofd defaults already name `Noto Sans CJK SC`; distro packaging should recommend a CJK font |
 | Papers 52 bumps `pps_document_current` | module installed under `papers/6/backends` stops being found (fail-soft) | pin `>= 51, < 52`; §3 is the contract to re-verify |
@@ -849,6 +873,7 @@ Evidence paths are repository-relative: Papers paths are files in tag `51.1` of
 | A23 | `PpsSearchContext` cannot be finalized: its dispose calls `g_clear_object ()` on the `GHashTable *per_page_store` instead of `g_clear_pointer (..., g_hash_table_unref)`, and `g_object_unref` then reads the hash table as a `GTypeInstance` and segfaults. Any process that drops the last reference to a search context crashes; the headless search test therefore leaks the context and the model on purpose | `libview/context/pps-search-context.c:421` (dispose) vs `:433` (the field is a `GHashTable *` created in `init`); observed: `tests/test-ofd-search` segfaults in `g_type_check_instance_is_fundamentally_a` under `g_object_unref` from that dispose, with the installed `libppsview-4.0.so.5`; the same code is in tag `51.1` (the only `libview` difference between the checkout and the tag is `pps-print-operation.c`) |
 | A24 | rofd's page text geometry positioned a scalar without an explicit `DeltaX` by the font size, while the renderer positions it by the resolved font's advance ("only a genuinely absent axis uses the selected glyph advance"), so layout, search and selection rectangles drifted from the drawn glyphs. Measured on the phase-2 text fixture (21-character line, size 3 mm, no `DeltaX`): boxes spanned 63.0 mm and the ink 28.2 mm, and the `42` match rectangle sat at 60.0–66.0 mm while the drawn line ends at 43.4 mm. Fixed on the fork by resolving advances through an injected provider and sizing a resolved box by that advance (`patches/rofd-ffi-font-advances.patch`, upstream PR #13): the same line then spans 29.8 mm and the `42` match rectangle sits at 33.9–38.6 mm inside the ink, while a two-scalar match like `on` narrows from 4.82 mm to 3.65 mm — the sum of the two glyph advances | `crates/rofd-core/src/semantic.rs` (`text_object`: `dx = … else size`) vs `crates/rofd-render/src/fonts.rs` (`position_glyph_runs`, advance from the selected face); measured with a throwaway renderer + ink scan against the installed `librofd_ffi.so.0` and the fork build; guarded by `tests/test-ofd-text.c::test_find_rectangles_cover_rendered_ink` |
 | A25 | `/proc/self/fd/<n>` re-enters the file a descriptor points at, which is what lets `rofd_document_open` (a path-based API) read a document the caller has already unlinked; the re-open starts at offset 0 no matter where the descriptor itself sits, and it fails with `EACCES` once read permission has been withdrawn after the `open` (the descriptor keeps reading, because permissions are checked at `open` time). The first half is why `load_fd` hands `dup(fd)` to rofd through that path; the second is why a temp copy exists for environments without a usable `/proc`, and it is also the test's deterministic trigger for that fallback | Measured on this machine (Linux 7.2.10-1-cachyos): a deleted file, a `memfd` and a descriptor seeked to offset 7 all return the whole file when reopened through `/proc/self/fd/<n>`; after `chmod 000`, `open` on that path fails with `EACCES` while `pread` on the open descriptor still returns the bytes. `tests/test-ofd-fd.c` covers the deleted-file case (loads, and no temp copy is created) and the `chmod 000` case (the copy appears in `$XDG_CACHE_HOME/papers-ofd` and is gone after a reload or at finalize) |
+| A26 | The space bar in GNOME Files is **Sushi**, and Sushi renders documents in-process through Papers' `libdocument`/`libview` (its `js/viewers/pdf.js` imports `gi://PapersDocument`/`PapersView` and loads with `PapersView.JobLoad.set_uri`, i.e. by URI — no file descriptor, so `load_fd` is not on that path). Which renderer a file gets is decided by content type: the selector matches `Gio.content_type_is_a` against every renderer's `contentTypes`, and the document renderer derives its list from the MimeType line of `org.gnome.Papers.desktop`; `application/ofd` is not in it out of tree, so the type falls through to the file-information renderer. Sushi loads plugins from its built-in resources, then `SYSTEM_PLUGIN_DIRECTORY` (`/usr/lib/sushi/plugins-1`), then `$XDG_DATA_HOME/sushi/plugins-1`, importing them before it builds the map, so a plugin can add the type (the renderer's `contentTypes` array is mutable and is the same array its own load gate reads). Nautilus' "Open With" chooser lists `g_app_info_get_all()` on top of default/recommended/fallback, which is why both desktop entries that run `papers` appear there while `gio mime application/ofd` reports exactly one registered entry | Sushi 51.2 sources (`src/core/rendererSelector.js`, `src/viewers/pdf.js:46,122-129`, `src/config.js.in`) and the installed resource (`gresource list /usr/share/sushi/org.gnome.NautilusPreviewer.src.gresource`); measured with gjs against the installed 51.2: without the plugin `selectRenderer ("application/ofd")` is `FallbackRenderer`, with it the Papers-backed `PdfRenderer` and the fixture loads with 2 pages; `xdg-mime query filetype`, `gio mime application/ofd` (default and recommended: `org.gnome.Papers.Ofd.desktop`), `nautilus-app-chooser-widget.c:301-330`; `tests/test-sushi-plugin.js` is the regression net |
 
 ## Appendix B — corrections to the previous draft
 

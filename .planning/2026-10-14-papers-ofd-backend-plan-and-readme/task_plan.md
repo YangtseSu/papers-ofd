@@ -7,16 +7,23 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
-**Phase 3 is done** (2026-10-15): fd loading, the Arch package and its install
-checks are implemented, tested and shipped. What remains is the user's visual
+**Phase 3 is done** (2026-10-15): fd loading, the Arch package, its install checks
+and — after the first acceptance run — the Sushi plugin that makes the space-bar
+preview work out of tree. What remains is the user's visual
 acceptance on the live session (Nautilus icon/thumbnail, space-bar preview
 window, double-click, single app-grid entry) and, optionally, the
 `pacman -Rns papers-ofd` uninstall regression. After that, phase 4 (the upstream
 MR into Papers' `libdocument/backend/ofd/`) is the only planned work left; it is
 optional in the plan and can wait for a Papers-side slot.
 
+Open items for the user: reinstall the rebuilt package (`0.1.0-2`) and confirm the
+space bar, the Nautilus icon/thumbnail, double-click and the single app-grid entry;
+remove the temporary `~/.local/share/sushi/plugins-1/papers-ofd-sushi.js` once the
+package installs its own copy.
+
 State to pick up from: `.planning/…/progress.md`, sections *Phase 3 — fd loading,
-packaging, install checks* (evidence) and *Test Results* / *Error Log* (rows).
+packaging, install checks* and *Phase 3 follow-up — the space bar* (evidence), plus
+*Test Results* / *Error Log* rows.
 Repository main is at the phase-3 commits; `packaging/PKGBUILD` is mirrored to
 the AUR (`papers-ofd 0.1.0-1`) and installed on this machine.
 
@@ -177,7 +184,9 @@ and #12 when convenient.
 - [x] Install (user, `pacman -U`) verified: no file conflicts, designed `Depends On`, installed module md5 matches the package
 - [x] Runtime from `/usr` with no overrides: `xdg-mime query filetype/default`, `papers-thumbnailer -s 256`, `papers-previewer --fd 3`, `papers <fixture>`, `gio open` — all with zero CRITICAL/ERROR
 - [x] Docs: plan §1 (previewer row), §5 phase-3 steps/evidence, §6 (test list, packaging recipes, previewer invocation), §7 (Arch package section), §8 (fd fallback risk), Appendix A25; README status/capabilities/install/roadmap
-- [ ] User's visual acceptance on the live session (Nautilus icon/thumbnail, space-bar preview, double-click, app grid) and the optional `pacman -Rns` regression
+- [x] Sushi plugin (`data/papers-ofd-sushi.js`, option `sushi_plugin_dir`) + `tests/test-sushi-plugin.js`: the first acceptance run showed the space bar falling back to the file-information panel because Sushi derives its document renderer's types from Papers' own desktop file (A26)
+- [ ] User's visual acceptance on the live session (Nautilus icon/thumbnail, space bar with the plugin, double-click, app grid) and the optional `pacman -Rns` regression
+- [ ] Reinstall the rebuilt package (`0.1.0-2`, pin moves to the plugin commit) and drop the temporary `~/.local/share/sushi/plugins-1/papers-ofd-sushi.js`
 - **Status:** implementation complete, visual acceptance open
 
 ### Phase 16: rofd font-resolved text geometry (Ctrl+F highlight offset)

@@ -45,7 +45,8 @@ copy.
 | Metadata | title, author, subject, keywords, creator, dates, page count |
 | Select/copy text, Ctrl+F, caret navigation | rofd's text layout + search; the I-beam cursor comes from the glyph region |
 | In-page links and the outline sidebar | GOTO/URI links; the outline model feeds the links sidebar |
-| Nautilus previewer (space bar) | `load_fd`: the descriptor is re-entered through `/proc/self/fd`, or copied into the user cache when `/proc` cannot be used |
+| Nautilus previewer (space bar) | Sushi renders documents through Papers' own libraries; `data/papers-ofd-sushi.js` makes it claim `application/ofd`, which Papers' own desktop file does not list out of tree |
+| Loading from a file descriptor | `load_fd`: the descriptor is re-entered through `/proc/self/fd`, or copied into the user cache when `/proc` cannot be used |
 
 Not supported (rofd has no support for them, and Papers hides the corresponding
 UI automatically): annotations, signatures/seals, form filling, attachments,
@@ -160,8 +161,13 @@ commit-pinned archive of this repository, so `makepkg` verifies a checksum, and 
 are not listed because their pacman hooks (which index the MIME xml and the desktop
 file) arrive through `papers` already.
 
-Uninstalling removes only the five files below — none is owned by another package,
-so Papers and its other backends are untouched.
+The package also installs the Sushi plugin below (into Sushi's system plugin
+directory; `-Dsushi_plugin_dir` moves or skips it) and lists `sushi` as an optional
+dependency — without Sushi the file is inert and only the space-bar preview is
+missing.
+
+Uninstalling removes only the files below — none is owned by another package, so
+Papers and its other backends are untouched.
 
 ## Installed files
 
@@ -171,10 +177,15 @@ so Papers and its other backends are untouched.
 /usr/share/mime/packages/papers-ofd.xml                   application/ofd (glob + zip magic)
 /usr/share/thumbnailers/papers-ofd.thumbnailer            Nautilus thumbnails
 /usr/share/applications/org.gnome.Papers.Ofd.desktop      association entry (NoDisplay)
+/usr/lib/sushi/plugins-1/papers-ofd-sushi.js              space-bar previews (see Limitations)
 ```
 
 Papers builds its own desktop and thumbnailer MIME lists from in-tree backends
-only, hence the separate association and thumbnailer entries. The MIME magic is a
+only, hence the separate association and thumbnailer entries. The Sushi plugin
+exists for the same reason: Sushi's document renderer claims exactly the MIME
+types of Papers' own desktop file, so `application/ofd` needs a plugin until
+Papers carries it itself ([§7](docs/plan.md#7-packaging-and-desktop-integration),
+A26 in [Appendix A](docs/plan.md#appendix-a--evidence-index)). The MIME magic is a
 nested rule at priority 70: below `application/zip`'s priority it would lose every
 content-only guess, which is the only detection the previewer has. Details and the
 patch-free vs patch-the-desktop tradeoff:
@@ -203,6 +214,16 @@ patch-free vs patch-the-desktop tradeoff:
   highlights, caret positions and selection regions on such text can sit right of
   the glyphs. Everything else is unaffected, and `meson test` reports which model
   the linked library uses.
+- The space-bar preview needs the shipped Sushi plugin, which depends on Sushi
+  internals (its plugin directory, the document renderer's content-type list).
+  It is removed together with the plugin once Papers lists `application/ofd` in
+  its own desktop file, i.e. after the phase-4 move in-tree; if Sushi changes, the
+  plugin loads with an error and previews of other types are unaffected.
+- "Open With" in Nautilus lists every installed application, so both desktop
+  entries that run `papers` (Papers' own and this package's `NoDisplay`
+  association entry) appear as rows there. `application/ofd` itself is registered
+  on one entry only; the duplicate disappears with the phase-4 move, which also
+  retires the association entry.
 - Named destinations (`find_link_dest`/`find_link_page`) are stubs.
 - Selection is declined on rotated pages, which is where Papers refuses to start
   one itself ("Selection in rotated documents has never worked", `pps-view.c`).
@@ -219,7 +240,7 @@ patch-free vs patch-the-desktop tradeoff:
 | 0 | Loadable module, discovery, page geometry | done |
 | 1 | Rendering, rotation/zoom matrix, metadata, printing | done |
 | 2 | Text, selection, find, links, outline | done |
-| 3 | `load_fd` (previewer), packaging, install checks | done |
+| 3 | `load_fd` (previewer), packaging, install checks, Sushi plugin | done |
 | 4 | Upstream MR into Papers' `libdocument/backend/ofd/` | planned |
 
 Per-phase deliverables, steps and acceptance criteria:
