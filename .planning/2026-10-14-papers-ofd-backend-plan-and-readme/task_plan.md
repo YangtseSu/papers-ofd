@@ -7,11 +7,11 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
-Phase 2 of `docs/plan.md` (§5) is implemented, tested and documented; the open
-item is the **GUI acceptance on the live session** (select/copy, Ctrl+F snippets,
-F7 caret, I-beam cursor, GOTO/URI links, outline sidebar) — the same hand-off as
-phase 1, because no headless GUI exists on this host. Then update the phase-2
-status here and start phase 3 (`load_fd`, packaging, install checks).
+Phase 2 of `docs/plan.md` (§5) is **complete**: implemented, tested (11/11 in both
+page-size builds), documented and accepted on the live session by the user
+(2026-10-15), including the Ctrl+F highlight geometry that phase 16 fixed in rofd.
+Next: **phase 3** — `load_fd` (previewer), packaging and install checks; the MIME
+priority fix (A22) and the font-advance fixes (A24) are already in place.
 
 Phase 1 of `docs/plan.md` is complete and committed: rendering (rotation/zoom
 matrix on pixels, origin normalization, byte-equivalence with a direct FFI
@@ -110,7 +110,7 @@ and #12 when convenient.
 - [x] Tests `test-ofd-text.c`, `test-ofd-links.c`, `test-ofd-search.c`, `test-ofd-errors.c`; 11/11 in both page-size builds
 - [x] Headless Ctrl+F acceptance: Papers' own search context over the text fixture (snippets for ASCII/CJK/case-sensitive/whole-word), which also surfaced an upstream defect (A23: a `PpsSearchContext` cannot be finalized)
 - [x] Two real defects found and fixed: `pps_outlines_new`/`pps_outlines_set_link` are declared but not exported (A21), and the MIME magic priority made content-only detection answer `application/zip` (A22, the previewer/fd path)
-- [ ] GUI acceptance on the live session (user)
+- [x] GUI acceptance on the live session (user-confirmed 2026-10-15, incl. the Ctrl+F highlight after phase 16)
 - **Status:** implementation complete, GUI acceptance open
 
 ### Phase 16: rofd font-resolved text geometry (Ctrl+F highlight offset)
@@ -122,8 +122,8 @@ and #12 when convenient.
 - [x] Module side: ink-alignment regression test that classifies the linked ABI and asserts match rectangles overlap the rendered glyphs; selection test samples glyph centres
 - [x] AUR `librofd-ffi 0.4.3-3` built with both patches and verified (packaged library reproduces the font-aware geometry)
 - [x] AUR publication deferred by the user: `0.4.3-3` stays local until rofd#13 is reviewed or merged
-- [ ] User: re-check Ctrl+F highlighting on the live session (with `LD_LIBRARY_PATH="$ROFD_SRC/target/release"` or the local package installed)
-- **Status:** implementation, tests and the local package complete; the visual re-check is open
+- [x] User re-checked the live session after the box-width commit: the highlight is correct; the installed package is `librofd-ffi 0.4.3-4`
+- **Status:** complete
 
 ### Phase 0: loadable module skeleton
 

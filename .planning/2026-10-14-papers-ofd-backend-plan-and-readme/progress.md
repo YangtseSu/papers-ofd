@@ -300,13 +300,16 @@
 
 ### Phase 16: rofd font-resolved text geometry (the Ctrl+F highlight offset)
 
-- **Status:** complete (code, tests, patch, AUR build, upstream PR); the visual
-  re-check is the user's call
-- User decision (2026-10-15): the AUR package `librofd-ffi 0.4.3-3` stays **local**
-  for now — it is built and verified in `~/projects/librofd-ffi`, and gets pushed once
-  rofd#13 is reviewed or merged, or when this machine should install the fix from the
-  package instead of `LD_LIBRARY_PATH`. Until then the fix is visible with
-  `LD_LIBRARY_PATH="$ROFD_SRC/target/release"` (or by installing the local package).
+- **Status:** complete — user-confirmed on the live session (2026-10-15): after the
+  first fix the rectangles were aligned but visibly wider than the match, and after
+  the box-width commit `812073e` (installed here as `librofd-ffi 0.4.3-4`) the user
+  reports the highlight is right. The `on` box narrowed from 4.82 mm to 3.65 mm (the
+  sum of the two glyph advances).
+- User decision (2026-10-15): the AUR package stays **local** (not pushed to the AUR)
+  until rofd#13 is reviewed or merged. The user installed the locally built package on
+  this machine instead: `librofd-ffi 0.4.3-4` is what the module now links (`ldd`
+  resolves `/usr/lib/librofd_ffi.so.0`), so no `LD_LIBRARY_PATH` is needed and both
+  suites run with the strict geometry assertions green.
 - Reported by the user during the phase-2 GUI acceptance: with Ctrl+F, the highlight
   for English/number matches did not sit on the searched text but to its right; CJK
   was fine. Not a module bug — a rofd geometry model mismatch:
@@ -486,8 +489,8 @@
 
 | Question | Answer |
 |----------|--------|
-| Where am I? | `docs/plan.md` phases 0–2 implemented: skeleton, rendering/printing/metadata, and text/selection/find/links/outline; `meson test` 10/10 in both page-size builds; the phase-2 GUI acceptance is the one open item |
-| Where am I going? | Phase 3: `load_fd` (previewer), packaging and install checks — with the MIME priority fix (A22) already in place, content-only detection now works for the previewer path |
+| Where am I? | `docs/plan.md` phases 0–2 complete and accepted: skeleton, rendering/printing/metadata, text/selection/find/links/outline; `meson test` 11/11 in both page-size builds against the installed `librofd-ffi 0.4.3-4`; the phase-2 GUI acceptance is user-confirmed |
+| Where am I going? | Phase 3: `load_fd` (previewer), packaging and install checks — the MIME priority fix (A22) and the font-advance fixes (A24) are already in place and shipped through our package |
 | What's the goal? | Ship the OFD backend for Papers 51.x, out-of-tree, on the rofd ABI we maintain (fork-first, AUR package) |
 | What have I learned? | Phase 16: rofd's semantic text geometry and its renderer disagreed for runs without explicit `DeltaX` (font size vs font advance) — a third rofd gap we now carry a patch for, and a reminder that rectangle-producing vfuncs must be validated against *pixels*. Phase 1: one uniform render scale (plan §4), rofd's rotation is clockwise and matches `rc->rotation` as-is, the invoice's first zip entry is `Doc_0/…`, and `setup_cache` fetches every page object. Phase 2: `PpsOutlines` has declared-but-unexported functions (A21), a nested MIME rule below `application/zip`'s priority silently loses content-only detection (A22), Papers refuses selection on rotated pages, rofd's fallback font advances ≈ `0.96 × Size` mm per glyph, and layout/find/selection rectangles must be re-based on the *target* page's box origin for GOTO destinations |
 | What have I done? | Plan/README machine-portable and REUSE-compliant; rofd page-size patch shipped via our AUR package and proposed upstream (#11), `rofd-ffi.pc` proposed upstream (#12) and shipped; phases 0–2 implemented and tested (10/10 in both builds), with the A21/A22 defects fixed; a PDF-session and an OFD-session log check done; the phase-2 GUI acceptance is the user's call |
