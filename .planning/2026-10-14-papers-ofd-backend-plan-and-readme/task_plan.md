@@ -7,16 +7,22 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
-Post the CLA signature sentence on PR #11 (user action; `librofd-ffi 0.4.0-2` is
-already installed on this machine, verified through `/usr/include/rofd.h` +
-`/usr/lib/librofd_ffi.so.0` by `scripts/dev-env.sh`); then start phase 0 of
-`docs/plan.md`: the Meson project plus the `OfdDocument` skeleton (works against
-stock rofd through the page-size fallback, so upstream review of PR #11 does not
-block it).
+Start **phase 1** of `docs/plan.md` (§5): rotation/zoom matrix with a corner-marker
+fixture, `print_page` on top of `ofd-render.c`, `print`-to-PDF text selectability,
+`get_info` metadata (plus the `fields_mask` bits), the same-options equivalence
+check against a direct FFI render, the 254-dpi oracle against
+`$ROFD_SRC/tests/fixtures/reference/invoice-phase3.png`, and the open-latency
+measurement on a generated 300-page fixture for both `HAVE_ROFD_PAGE_SIZE` paths.
+
+Environment: `. scripts/dev-env.sh`; build and tests per README/AGENTS. Phase 0 is
+complete and committed (`f3ade9b`) with its evidence in `progress.md`.
+
+Open user actions (not blocking): install `librofd-ffi 0.4.3-2` locally, and post
+the CLA sentence on upstream PRs #11/#12 when convenient.
 
 ## Current Phase
 
-All phases complete
+`docs/plan.md` phase 0 complete; phase 1 next
 
 ## Phases
 

@@ -227,11 +227,11 @@
 
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 9 complete (portable dependency paths after the machine move); `docs/plan.md` phases 0–4 not started |
-| Where am I going? | Phase 0 of `docs/plan.md`: the Meson project plus the `OfdDocument` skeleton |
-| What's the goal? | Execution-ready `docs/plan.md` + matching `README.md` grounded in verified Papers 51.1 / rofd ABI v1 behaviour, followed by the implementation |
-| What have I learned? | Checkout locations are machine-local and validated by `scripts/dev-env.sh`; on this host `../rofd` is an unrelated project, the ABI comes from the installed `librofd-ffi 0.4.0-2`; full evidence in `findings.md` |
-| What have I done? | Plan + README reworked and verified; rofd page-size PR opened and its patch published via AUR; repository made REUSE-compliant; dependency paths made machine-portable |
+| Where am I? | `docs/plan.md` phase 0 complete (module skeleton, `meson test` 3/3, Papers runtime clean); phase 1 next |
+| Where am I going? | Phase 1: rotation/zoom matrix, printing, metadata, oracle and latency measurements |
+| What's the goal? | Ship the OFD backend for Papers 51.x, out-of-tree, on the rofd ABI we maintain (fork-first, AUR package) |
+| What have I learned? | See `findings.md`: Papers/rofd contracts (P1–P38, R1–R19), the dev-run recipe (whole backend dir + staged MIME), `render` must exist (A20), and the delivery/fork policy (D11) |
+| What have I done? | Plan/README verified and machine-portable; REUSE-compliant; rofd page-size patch shipped via our AUR package and proposed upstream (#11), `rofd-ffi.pc` proposed upstream (#12) and shipped in the package; phase 0 implemented, tested and committed |
 
 ---
 
