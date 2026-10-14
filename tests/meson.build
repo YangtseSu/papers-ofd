@@ -102,6 +102,11 @@ test_ofd_links = executable('test-ofd-links',
   include_directories: ofd_include,
   dependencies: [papers_dep, glib_dep, gio_dep, rofd_dep])
 
+test_ofd_search = executable('test-ofd-search',
+  files('test-ofd-search.c', 'ofd-test-utils.c'),
+  include_directories: ofd_include,
+  dependencies: [papers_dep, papers_view_dep, glib_dep, gio_dep, gtk_dep])
+
 test_ofd_errors = executable('test-ofd-errors',
   files('test-ofd-errors.c', 'ofd-test-utils.c'),
   include_directories: ofd_include,
@@ -149,6 +154,12 @@ test('ofd-links',
   test_ofd_links,
   args: [ofd_module, descriptor_in_build, files('../data/papers-ofd.xml'),
          links_fixture, text_fixture, origin_text_fixture],
+  timeout: 120)
+
+test('ofd-search',
+  test_ofd_search,
+  args: [ofd_module, descriptor_in_build, files('../data/papers-ofd.xml'),
+         text_fixture],
   timeout: 120)
 
 test('ofd-errors',

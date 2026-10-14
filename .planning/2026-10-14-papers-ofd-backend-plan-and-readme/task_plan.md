@@ -107,7 +107,8 @@ and #12 when convenient.
 - [x] `ofd-links.[ch]` (page `PpsMappingList` + `PpsLinkAction`/`PpsLinkDest` from a rofd action, URI base resolution) and `ofd-outline.[ch]` (`PpsOutlines` model rebuilt from parent/first_child/next_sibling)
 - [x] Five interfaces registered on `OfdDocument`; every vfunc present, stubs where the ABI has no counterpart
 - [x] Fixtures `text`, `scan`, `links`, `origin-text`, `broken-page`, `malformed-zip` in the generator (+ Meson targets)
-- [x] Tests `test-ofd-text.c`, `test-ofd-links.c`, `test-ofd-errors.c`; 10/10 in both page-size builds
+- [x] Tests `test-ofd-text.c`, `test-ofd-links.c`, `test-ofd-search.c`, `test-ofd-errors.c`; 11/11 in both page-size builds
+- [x] Headless Ctrl+F acceptance: Papers' own search context over the text fixture (snippets for ASCII/CJK/case-sensitive/whole-word), which also surfaced an upstream defect (A23: a `PpsSearchContext` cannot be finalized)
 - [x] Two real defects found and fixed: `pps_outlines_new`/`pps_outlines_set_link` are declared but not exported (A21), and the MIME magic priority made content-only detection answer `application/zip` (A22, the previewer/fd path)
 - [ ] GUI acceptance on the live session (user)
 - **Status:** implementation complete, GUI acceptance open

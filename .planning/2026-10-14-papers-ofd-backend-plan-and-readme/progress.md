@@ -280,6 +280,19 @@
   - Test-fixture detail worth keeping: rofd advances every glyph by ≈ `0.96 × Size`
     millimetres when the named font is absent, so the two-column fixture uses `Size=3`
     to stay inside its columns; the geometry is asserted by the tests.
+  - `test-ofd-search.c`: runs Papers' **own** search context (the Ctrl+F sidebar's
+    pipeline: find job → per-page results → `get_match_offset` pairing with the text
+    layout → snippet markup) over the text fixture, so the acceptance criterion
+    "the snippet is the sentence around the match" is checked headlessly for the
+    case-insensitive ASCII page, a case-sensitive query, a whole-word query that must
+    find nothing, and the CJK page. Two upstream behaviours surfaced while wiring it:
+    the context builds page labels from the document's page cache (the test calls
+    `pps_document_setup_cache`, as the shell's load job does), and **a
+    `PpsSearchContext` cannot be finalized at all** — its dispose passes the
+    `GHashTable *per_page_store` to `g_clear_object ()`, so `g_object_unref` reads the
+    hash table as a `GTypeInstance` and segfaults (A23). The test therefore leaks the
+    context and the model on purpose; the shell never reaches that path in a normal
+    session.
 - Files created/modified:
   - `src/{ofd-text.[ch],ofd-links.[ch],ofd-outline.[ch],ofd-document.[ch],ofd-page.[ch],ofd-render.[ch],ofd-units.[ch],meson.build}`,
     `tests/{generate_fixture.py,meson.build,test-ofd-text.c,test-ofd-links.c,test-ofd-errors.c,ofd-print-file.c}`,
@@ -374,6 +387,7 @@
 | Byte-only MIME detection | first 1024 bytes of a fixture and of a hand-built plain zip | `application/ofd` / `application/zip` | `application/ofd` at the new priority 70, plain zip stays `application/zip` | pass |
 | Papers session (phase 2) | `papers` on the text, scan and links fixtures with the dev backend dir | jobs run, no criticals | links job and page-data jobs for every visible page (our outline/text/mapping/link vfuncs) with 0 CRITICAL/ERROR; PDF in the same dev dir still opens | pass |
 | `reuse lint` after phase 2 | repository | compliant | 50/50 files with copyright + license | pass |
+| Search snippets (Ctrl+F rows) | `text-2pages.ofd` through `PpsSearchContext` | 2 hits for `invoice` on page 0 with the surrounding words, 1 for the case-sensitive query, 0 for `invo` with whole words, 2 CJK hits on page 1 | markup contains `<span weight="bold">` + the source spelling + `total: 42 EUR` / `appears lowercase` / `中文搜索测试` as applicable; `first_match_page` 0, 0, -1, 1 | pass |
 | Memory checking | the two new test programs under `G_SLICE=always-malloc MALLOC_PERTURB_` | no crash | pass; valgrind is not installed on this host, so no leak report was produced | pass (limited) |
 
 ## Error Log
@@ -388,6 +402,9 @@
 | 2026-10-15 | `test_render_selection` expected a 596 px surface, got 595 | 1 | Papers rounds the pixel size first (`pps_render_context_compute_scaled_size`) and the module derives the scale from that, exactly as §4 specifies; the test's oracle now computes the scale the same way |
 | 2026-10-15 | `test-ofd-links` segfaulted in `g_list_model_get_item` and logged 4 `g_object_unref` criticals | 2 | Two test-side ownership bugs: a borrowed children model held in a `g_autoptr` (freed the store the outlines still pointed at), and `g_autoptr` on `pps_outlines_get_link`/`pps_link_action_get_dest`, which are `transfer none`. Both replaced with plain borrowed pointers; found with gdb backtraces |
 | 2026-10-15 | `test-ofd-errors` asserted `n_pages == 0` after a failed load, got -1 | 1 | The base class keeps -1 until a load succeeds (`pps-document.c:155,446`); the assertion now checks `< 0` |
+| 2026-10-15 | `test-ofd-search` segfaulted while dropping the `PpsSearchContext` (frames: `g_object_unref` → `pps_search_context_dispose` → `g_type_check_instance_is_fundamentally_a`) | 2 | Papers' dispose calls `g_clear_object ()` on a `GHashTable *` (`pps-search-context.c:421`) instead of `g_clear_pointer (..., g_hash_table_unref)`; `g_object_unref` then reads the hash table as a `GTypeInstance` and dies. Reviewed the field (`:433`) and the tag-51.1 source, bisected it to the dispose (the test passed once the context was no longer freed), and recorded it as A23; the test now leaks the context deliberately |
+| 2026-10-15 | `test-ofd-search` logged `pps_document_get_page_label: assertion 'priv->cache_loaded == TRUE' failed` | 1 | The search context labels its pages from the document's page cache, which the shell fills in the load job; the test now calls `pps_document_setup_cache` after loading, like the shell does |
+| 2026-10-15 | `test-ofd-search` logged three GLib-GObject criticals before any of its own code ran | 1 | `PpsDocumentModel::constructed` connects to its annotation model unconditionally, and `pps_document_model_new ()` passes none; upstream noise, swallowed by a scoped log handler with a comment (the test's own criticals still show) |
 
 
 | 2026-10-14 | Oracle run failed with "File type Zip archive (application/zip) is not supported" on the real invoice | 1 | The `OFD.xml`@30 magic only matched archives whose first entry is `OFD.xml`; the invoice starts with `Doc_0/Annots/Annotations.xml` (`OFD.xml` sits at byte 21707), so GLib's data-only guess fell back to `application/zip`. Added a `Doc_0/`@30 alternative to `data/papers-ofd.xml` and verified with `g_content_type_guess(NULL, first 1024 bytes)` and `xdg-mime query filetype`; a plain zip still reports `application/zip` |
