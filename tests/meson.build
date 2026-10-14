@@ -112,6 +112,11 @@ test_ofd_errors = executable('test-ofd-errors',
   include_directories: ofd_include,
   dependencies: [papers_dep, glib_dep, gio_dep])
 
+test_ofd_fd = executable('test-ofd-fd',
+  files('test-ofd-fd.c', 'ofd-test-utils.c'),
+  include_directories: ofd_include,
+  dependencies: [papers_dep, papers_view_dep, glib_dep, gio_dep])
+
 test('ofd-units', test_ofd_units, timeout: 30)
 
 test('ofd-document',
@@ -167,6 +172,12 @@ test('ofd-errors',
   args: [ofd_module, descriptor_in_build, files('../data/papers-ofd.xml'),
          malformed_zip_fixture, text_fixture],
   timeout: 60)
+
+test('ofd-fd',
+  test_ofd_fd,
+  args: [ofd_module, descriptor_in_build, files('../data/papers-ofd.xml'),
+         text_fixture, metadata_fixture],
+  timeout: 120)
 
 rofd_src = get_option('rofd_src')
 if rofd_src != ''

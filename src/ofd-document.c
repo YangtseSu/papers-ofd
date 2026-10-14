@@ -13,7 +13,11 @@
 #include "ofd-units.h"
 
 #include <rofd.h>
+#include <errno.h>
 #include <string.h>
+#include <unistd.h>
+
+#include <glib/gstdio.h>
 
 struct _OfdDocument;
 
@@ -30,6 +34,12 @@ struct _OfdDocument {
 	 * (D8). Guarded by `mutex`. */
 	rofd_renderer_t *renderer;
 	gint n_pages;
+
+	/* load_fd bookkeeping (plan §3): the descriptor the previewer handed over and
+	 * the temp copy rofd reads when the descriptor cannot be re-entered through
+	 * /proc. -1/NULL when the document came from a URI. Guarded by `mutex`. */
+	gint source_fd;
+	gchar *source_temp_path;
 
 	/* Decision D2: one mutex for our own mutable state only; the rofd ABI is
 	 * safe for the concurrent read-only calls Papers' worker pool issues. */
@@ -155,25 +165,35 @@ ofd_document_page_box_mm (OfdDocument *self, gint index, rofd_rect_t *box_mm)
 	return TRUE;
 }
 
-static gboolean
-ofd_document_load (PpsDocument *document, const char *uri, GError **error)
+/* Drops the fd and the temp copy of a previous load_fd; the caller holds the
+ * mutex. rofd reads the whole file during rofd_document_open, but the ABI only
+ * promises that call, so the descriptor and the copy stay alive for as long as
+ * the document does (plan §3). */
+static void
+ofd_document_drop_source (OfdDocument *self)
 {
-	OfdDocument *self = OFD_DOCUMENT (document);
-	g_autofree gchar *path = NULL;
+	if (self->source_fd >= 0) {
+		close (self->source_fd);
+		self->source_fd = -1;
+	}
+
+	if (self->source_temp_path != NULL) {
+		if (g_unlink (self->source_temp_path) != 0)
+			g_debug ("temp copy %s could not be removed: %s",
+			         self->source_temp_path, g_strerror (errno));
+		g_clear_pointer (&self->source_temp_path, g_free);
+	}
+}
+
+/* Opens one path and makes it the current document, whatever the caller had
+ * loaded before. */
+static gboolean
+ofd_document_load_path (OfdDocument *self, const gchar *path, GError **error)
+{
 	rofd_document_t *handle = NULL;
 	rofd_error_t *rerror = NULL;
 	rofd_status_t status;
 	size_t count = 0;
-
-	g_return_val_if_fail (uri != NULL, FALSE);
-
-	/* Local files only: the OFD parser takes a path (plan §3). */
-	path = g_filename_from_uri (uri, NULL, NULL);
-	if (path == NULL) {
-		g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
-		                     "Only local files are supported");
-		return FALSE;
-	}
 
 	if (rofd_abi_version () != ROFD_ABI_VERSION) {
 		g_set_error (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
@@ -207,6 +227,164 @@ ofd_document_load (PpsDocument *document, const char *uri, GError **error)
 	g_free (self->geometry);
 	self->geometry_len = (gint) count;
 	self->geometry = count > 0 ? g_new0 (OfdPageGeometry, count) : NULL;
+	ofd_document_drop_source (self);
+	g_mutex_unlock (&self->mutex);
+
+	return TRUE;
+}
+
+static gboolean
+ofd_document_load (PpsDocument *document, const char *uri, GError **error)
+{
+	OfdDocument *self = OFD_DOCUMENT (document);
+	g_autofree gchar *path = NULL;
+
+	g_return_val_if_fail (uri != NULL, FALSE);
+
+	/* Local files only: the OFD parser takes a path (plan §3). */
+	path = g_filename_from_uri (uri, NULL, NULL);
+	if (path == NULL) {
+		g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
+		                     "Only local files are supported");
+		return FALSE;
+	}
+
+	return ofd_document_load_path (self, path, error);
+}
+
+#define OFD_FD_COPY_CHUNK 65536
+
+/* Copies the descriptor's bytes into a fresh file below the user cache, which is
+ * where rofd can read them from when the descriptor itself is not reachable
+ * through /proc (plan §3). The copy is removed again by drop_source. */
+static gboolean
+ofd_document_write_fd_copy (gint fd, gchar **temp_path_out, GError **error)
+{
+	g_autofree gchar *dir = g_build_filename (g_get_user_cache_dir (), "papers-ofd", NULL);
+	g_autofree gchar *temp_path = g_build_filename (dir, "ofd-fd-XXXXXX", NULL);
+	guchar buffer[OFD_FD_COPY_CHUNK];
+	gint temp_fd;
+	gint errsv;
+	gboolean ok = FALSE;
+
+	if (g_mkdir_with_parents (dir, 0700) != 0) {
+		errsv = errno;
+		g_set_error (error, G_FILE_ERROR, g_file_error_from_errno (errsv),
+		             "Cannot create %s: %s", dir, g_strerror (errsv));
+		return FALSE;
+	}
+
+	temp_fd = g_mkstemp (temp_path);
+	if (temp_fd == -1) {
+		errsv = errno;
+		g_set_error (error, G_FILE_ERROR, g_file_error_from_errno (errsv),
+		             "Cannot create a temporary copy in %s: %s", dir, g_strerror (errsv));
+		return FALSE;
+	}
+
+	/* The caller's descriptor may sit anywhere in the file; the copy is the whole
+	 * document. Reads and writes are looped over partial results and EINTR. */
+	if (lseek (fd, 0, SEEK_SET) == (off_t) -1) {
+		errsv = errno;
+		g_set_error (error, G_FILE_ERROR, g_file_error_from_errno (errsv),
+		             "Cannot rewind the document descriptor: %s", g_strerror (errsv));
+		goto out;
+	}
+
+	for (;;) {
+		ssize_t nread = read (fd, buffer, sizeof buffer);
+		gsize written = 0;
+
+		if (nread < 0) {
+			if (errno == EINTR)
+				continue;
+			errsv = errno;
+			g_set_error (error, G_FILE_ERROR, g_file_error_from_errno (errsv),
+			             "Cannot read the document descriptor: %s", g_strerror (errsv));
+			goto out;
+		}
+		if (nread == 0)
+			break;
+
+		while (written < (gsize) nread) {
+			ssize_t nwritten = write (temp_fd, buffer + written,
+			                          (gsize) nread - written);
+
+			if (nwritten < 0) {
+				if (errno == EINTR)
+					continue;
+				errsv = errno;
+				g_set_error (error, G_FILE_ERROR, g_file_error_from_errno (errsv),
+				             "Cannot write %s: %s", temp_path, g_strerror (errsv));
+				goto out;
+			}
+			written += (gsize) nwritten;
+		}
+	}
+
+	ok = TRUE;
+
+out:
+	close (temp_fd);
+	if (!ok) {
+		g_unlink (temp_path);
+		return FALSE;
+	}
+
+	*temp_path_out = g_steal_pointer (&temp_path);
+	return TRUE;
+}
+
+/* PpsDocument::load_fd — the previewer path (plan §3). The wrapper has already
+ * checked that @fd is a readable regular file and hands its ownership over,
+ * including when this vfunc fails. */
+static gboolean
+ofd_document_load_fd (PpsDocument *document, int fd, GError **error)
+{
+	OfdDocument *self = OFD_DOCUMENT (document);
+	g_autofree gchar *proc_path = NULL;
+	g_autofree gchar *temp_path = NULL;
+	gint dup_fd;
+	gint errsv;
+
+	/* Keep a descriptor of our own for the fallback below, and for the document's
+	 * lifetime: rofd opens by path, so the file must stay reachable. */
+	dup_fd = dup (fd);
+	if (dup_fd < 0) {
+		errsv = errno;
+		g_set_error (error, G_FILE_ERROR, g_file_error_from_errno (errsv),
+		             "Cannot duplicate the document descriptor: %s", g_strerror (errsv));
+		close (fd);
+		return FALSE;
+	}
+	close (fd);
+
+	/* /proc/self/fd re-enters the same file, including one the caller has already
+	 * unlinked — which is what the previewer's temporary copies are. */
+	proc_path = g_strdup_printf ("/proc/self/fd/%d", dup_fd);
+	if (ofd_document_load_path (self, proc_path, NULL)) {
+		g_mutex_lock (&self->mutex);
+		self->source_fd = dup_fd;
+		g_mutex_unlock (&self->mutex);
+		return TRUE;
+	}
+
+	/* No usable /proc (a chroot, a sandbox) or no permission to re-enter the
+	 * file: fall back to a copy in the user cache. Its error is the one reported,
+	 * because it describes the document the caller wanted to open. */
+	if (!ofd_document_write_fd_copy (dup_fd, &temp_path, error)) {
+		close (dup_fd);
+		return FALSE;
+	}
+	close (dup_fd);
+
+	if (!ofd_document_load_path (self, temp_path, error)) {
+		g_unlink (temp_path);
+		return FALSE;
+	}
+
+	g_mutex_lock (&self->mutex);
+	self->source_temp_path = g_steal_pointer (&temp_path);
 	g_mutex_unlock (&self->mutex);
 
 	return TRUE;
@@ -457,6 +635,7 @@ ofd_document_finalize (GObject *object)
 
 	if (self->rofd_document != NULL)
 		rofd_document_free (self->rofd_document);
+	ofd_document_drop_source (self);
 	if (self->renderer != NULL)
 		rofd_renderer_free (self->renderer);
 	g_clear_pointer (&self->geometry, g_free);
@@ -560,6 +739,7 @@ ofd_document_class_init (OfdDocumentClass *klass)
 	gobject_class->finalize = ofd_document_finalize;
 
 	document_class->load = ofd_document_load;
+	document_class->load_fd = ofd_document_load_fd;
 	document_class->save = ofd_document_save;
 	document_class->get_n_pages = ofd_document_get_n_pages;
 	document_class->get_page = ofd_document_get_page;
@@ -572,5 +752,6 @@ ofd_document_class_init (OfdDocumentClass *klass)
 static void
 ofd_document_init (OfdDocument *self)
 {
+	self->source_fd = -1;
 	g_mutex_init (&self->mutex);
 }
