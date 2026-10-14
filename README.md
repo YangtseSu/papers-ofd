@@ -9,22 +9,25 @@ directory. No Papers fork, no Papers rebuild, no patching of Papers sources.
 
 ## Status
 
-Phases 0, 1 and 2 are implemented and tested against **Papers 51.1** ([tag `51.1`](https://gitlab.gnome.org/GNOME/papers/-/tree/51.1);
+Phases 0, 1, 2 and 3 are implemented and tested against **Papers 51.1** ([tag `51.1`](https://gitlab.gnome.org/GNOME/papers/-/tree/51.1);
 the build needs only the installed `papers-document-4.0` headers) and **rofd ABI v1**:
 the module loads through Papers' own backend discovery, renders pages correctly at
-every rotation and zoom step, prints (vector text), reports metadata, and serves
-text, selection, search, page links and the outline.
+every rotation and zoom step, prints (vector text), reports metadata, serves text,
+selection, search, page links and the outline, opens documents from a file
+descriptor (the Nautilus previewer's path) and ships as an Arch package on the AUR.
 
 - `meson test -C _build` runs the unit conversions, the factory round-trip with a
   deliberate discovery failure, the rotation/zoom/origin render matrix, the
   same-options equivalence against a direct FFI render, a real GTK print-to-file
   whose PDF text is verified with poppler, the metadata fields and mask bits, the
   text/layout/find/selection checks and the link/outline model — each compared
-  against a direct rofd query of the same fixture — the load error paths, and
-  (with `-Drofd_src=<rofd checkout>`) the invoice oracle against rofd's reference
-  render.
-- Remaining: fd loading, packaging and desktop integration (phase 3), upstream MR
-  (phase 4).
+  against a direct rofd query of the same fixture — the load error paths, the fd
+  path against the URI path (page geometry, text, pixels, info, temp-copy
+  lifetime), and (with `-Drofd_src=<rofd checkout>`) the invoice oracle against
+  rofd's reference render.
+- Install: [`papers-ofd` on the AUR](https://aur.archlinux.org/packages/papers-ofd)
+  (`0.1.0-1`), built from the commit-pinned source archive by
+  `packaging/PKGBUILD` in this repository. Remaining: the upstream MR (phase 4).
 
 Implementation plan: [`docs/plan.md`](docs/plan.md) — phases, interface contract,
 acceptance criteria, verification playbook, risks ([§5](docs/plan.md#5-phases)).
@@ -35,13 +38,14 @@ copy.
 
 | Capability | Notes |
 | --- | --- |
-| Open `*.ofd` (double-click, `papers file.ofd`, `gio open`) | local files; the fd/previewer path is phase 3 |
+| Open `*.ofd` (double-click, `papers file.ofd`, `gio open`) | local files, by URI or by file descriptor |
 | Scroll, zoom, rotate, fit-width/fit-page | full-page Cairo raster from `rofd-render` |
 | Print and print-to-PDF | direct Cairo rendering into the print context, vector text |
-| Thumbnails (sidebar and Nautilus) | reuse of the page renderer |
+| Thumbnails (Papers sidebar, Nautilus, `papers-thumbnailer`) | reuse of the page renderer |
 | Metadata | title, author, subject, keywords, creator, dates, page count |
 | Select/copy text, Ctrl+F, caret navigation | rofd's text layout + search; the I-beam cursor comes from the glyph region |
 | In-page links and the outline sidebar | GOTO/URI links; the outline model feeds the links sidebar |
+| Nautilus previewer (space bar) | `load_fd`: the descriptor is re-entered through `/proc/self/fd`, or copied into the user cache when `/proc` cannot be used |
 
 Not supported (rofd has no support for them, and Papers hides the corresponding
 UI automatically): annotations, signatures/seals, form filling, attachments,
@@ -74,7 +78,7 @@ Papers' worker pool issues.
 | Dependency | Notes |
 | --- | --- |
 | Papers ≥ 51, < 52 (`papers-document-4.0`) | system pkg-config; backends' ABI version is the `papers/6` directory component |
-| rofd-ffi (ABI v1, ≥ 0.4.2) | `librofd_ffi.so.0` + `rofd.h`; no pkg-config file from upstream, but our AUR package `librofd-ffi` (currently `0.4.3-3`) installs `rofd-ffi.pc` plus the patched ABI, so `-Drofd_libdir` / `-Drofd_includedir` are only needed for a hand-built checkout — `scripts/dev-env.sh` fills them in either way. The patched build carries `patches/rofd-ffi-page-size.patch` ([#11](https://github.com/linuxdeepin/rofd/pull/11)) and `patches/rofd-ffi-font-advances.patch` ([#13](https://github.com/linuxdeepin/rofd/pull/13)); stock rofd works too, falling back to the slow page-size path and to rofd's size-based text geometry. **Do not go below 0.4.2**: earlier rofd fails whole pages whose objects carry a singular transform ([A19](docs/plan.md#appendix-a--evidence-index)). Delivery policy: [plan D11](docs/plan.md#2-architecture-and-decisions) |
+| rofd-ffi (ABI v1, ≥ 0.4.2) | `librofd_ffi.so.0` + `rofd.h`; no pkg-config file from upstream, but our AUR package `librofd-ffi` (currently `0.4.3-4`) installs `rofd-ffi.pc` plus the patched ABI, so `-Drofd_libdir` / `-Drofd_includedir` are only needed for a hand-built checkout — `scripts/dev-env.sh` fills them in either way. The patched build carries `patches/rofd-ffi-page-size.patch` ([#11](https://github.com/linuxdeepin/rofd/pull/11)) and `patches/rofd-ffi-font-advances.patch` ([#13](https://github.com/linuxdeepin/rofd/pull/13)); stock rofd works too, falling back to the slow page-size path and to rofd's size-based text geometry. **Do not go below 0.4.2**: earlier rofd fails whole pages whose objects carry a singular transform ([A19](docs/plan.md#appendix-a--evidence-index)). Delivery policy: [plan D11](docs/plan.md#2-architecture-and-decisions) |
 | Papers/rofd sources (optional) | **Not needed to build**: the module compiles against `papers-document-4.0` (headers + `libppsdocument-4.0`) and `rofd.h` + `librofd_ffi.so.0`. `$ROFD_SRC` is required to carry or re-verify `patches/` and to run rofd's own test suite; a Papers checkout (`$PAPERS_SRC`) only speeds up grepping — its citations are written against the upstream repository at tag `51.1`. `scripts/dev-env.sh` reports what this machine has (environment → untracked `local.conf` → siblings `../papers`, `../rofd`) and flags a same-named directory that is not the expected repository |
 | Meson ≥ 1.0, pkg-config, C compiler, GLib/GIO/GTK4/Cairo | pulled in through the Papers dependency |
 | Cairo + FreeType/fontconfig, a CJK font for CJK documents | rofd resolves glyphs through system fonts; its defaults name `Noto Sans CJK SC` |
@@ -122,6 +126,9 @@ export PPS_BACKENDS_DIR=$PWD/_build/devbackends
 export XDG_DATA_DIRS=$PWD/_build/xdg:/usr/share
 papers "$ROFD_SRC/learning/test.ofd"
 papers-thumbnailer -s 256 "$ROFD_SRC/learning/test.ofd" /tmp/ofd.png   # thumbnails
+
+# the previewer's invocation (Nautilus passes --fd plus the sniffed type)
+papers-previewer --fd 3 3< "$ROFD_SRC/learning/test.ofd"
 ```
 
 `scripts/dev-env.sh` prints the resolution table on its own
@@ -133,6 +140,28 @@ ABI. Fixtures named in `docs/plan.md` §6 live under `$ROFD_SRC`.
 `.papers-backend` files present (as above) or PDF/DjVu/TIFF stop working for that
 session. The full validation matrix — fixtures, checks per phase, cross-repo ABI
 tests — is in [`docs/plan.md` §6](docs/plan.md#6-verification-playbook).
+
+## Install
+
+Arch Linux: [`papers-ofd` on the AUR](https://aur.archlinux.org/packages/papers-ofd)
+(`0.1.0-1`) — `yay -S papers-ofd`, `paru -S papers-ofd`, or
+
+```bash
+git clone https://aur.archlinux.org/papers-ofd.git && cd papers-ofd
+makepkg -si
+```
+
+The recipe is `packaging/PKGBUILD` in this repository; its source is a
+commit-pinned archive of this repository, so `makepkg` verifies a checksum, and its
+`check()` runs the test suite (11 tests — the invoice oracle needs `-Drofd_src`;
+`ofd-print-file` skips itself when GTK has no display). Dependencies are
+`librofd-ffi>=0.4.3` (the ABI plus its `rofd-ffi.pc`), `papers>=51` and `papers<52`,
+`cairo`, `gcc-libs`, `glib2`, `glibc`. `shared-mime-info` and `desktop-file-utils`
+are not listed because their pacman hooks (which index the MIME xml and the desktop
+file) arrive through `papers` already.
+
+Uninstalling removes only the five files below — none is owned by another package,
+so Papers and its other backends are untouched.
 
 ## Installed files
 
@@ -190,7 +219,7 @@ patch-free vs patch-the-desktop tradeoff:
 | 0 | Loadable module, discovery, page geometry | done |
 | 1 | Rendering, rotation/zoom matrix, metadata, printing | done |
 | 2 | Text, selection, find, links, outline | done |
-| 3 | `load_fd` (previewer), packaging, install checks | planned |
+| 3 | `load_fd` (previewer), packaging, install checks | done |
 | 4 | Upstream MR into Papers' `libdocument/backend/ofd/` | planned |
 
 Per-phase deliverables, steps and acceptance criteria:
