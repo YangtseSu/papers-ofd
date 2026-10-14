@@ -415,8 +415,8 @@ Steps:
 
 Acceptance:
 - GNOME previewer (space bar) shows an OFD page: Sushi's document renderer loads
-  the file through Papers (step 4; observed for the fixture, panel itself is the
-  user's to see).
+  the file through Papers (step 4; observed headlessly against the fixture and
+  user-confirmed on the live session).
 - Nautilus shows the OFD icon and a rendered thumbnail;
   `papers-thumbnailer -s 256 file.ofd out.png` works standalone.
 - Double-click and `gio open` open Papers; uninstalling leaves Papers working.
@@ -483,14 +483,23 @@ Phase-3 evidence as observed (2026-10-15, `meson test` 12/12 in `_build`,
   `data/papers-ofd-sushi.js` in place, `ofd-sushi-plugin` drives Sushi's own
   selector and renderer against the fixture: the selector returns the
   Papers-backed renderer instead of the fallback, and the renderer's load job
-  finishes with the fixture's 2 pages (`meson test -C _build`, 13/13).
+  finishes with the fixture's 2 pages (`meson test -C _build`, 13/13). The
+  *packaged* plugin alone carries it: with only
+  `/usr/lib/sushi/plugins-1/papers-ofd-sushi.js` present (the temporary user-level
+  copy removed), the selector returns the document renderer and the renderer loads
+  the fixture's 2 pages. User-confirmed on the live session (2026-10-15): the
+  space bar shows the page.
 - `papers text-2pages.ofd` and `gio open text-2pages.ofd` both start Papers with
   that file (`/usr/bin/papers …/text-2pages.ofd`), the latter through the
   association entry.
-- Open in this phase: the `pacman -U` install and the visual acceptance it enables
-  (previewer window, Nautilus icon/thumbnail, double-click, single app-grid
-  entry) are the user's to observe on the live session; the headless evidence
-  above is what can be recorded without an install into `/usr`.
+- Install and visual acceptance (2026-10-15): the user installed `0.1.0-1`
+  (`pacman -U`, no file conflicts) and then `0.1.0-2`, which carries the Sushi
+  plugin, and confirmed the four session items — the space-bar preview shows the
+  page, Nautilus shows the OFD icon and a rendered thumbnail, a double-click opens
+  Papers, and the app grid still lists a single Papers entry. Still open from the
+  acceptance list: `pacman -Rns papers-ofd` as the uninstall regression, and the
+  AUR index lag (the publication is confirmed by `git ls-remote` and, later, by
+  the AUR itself reporting `0.1.0-2`).
 
 ### Phase 4 — upstream MR (optional)
 

@@ -491,6 +491,10 @@
 | AUR `papers-ofd 0.1.0-2` | `git push` to the AUR with the plugin release | the package carries the plugin | local mirror `c4952ad` (`pkgrel = 2`, `optdepends sushi`), `git ls-remote origin master` confirms it on the server; the AUR *web* index still rendered `0.1.0-1` a minute later (frontend/RPC lag, as with the first push) | pass |
 | Package `0.1.0-2` build | `makepkg -f --noconfirm`, empty `SRCDIR` | plugin installed, tests pass | anonymous download verified (sha256 `a8ec59ce…`), 12/12 tests in the build (ofd-sushi-plugin included), file list = the five previous paths + `usr/lib/sushi/plugins-1/papers-ofd-sushi.js`, namcap clean apart from the gcc-libs advisories | pass |
 
+| Packaged plugin alone | `gjs` probe with only `/usr/lib/sushi/plugins-1/papers-ofd-sushi.js` (temporary `~/.local/share/sushi/plugins-1` copy removed) | the package carries the feature | selector returns the Papers-backed renderer, the renderer loads the fixture (2 pages) | pass |
+| Phase-3 GUI acceptance | live session, `papers-ofd 0.1.0-2` installed | the four session items | **user-confirmed 2026-10-15**: space bar shows the page, Nautilus shows the OFD icon and a rendered thumbnail, double-click opens Papers, the app grid still lists one Papers entry; the temporary user-level plugin copy was removed afterwards | pass |
+| AUR `papers-ofd 0.1.0-2` indexed | AUR RPC + package page | visible to users | RPC reports `papers-ofd 0.1.0-2` by `yangtsesu` with `OptDepends ['sushi']`; the page renders `Package Details: papers-ofd 0.1.0-2` | pass |
+
 ## Error Log
 
 | Timestamp | Error | Attempt | Resolution |
@@ -652,3 +656,18 @@ retired.
 Before the package is rebuilt, the plugin was copied into
 `~/.local/share/sushi/plugins-1/` so the user can press space immediately; the
 copy is redundant once the package carries it and should be removed then.
+
+## Phase 3 closed (2026-10-15)
+
+The user installed `0.1.0-2` and confirmed the session items: space bar shows the
+page (with the packaged Sushi plugin), Nautilus shows the OFD icon and a rendered
+thumbnail, double-click opens Papers, and the app grid keeps a single Papers
+entry. The temporary `~/.local/share/sushi/plugins-1/papers-ofd-sushi.js` is gone,
+and the packaged
+`/usr/lib/sushi/plugins-1/papers-ofd-sushi.js` alone reproduces the behaviour in a
+headless probe (selector → document renderer, fixture loads with 2 pages).
+
+Phase 3 is therefore accepted. Left in the plan, both optional: `pacman -Rns
+papers-ofd` as the uninstall regression (the five package paths plus the plugin
+are ours alone, so Papers and its other backends are unaffected) and phase 4, the
+in-tree move that also lets our association entry and the Sushi plugin retire.
