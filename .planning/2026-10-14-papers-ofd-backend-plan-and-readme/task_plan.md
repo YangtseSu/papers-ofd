@@ -7,12 +7,13 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
-**Next action: start phase 20 by fixing R1** — widen a degenerate selection
-rectangle to a hair box inside `ofd_text_select_mm` (`src/ofd-text.c:66-100`) and
-add the permanent point-rect case for GLYPH/WORD/LINE to `tests/test-ofd-text.c`.
-R2 (return an empty `cairo_region_t` instead of NULL) follows in the same phase.
-Both are blockers; the inventory is `findings.md` §"Review findings (2026-10-15)",
-the campaign is phases 20–26 below.
+**Next action: start phase 21 with R5** — teach `scripts/dev-env.sh` to detect
+being sourced under zsh (`ZSH_EVAL_CONTEXT`) and move every `exit` into the
+non-sourced branch, then verify sourcing under bash **and** zsh plus `-h` in both.
+R6, R8, R9, R11, R12, R13 and R16 follow in the same phase.
+
+Phase 20 is complete (2026-10-15): the two blockers are fixed with regression
+tests that failed before the change and pass after it (see `progress.md`).
 
 Session split agreed 2026-10-15: phase 20 + 21 are one session (blockers plus the
 mechanical fixes), phases 22–24 a second (render budget, concurrency, CI/packaging
@@ -105,9 +106,10 @@ and #12 when convenient.
 
 ## Current Phase
 
-Review-fix campaign (phases 20–26): planned, not started. Phase 20 (blockers R1/R2)
-is next; `docs/plan.md` phases 0–3 stay shipped and accepted, phase 4 (upstream MR)
-remains the last planned module work.
+Phase 21 (mechanical robustness fixes R5, R6, R8, R9, R11, R12, R13, R16) —
+starting with R5; phase 20 (blockers R1/R2) is complete. `docs/plan.md` phases 0–3
+stay shipped and accepted, phase 4 (upstream MR) remains the last planned module
+work.
 
 ## Phases
 
@@ -272,13 +274,13 @@ remains the last planned module work.
 
 ### Phase 20: Blocker fixes (R1, R2) with regression tests
 
-- [ ] R1: `ofd_text_select_mm` widens a zero-width/height query to a hair box (±0.01 mm) before the rofd call; `ofd_rect_to_mm` keeps its current arithmetic
-- [ ] R1 test: point-rect selection for all three styles returns the expected text and a non-empty region (`tests/test-ofd-text.c`)
-- [ ] R2: every refusal/failure path of `ofd_selection_get_selection_region` returns an empty `cairo_region_t`, never NULL (poppler's contract)
-- [ ] R2 test: a rotated render context yields a non-NULL empty region
-- [ ] `meson test` 13/13 (plus the two new cases) in `_build` and `_build-slow`
+- [x] R1: `ofd_text_select_mm` widens a zero-width/height query to a hair box (±0.01 mm) before the rofd call; `ofd_rect_to_mm` keeps its current arithmetic
+- [x] R1 test: point-rect selection for all three styles returns the expected text and a non-empty region (`tests/test-ofd-text.c`)
+- [x] R2: every refusal/failure path of `ofd_selection_get_selection_region` returns an empty `cairo_region_t`, never NULL (poppler's contract)
+- [x] R2 test: a rotated render context yields a non-NULL empty region
+- [x] `meson test` 13/13 (plus the two new cases) in `_build` and `_build-slow`
 - [ ] Optional if a GUI session is available: double-click selects the word, triple-click the line, Ctrl+C copies it, PageDown after Ctrl+R does not crash
-- **Status:** pending
+- **Status:** complete (2026-10-15; the optional GUI pass is the only open box)
 
 ### Phase 21: Mechanical robustness fixes (R5, R6, R8, R9, R11, R12, R13, R16)
 

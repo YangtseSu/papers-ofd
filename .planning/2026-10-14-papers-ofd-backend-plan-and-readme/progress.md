@@ -1485,3 +1485,55 @@ phases 20–26 in `task_plan.md` are the fix campaign.
 |-------|---------|------------|
 | `gjs` probe: `Papers.document_factory_get_document` / `factory_get_document` "is not a function" | 1 | GI names it differently from the C symbol; replaced gjs with a 30-line C probe against `pps_document_factory_get_document`, which answered the question directly |
 | `cairo_null.c` did not compile (`'NULL' undeclared`) | 1 | Used a `(cairo_region_t *) 0` cast; the probe then exited 139, which is the evidence for R2 |
+
+## 2026-10-15 (later): phase 20 — the two selection blockers (R1, R2)
+
+Both fixed with a regression test that fails before the change and passes after
+it, then the whole suite in both page-size builds.
+
+### R1 — a point selection selects the glyph, word or line under it
+
+- Test first: `tests/test-ofd-text.c` gains `test_selection_point_rectangles`,
+  which builds the rectangle Papers hands over for a double/triple click
+  (`x1 == x2, y1 == y2` at a glyph centre), derives the expected word and line
+  rectangles from the module's own layout, and requires the point answers to equal
+  them plus a region that matches the line band within 2 px.
+- Fail before: `1/1 papers-ofd:ofd-text FAIL`, `Bail out!
+  ERROR:../tests/test-ofd-text.c:659:test_selection_point_rectangles: assertion
+  failed (strlen (point_glyph) >= 1): (0 >= 1)` — rofd answered success with an
+  empty selection for the zero-area query.
+- Fix: `ofd_text_select_mm` widens a degenerate axis to `0.02 mm` centred on the
+  point (`OFD_SELECTION_POINT_EPSILON_MM`) before the ABI call; the whole-box query
+  from `get_text_mapping` is untouched (it is already positive-area).
+- A second failure appeared in the test's own expectation: the left-column line
+  band also covered the right column, which shares the y band, so the LINE answer
+  was both lines. Fixed by restricting the band to `LEFT_COLUMN_X2_MM`.
+- Independent confirmation with the original probe against the rebuilt module:
+  `GLYPH point-rect -> "I"`, `WORD -> "Invoice"`, `LINE -> "Invoice total: 42 EUR"`,
+  `WORD region: point-rect non-empty (rects 1)` — all three were `EMPTY ""` and 0
+  region rectangles before.
+
+### R2 — the region answer is always a region
+
+- Test first: `test_selection_region_is_always_a_region` requires a non-NULL region
+  for rotations 0/90/180/270 (empty for the rotated ones), and for a NULL points
+  argument; `test_broken_page`'s old `g_assert_null` on a page whose handle cannot
+  be fetched becomes "non-NULL and empty".
+- Fail before: NULL for every rotated context (and the broken-page assertion held
+  only because NULL was also what a missing handle answered).
+- Fix: every refusal/failure path of `ofd_selection_get_selection_region` returns
+  `cairo_region_create ()`; the reason (Papers' unchecked
+  `cairo_region_num_rectangles` in `compute_scroll_increment`, cairo's unconditional
+  dereference, poppler's contract) is recorded in the code comment and in plan §3.
+- Independent confirmation: the rotated-context probe now prints non-NULL for
+  0/90/180/270 (before: NULL for 90/180/270).
+
+### Observed
+
+- `meson test -C _build`: **13/13 OK**; `meson test -C _build-slow`
+  (`-Drofd_page_size=disabled`): **13/13 OK**.
+- `docs/plan.md` §3 gains the point-query rule on the `get_selected_text` row and
+  the "always a region" rule on the `get_selection_region` row; §8's rotated-page
+  row says the refusal is an empty region, not NULL.
+- Still open: the optional GUI pass (double-click/triple-click/Ctrl+C and PageDown
+  after a rotation) — the live session was not part of this run.

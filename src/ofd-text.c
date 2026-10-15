@@ -61,6 +61,16 @@ ofd_text_selection_style (PpsSelectionStyle style, uint32_t *rofd_style)
 	}
 }
 
+/* A query degenerate on either axis is a *point*, which is what Papers hands
+ * over for a double or triple click (libview/pps-view.c:4235-4249) and for a
+ * straight horizontal drag or a scroll increment (:920-931). rofd's hit test is
+ * a strict positive-area overlap (rofd-core/src/semantic.rs:504-507), so a
+ * zero-area rectangle selects nothing at all; widening it to a hair box asks the
+ * question the caller means: which glyph, word or line is at this point. The box
+ * is far smaller than any glyph box (0.02 mm ≈ 0.06 pt), and it is centred on the
+ * point so a hit inside a glyph box stays inside it. */
+#define OFD_SELECTION_POINT_EPSILON_MM 0.02
+
 /* Selection points arrive in page space; the ABI wants absolute physical-page
  * millimetres, so the box origin goes back in (D3). */
 static rofd_text_selection_t *
@@ -70,12 +80,22 @@ ofd_text_select_mm (const OfdPageRef *page_ref,
 {
 	rofd_text_selection_t *selection = NULL;
 	rofd_error_t *rerror = NULL;
+	rofd_rect_t query = *area_mm;
 	uint32_t rofd_style;
 
 	if (!ofd_text_selection_style (style, &rofd_style))
 		return NULL;
 
-	if (rofd_page_get_selected_text (page_ref->rofd_page, rofd_style, area_mm,
+	if (query.width_mm <= 0.0) {
+		query.x_mm -= OFD_SELECTION_POINT_EPSILON_MM / 2;
+		query.width_mm = OFD_SELECTION_POINT_EPSILON_MM;
+	}
+	if (query.height_mm <= 0.0) {
+		query.y_mm -= OFD_SELECTION_POINT_EPSILON_MM / 2;
+		query.height_mm = OFD_SELECTION_POINT_EPSILON_MM;
+	}
+
+	if (rofd_page_get_selected_text (page_ref->rofd_page, rofd_style, &query,
 	                                 &selection, &rerror) != ROFD_STATUS_OK) {
 		g_debug ("text selection failed: %s",
 		         rerror != NULL ? rofd_error_get_message (rerror) : "unknown error");
@@ -503,22 +523,28 @@ ofd_selection_get_selection_region (PpsSelection *selection,
 	double scale_x = 1.0;
 	double scale_y = 1.0;
 
+	/* Every refusal answers an empty region rather than NULL: Papers
+	 * dereferences the result without a check (`compute_scroll_increment` calls
+	 * cairo_region_num_rectangles on it, libview/pps-view.c:925-931, with a
+	 * context built from the model rotation), and cairo's region accessors
+	 * dereference unconditionally. The PDF backend keeps the same contract
+	 * (pps-poppler.c:2007-2037): a region is always a region. */
 	if (points == NULL || !ofd_text_context_unrotated (rc) || rc->page == NULL)
-		return NULL;
+		return cairo_region_create ();
 
 	if (!ofd_page_ref_acquire (OFD_DOCUMENT (PPS_DOCUMENT (selection)), rc->page, &page_ref))
-		return NULL;
+		return cairo_region_create ();
 
 	if (!ofd_text_pixel_scales (&page_ref, rc, &canvas_width, &canvas_height,
 	                           &scale_x, &scale_y)) {
 		ofd_page_ref_release (&page_ref);
-		return NULL;
+		return cairo_region_create ();
 	}
 
 	rofd_selection = ofd_text_select (&page_ref, style, points);
 	if (rofd_selection == NULL) {
 		ofd_page_ref_release (&page_ref);
-		return NULL;
+		return cairo_region_create ();
 	}
 
 	region = ofd_text_selection_region (&page_ref, rofd_selection, scale_x, scale_y);

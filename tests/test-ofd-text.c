@@ -593,6 +593,159 @@ test_selection_region (PpsDocument *document, rofd_document_t *oracle, rofd_rend
 	g_object_unref (page);
 }
 
+/* R1 (review 2026-10-15, blocker): Papers hands a *point* rectangle to the
+ * selection vfuncs for a double or triple click (libview/pps-view.c:4235-4249;
+ * compute_new_selection returns early only for GLYPH, :7190-7192) and for a
+ * dead-straight drag (compute_scroll_increment builds x1 == x2, y1 == y2,
+ * :920-931), and pps_view_get_selections recovers the selected bounds from the
+ * selection region of exactly such a selection (:7498-7520). rofd's hit test is
+ * a strict positive-area overlap (rofd-core/src/semantic.rs:504-507) and answers
+ * success with an *empty* selection for a zero-area query, so the module widens a
+ * degenerate query to a hair box: the point must then select the glyph it sits
+ * on, and the word and line that contain it. */
+static void
+test_selection_point_rectangles (PpsDocument *document)
+{
+	PpsPage *page = pps_document_get_page (document, 0);
+	g_autofree PpsRectangle *areas = NULL;
+	guint n_areas = 0;
+	PpsRectangle glyph, word, line, point;
+	g_autofree gchar *glyph_text = NULL;
+	g_autofree gchar *word_text = NULL;
+	g_autofree gchar *line_text = NULL;
+	guint i;
+
+	g_assert_nonnull (page);
+	g_assert_true (pps_document_text_get_text_layout (PPS_DOCUMENT_TEXT (document),
+	                                                  page, &areas, &n_areas));
+	g_assert_cmpuint (n_areas, >, 4);
+
+	/* The first glyph of the first line, and a rectangle covering that whole
+	 * line of the left column (the right column shares its y band). */
+	glyph = areas[0];
+	word = areas[0];
+	line = areas[0];
+	for (i = 0; i < n_areas; i++) {
+		if (areas[i].x2 <= areas[i].x1)
+			continue; /* a synthesised separator carries no box */
+		if (areas[i].y1 < glyph.y1 - 1.0 || areas[i].y1 > glyph.y1 + 1.0)
+			continue; /* another line */
+		if (areas[i].x1 >= MM (LEFT_COLUMN_X2_MM))
+			continue; /* the right column shares the y band */
+		line.x2 = MAX (line.x2, areas[i].x2);
+	}
+
+	point.x1 = point.x2 = (glyph.x1 + glyph.x2) / 2;
+	point.y1 = point.y2 = (glyph.y1 + glyph.y2) / 2;
+
+	glyph_text = pps_selection_get_selected_text (PPS_SELECTION (document), page,
+	                                              PPS_SELECTION_STYLE_GLYPH, &glyph);
+	word_text = pps_selection_get_selected_text (PPS_SELECTION (document), page,
+	                                             PPS_SELECTION_STYLE_WORD, &word);
+	line_text = pps_selection_get_selected_text (PPS_SELECTION (document), page,
+	                                             PPS_SELECTION_STYLE_LINE, &line);
+	g_assert_cmpint (strlen (glyph_text), >, 0);
+	g_assert_cmpint (strlen (word_text), >, 0);
+	g_assert_cmpint (strlen (line_text), >, 0);
+	/* The line starts with its first word, which is what the point must pick. */
+	g_assert_true (g_str_has_prefix (line_text, word_text));
+
+	{
+		g_autofree gchar *point_glyph = pps_selection_get_selected_text (
+			PPS_SELECTION (document), page, PPS_SELECTION_STYLE_GLYPH, &point);
+		g_autofree gchar *point_word = pps_selection_get_selected_text (
+			PPS_SELECTION (document), page, PPS_SELECTION_STYLE_WORD, &point);
+		g_autofree gchar *point_line = pps_selection_get_selected_text (
+			PPS_SELECTION (document), page, PPS_SELECTION_STYLE_LINE, &point);
+
+		g_assert_cmpint (strlen (point_glyph), >=, 1);
+		g_assert_true (g_str_has_prefix (word_text, point_glyph));
+		g_assert_cmpstr (point_word, ==, word_text);
+		g_assert_cmpstr (point_line, ==, line_text);
+	}
+
+	/* The region of a point selection is what the view recovers the bounds from
+	 * and what it hit-tests, so it must cover the same band as the line. */
+	{
+		g_autoptr (PpsRenderContext) rc = pps_render_context_new (page, 0, 1.0,
+		                                                          PPS_RENDER_ANNOTS_NONE);
+		cairo_region_t *point_region = pps_selection_get_selection_region (
+			PPS_SELECTION (document), rc, PPS_SELECTION_STYLE_LINE, &point);
+		cairo_region_t *line_region = pps_selection_get_selection_region (
+			PPS_SELECTION (document), rc, PPS_SELECTION_STYLE_LINE, &line);
+		cairo_rectangle_int_t point_extents, line_extents;
+
+		g_assert_nonnull (point_region);
+		g_assert_false (cairo_region_is_empty (point_region));
+		cairo_region_get_extents (point_region, &point_extents);
+		/* The line height PageUp/PageDown derives from this region. */
+		g_assert_cmpint (point_extents.height, >, 0);
+
+		g_assert_nonnull (line_region);
+		cairo_region_get_extents (line_region, &line_extents);
+		g_assert_cmpint (ABS (point_extents.x - line_extents.x), <=, 2);
+		g_assert_cmpint (ABS (point_extents.width - line_extents.width), <=, 2);
+		g_assert_cmpint (ABS (point_extents.y - line_extents.y), <=, 2);
+		g_assert_cmpint (ABS (point_extents.height - line_extents.height), <=, 2);
+
+		cairo_region_destroy (point_region);
+		cairo_region_destroy (line_region);
+	}
+
+	g_object_unref (page);
+}
+
+/* R2 (review 2026-10-15, blocker): Papers dereferences the returned region
+ * without a NULL check — `compute_scroll_increment` calls
+ * cairo_region_num_rectangles on it (libview/pps-view.c:925-931) with a context
+ * built from the *model rotation*, and cairo's region accessors dereference
+ * unconditionally (a NULL argument exits 139). The region answer must therefore
+ * always be a region, empty when the selection is declined or unavailable, which
+ * is also the PDF backend's contract (pps-poppler.c:2007-2037). */
+static void
+test_selection_region_is_always_a_region (PpsDocument *document)
+{
+	static const gint rotations[] = { 0, 90, 180, 270 };
+	PpsPage *page = pps_document_get_page (document, 0);
+	PpsRectangle whole = { 0, };
+	gdouble width_pt = 0.0, height_pt = 0.0;
+	guint i;
+
+	g_assert_nonnull (page);
+	oracle_page_size_pt (document, 0, &width_pt, &height_pt);
+	whole.x2 = width_pt;
+	whole.y2 = height_pt;
+
+	for (i = 0; i < G_N_ELEMENTS (rotations); i++) {
+		g_autoptr (PpsRenderContext) rc = pps_render_context_new (
+			page, rotations[i], 1.0, PPS_RENDER_ANNOTS_NONE);
+		cairo_region_t *region = pps_selection_get_selection_region (
+			PPS_SELECTION (document), rc, PPS_SELECTION_STYLE_LINE, &whole);
+
+		g_assert_nonnull (region);
+		if (rotations[i] == 0)
+			g_assert_false (cairo_region_is_empty (region));
+		else
+			g_assert_true (cairo_region_is_empty (region));
+
+		cairo_region_destroy (region);
+	}
+
+	/* No rectangle at all is a caller error, not a crash: still a region. */
+	{
+		g_autoptr (PpsRenderContext) rc = pps_render_context_new (page, 0, 1.0,
+		                                                          PPS_RENDER_ANNOTS_NONE);
+		cairo_region_t *region = pps_selection_get_selection_region (
+			PPS_SELECTION (document), rc, PPS_SELECTION_STYLE_GLYPH, NULL);
+
+		g_assert_nonnull (region);
+		g_assert_true (cairo_region_is_empty (region));
+		cairo_region_destroy (region);
+	}
+
+	g_object_unref (page);
+}
+
 /* The overlay surface carries the base colour over the selection and nothing
  * else, and a reused surface is cleared first (the view keeps one per page). */
 static void
@@ -1333,10 +1486,18 @@ test_broken_page (const gchar *module_path,
 	/* The ABI has no glyph mask and no attribute data: NULL is the contract. */
 	g_assert_null (pps_document_text_get_text_attrs (PPS_DOCUMENT_TEXT (document), reachable));
 
-	/* Running through the cache is what the shell does on every page. */
+	/* Running through the cache is what the shell does on every page. A page
+	 * whose handle cannot be fetched answers an empty region, not NULL: Papers
+	 * dereferences the region without a check (R2). */
 	rc = pps_render_context_new (unparsable, 0, 1.0, PPS_RENDER_ANNOTS_NONE);
-	g_assert_null (pps_selection_get_selection_region (PPS_SELECTION (document), rc,
-	                                                   PPS_SELECTION_STYLE_GLYPH, &whole));
+	{
+		cairo_region_t *region = pps_selection_get_selection_region (
+			PPS_SELECTION (document), rc, PPS_SELECTION_STYLE_GLYPH, &whole);
+
+		g_assert_nonnull (region);
+		g_assert_true (cairo_region_is_empty (region));
+		cairo_region_destroy (region);
+	}
 
 	g_object_unref (unparsable);
 	g_object_unref (reachable);
@@ -1392,6 +1553,8 @@ main (int argc, char **argv)
 	test_find (text_document);
 	test_selection_text (text_document, oracle);
 	test_selection_region (text_document, oracle, renderer);
+	test_selection_point_rectangles (text_document);
+	test_selection_region_is_always_a_region (text_document);
 	test_render_selection (text_document, oracle, renderer);
 	test_scan_page (scan_document);
 	test_broken_page (module_path, descriptor_path, mime_xml_path, broken_fixture);
