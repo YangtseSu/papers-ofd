@@ -1914,8 +1914,10 @@ paints *something* (rofd substitutes a box), so ink alone does not distinguish
 
 ### R4 packaging — the recipe declares them
 
-Prepared in the AUR working copy (`~/projects/ofd-reader/papers-ofd-aur`,
-**uncommitted**, the push is the user's step):
+Prepared in the AUR working copy (`~/projects/ofd-reader/papers-ofd-aur`) and
+**committed locally there** (`f64a19c`, `pkgrel` 1 → 2 because the payload is
+unchanged — D13; `.SRCINFO` regenerated with `makepkg --printsrcinfo`). The AUR
+push itself stays the user's step:
 
 ```diff
 --- a/PKGBUILD
@@ -2014,5 +2016,22 @@ limitations row that quotes its numbers.
   for a package build instead of 11, and the suite lists include the new case.
 - Not verified: the workflow itself (no container on this machine); its steps are
   the commands verified locally above, and pushing a branch runs the real one.
-- User steps left: the AUR `papers-ofd` revision (fonts as `checkdepends`, plus the
-  regenerated `.SRCINFO`) and the branch push that runs CI.
+- The branch was pushed with the user's approval (`main` → `YangtseSu/papers-ofd`,
+  `b90d68d..c87b72e`, run
+  [38809559149](https://github.com/YangtseSu/papers-ofd/actions/runs/38809559149)),
+  which is the only way to exercise the two new CI steps in the real container. The
+  run's steps 8 (the module) and 9 (the page-size fallback) passed — the first
+  container proof that the fallback build works there — and step 10 failed:
+  `fatal error: rofd.h: No such file or directory`, with no `-I/rofd/prefix/include`
+  in the compile line. Cause: the `.pc` was generated from the fork template with
+  its `prefix=/usr` left alone, so pkg-config reported `/usr/include` and
+  `/usr/lib` — which worked in the local probe *only* because this machine has the
+  installed `librofd-ffi`, an accidental pass the container exposed. Fixed by
+  rewriting `prefix=` to the CI prefix in the same `sed` chain (the AUR recipe keeps
+  `/usr` because it installs into `$pkgdir`), and re-verified locally with the
+  system ABI bypassed: the compile line has `-I<prefix>/include`, the suite passes
+  13/13, and `ldd` resolves `librofd_ffi.so.0` to `<prefix>/lib` (which is what
+  makes the probe meaningful). Chained as another commit on `main`.
+- User step left: the AUR `papers-ofd` push — `f64a19c` is committed in
+  `~/projects/ofd-reader/papers-ofd-aur` on `master`, one commit ahead of its
+  `origin/master` (`git -C ~/projects/ofd-reader/papers-ofd-aur push`).

@@ -127,10 +127,12 @@ jobs:
           # The AUR package's own path: dependency('rofd-ffi') instead of
           # -Drofd_libdir/-Drofd_includedir. The ABI is installed into a prefix
           # exactly the way the librofd-ffi recipe does it (library + SONAME
-          # symlink + rofd.h + the .pc generated from the fork's template), and
-          # meson then takes header, library and version from pkg-config. No
-          # -Drofd_src here, so this is also the AUR package's test set (the
-          # oracle needs a rofd checkout).
+          # symlink + rofd.h + the .pc generated from the fork's template, with
+          # the template's /usr prefix rewritten to this one — the recipe installs
+          # into $pkgdir and therefore keeps /usr, which is why only this step
+          # rewrites it), and meson then takes header, library and version from
+          # pkg-config. No -Drofd_src, so this is also the AUR package's test set
+          # (the oracle needs a rofd checkout).
           runuser -p -u builder -- env HOME=/home/builder VERSION="$VERSION" bash -euc '
             cd "$GITHUB_WORKSPACE"
             prefix=/rofd/prefix
@@ -138,7 +140,9 @@ jobs:
             install -m755 /rofd/target/release/librofd_ffi.so "$prefix/lib/"
             ln -sf librofd_ffi.so "$prefix/lib/librofd_ffi.so.0"
             install -m644 /rofd/crates/rofd-ffi/include/rofd.h "$prefix/include/"
-            sed -e "s/@VERSION@/$VERSION/" -e "s|/lib/@MULTIARCH@|/lib|" \
+            sed -e "s/@VERSION@/$VERSION/" \
+                -e "s|^prefix=/usr$|prefix=$prefix|" \
+                -e "s|/lib/@MULTIARCH@|/lib|" \
                 /rofd/debian/rofd-ffi.pc.in > "$prefix/lib/pkgconfig/rofd-ffi.pc"
             export PKG_CONFIG_PATH="$prefix/lib/pkgconfig"
             meson setup build-pc
