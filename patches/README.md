@@ -86,3 +86,38 @@ git -C "$ROFD_SRC" apply "$AUR_LIBROFD/rofd-ffi-page-size.patch"
    push the AUR repository.
 5. Rebase `feat/aur-carried` as above and refresh this inventory if a change was
    added, retired or renamed.
+
+## The fork's own CI (`ci/fork-checks`)
+
+Upstream's `Distribution Builder` gates every job behind `if: false` and its
+CLA/BUILD gates need a linuxdeepin member, so no check ever runs against a PR. The
+fork therefore carries `.github/workflows/fork-checks.yml` on its own branch
+`ci/fork-checks`: on every push to that branch (or a manual dispatch with an
+explicit ref list) it collects the fork's `feat/*` and `fix/*` branches and runs
+`cargo fmt --check`, clippy with `-D warnings`, the crate tests, the exact build
+command `debian/rules` uses (`… -p rofd --features rofd/qt-reader`) and
+`crates/rofd-ffi/tests/run_c_tests.sh` per branch. Actions are enabled on the fork
+and the ten inherited workflows are disabled — in a fork they would fire on push
+and fail on secrets that forks never inherit.
+
+Two tests are red on upstream `main` today; they run as their own visible,
+non-gating steps (with the fixing PR inline) so that a branch's own regressions
+still fail the run: the decoded-image limit boundary ([#14](#contributed-upstream-deliberately-not-carried))
+and the region pixel diff ([#15](#contributed-upstream-deliberately-not-carried)).
+Remove both splits once those PRs are merged and the branches are rebased.
+
+## Contributed upstream, deliberately not carried
+
+[linuxdeepin/rofd#14](https://github.com/linuxdeepin/rofd/pull/14)
+(`fix/decoded-image-alloc-budget`) repairs
+`crates/rofd-render/tests/images.rs::decoded_limits_have_exact_and_one_over_boundaries`,
+which is red on upstream `main` because the decoder's `Limits::max_alloc` budget is set
+from the finished RGBA8 size while it covers the decoder's intermediate buffers too. The
+API-level limits and the ABI are unchanged, so the AUR package carries nothing for it —
+the fork branch and the upstream PR are the whole story (plan §9 item 7).
+
+[linuxdeepin/rofd#15](https://github.com/linuxdeepin/rofd/pull/15)
+(`fix/region-aa-tolerance`) makes `crates/rofd-ffi/tests/region.rs` bound the
+anti-aliasing difference between a full-page and a region rendering by its share of the
+tile's channels and the per-channel delta, instead of the absolute numbers that only hold
+on Arch's font stack (plan §9 item 8). Also not carried: test-only, no shipped behaviour.

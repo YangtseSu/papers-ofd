@@ -869,6 +869,30 @@ the fork branch go.
    One caveat documented in `rofd.h`: a renderer created with fallback families
    other than the defaults may draw glyphs the semantic layer did not resolve.
 
+7. **Decoder allocation budget** — a bug fix, contributed rather than carried.
+   `crates/rofd-render/tests/images.rs::decoded_limits_have_exact_and_one_over_boundaries`
+   is red on upstream `main` (no CI job runs the suite): `images.rs` hands the caller's
+   `max_decoded_image_bytes` to the image crate's `Limits::max_alloc`, which budgets
+   *every* allocation the decoder makes — its own sample buffer, palette and row buffers
+   included — so an image whose decoded RGBA8 buffer exactly fills the byte budget is
+   rejected with "Memory limit exceeded". The `fix/decoded-image-alloc-budget` branch
+   (<https://github.com/linuxdeepin/rofd/pull/14>) allows three times the finished size
+   (decoder buffer ≤ 8 bytes per pixel for 16-bit channels plus the 4-byte-per-pixel
+   RGBA8 conversion). Deliberately **not** carried by `patches/`: the API-level limits
+   (`validate_dimensions`) and the ABI are unchanged, so the AUR package needs no third
+   patch file.
+
+8. **Region pixel-diff tolerance** — the same class of upstream-side repair, proposed as
+   <https://github.com/linuxdeepin/rofd/pull/15> (`fix/region-aa-tolerance`).
+   `crates/rofd-ffi/tests/region.rs` bounds the anti-aliasing difference between a
+   full-page and a region rendering with absolute numbers (32 channels, delta ≤ 2) that
+   only hold on one font stack: Arch/FreeType 2.13 gives 21 channels at delta ≤ 2,
+   ubuntu-24.04 with the same FreeType gives 42 at delta ≤ 8, so a clean Debian
+   build-dependency environment fails the test. The branch bounds the difference by its
+   share of the tile's channels (1 %) and the per-channel delta (16); a stitching or crop
+   error moves whole pixels, i.e. orders of magnitude more channels with far larger
+   deltas, so the check keeps its meaning. Not carried, like item 7.
+
 ## 10. Deferred: annotation editing
 
 Papers' bottom-right edit button and the whole annotation toolset appear as soon as
