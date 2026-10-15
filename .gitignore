@@ -1,6 +1,7 @@
 build/
 _build/
 .cache/
+__pycache__/
 *.o
 *.so
 /local.conf

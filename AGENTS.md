@@ -41,6 +41,13 @@ the authoritative plan; read it before changing code.
   (`librofd-ffi`, `papers-ofd`) are maintained in their AUR repositories only, and
   the rofd patch files live in the `librofd-ffi` repository — this repository
   carries no PKGBUILD and no patch payload.
+- Never commit anything that identifies the user or their machine: no names of
+  real documents (they stay outside the repository), no absolute home paths (write
+  `~`-relative at most), no build artifacts or caches (`__pycache__/`,
+  `_build/`, generated logs — they embed machine paths). Refer to such material by
+  role only: "the user's invoice, kept outside the repository". `.planning/` is
+  tracked and public, so it obeys the same rule as `docs/`: it records what was
+  verified and the numbers, never the file names.
 - Implement the phases in order. A phase counts as done only when its acceptance
   items have been *observed* and the evidence is recorded in
   `.planning/<PLAN_ID>/progress.md`.

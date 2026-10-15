@@ -683,8 +683,8 @@ in-tree move that also lets our association entry and the Sushi plugin retire.
 - Reported by the user: after the horizontal fix, the *vertical* geometry is still
   wrong — "the highlight's top is complete, it does not cover the lower end of the
   text". Reproduced before touching code:
-  - Static analysis of the user's real document
-    (`the user's invoice (kept outside the repository)`, 56 entries, six embedded subset
+  - Static analysis of the user's real document (kept outside this repository,
+    56 entries, six embedded subset
     fonts, sizes 4.9–7.8 mm) with fontTools: of 2464 glyphs with ink, **2117
     (86%) reach below the baseline** — CJK overshoot 0.098–0.129 em, Latin
     descenders up to 0.188 em — mean **0.50 mm**, max **1.46 mm** below the box
@@ -787,7 +787,7 @@ in-tree move that also lets our association entry and the Sushi plugin retire.
     `margin = (line->yMax - line->yMin) / 8` — the visible "sticks out" of a PDF
     highlight. Character boxes and find rectangles keep the plain band (find rects have
     no margin).
-  - Measured on the user's PDF `a real-world PDF`:
+  - Measured on a real-world PDF kept outside this repository:
     a body CJK word box 15.87 pt tall for a 15.95 pt em (0.995 em = the font metrics),
     its line's selection region 20 pt (528..548, i.e. ±2 pt ≈ height/8), its find
     rectangle for the same text 15.87 pt.
