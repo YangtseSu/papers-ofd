@@ -775,6 +775,17 @@ when a non-Arch consumer appears.
   another package, so uninstall (`pacman -Rns papers-ofd`) removes only our files
   and cannot break Papers' own backends.
 
+### CI (`.github/workflows/`)
+
+`checks.yml` rebuilds the delivery environment in an `archlinux` container: Papers
+51.x from the distribution, the rofd ABI from the fork release tag that
+`patches/README.md` names (built from source — it exists in no repository), then
+`meson test` and `reuse lint`. It runs on `main`, on pull requests and on demand.
+`release.yml` calls it for a `v*` tag and then appends the tag archive's sha256 —
+the value the AUR recipe's `source=` pins — to the release notes, creating the
+release when the tag has none. A container cannot cover the GUI acceptance items
+(§5 phase 3), the uninstall regression or the AUR push itself; those stay manual.
+
 ## 8. Risks and open questions
 
 | Risk / question | Impact | Mitigation / next step |

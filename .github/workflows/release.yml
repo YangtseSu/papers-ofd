@@ -1,0 +1,59 @@
+# SPDX-FileCopyrightText: 2026 Yangtse Su <yangtsesu@gmail.com>
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# A tag is a release. The same checks run against it, and the release notes then
+# carry the one number the repackaging step needs: the checksum of the tag
+# archive that the AUR recipe's `source=` pins (docs/plan.md D13 and §7). Pushing
+# to the AUR stays manual — it needs the maintainer's key, the AUR hook rejects a
+# stale .SRCINFO, and the AUR repository is the only home of the recipe.
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # Re-runs the release path for the ref you pick (a tag whose tree already
+  # carries this file); the tag push above is the normal path.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  checks:
+    uses: ./.github/workflows/checks.yml
+
+  pin:
+    name: pin the source archive in the release notes
+    needs: checks
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Record the tag archive checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          tag="$GITHUB_REF_NAME"
+          url="https://github.com/$GITHUB_REPOSITORY/archive/refs/tags/$tag.tar.gz"
+          sum=$(curl -fsSL "$url" | sha256sum | awk '{print $1}')
+          if gh release view "$tag" --json body --jq .body > body.md 2>/dev/null; then
+            echo "the release exists; keeping its notes"
+          else
+            gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+              -f tag_name="$tag" --jq .body > body.md
+          fi
+          if grep -qF "$sum" body.md; then
+            echo "the pin is already recorded"
+          else
+            {
+              printf '\n### Source pin for packagers\n\n'
+              printf 'The AUR recipe (`papers-ofd`) builds this tag archive. Its `source=` checksum is\n\n'
+              printf '```\nsha256  %s\n```\n' "$sum"
+            } >> body.md
+            if gh release view "$tag" >/dev/null 2>&1; then
+              gh release edit "$tag" --notes-file body.md
+            else
+              gh release create "$tag" --title "$tag" --notes-file body.md
+            fi
+          fi
+          printf 'tag archive checksum: %s\n' "$sum" >> "$GITHUB_STEP_SUMMARY"

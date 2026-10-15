@@ -96,6 +96,12 @@ and overlay this module, stage `data/papers-ofd.xml` into a scratch
 `papers-thumbnailer -s 256 <fixture>.ofd /tmp/out.png`. External fixtures live
 under `$ROFD_SRC` (plan §6).
 
+CI mirrors the AUR build in an `archlinux` container:
+`.github/workflows/checks.yml` builds the fork tag named in `patches/README.md`,
+runs `meson test` and `reuse lint`; `release.yml` calls it for a `v*` tag and
+records the tag archive's sha256 in the release notes (plan §7). Push a branch to
+run it before merging; the GUI acceptance items stay manual.
+
 ## Conventions
 
 - Code, comments, commits, docs: English. Commit subjects: imperative, one line,

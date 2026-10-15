@@ -1,0 +1,81 @@
+# SPDX-FileCopyrightText: 2026 Yangtse Su <yangtsesu@gmail.com>
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# The module is a guest in Papers' process: it links the installed
+# papers-document-4.0 (51.x) and the rofd-ffi ABI, and rofd-ffi is not in any
+# distribution repository — the ABI a user gets is the AUR package built from the
+# fork's release tag. So the run builds that tag from source (its crates are
+# vendored, hence the offline build) and points the module at it, which is also
+# what a machine without the librofd-ffi package does through
+# -Drofd_libdir/-Drofd_includedir. On a machine *with* the package, rofd-ffi.pc
+# wins over those options and has to be hidden from pkg-config first
+# (docs/plan.md §6) — the container has no such file, so nothing is hidden here.
+#
+# What cannot run here stays manual in docs/plan.md §5: the GUI acceptance items
+# (a Papers session, the space bar in GNOME Files, thumbnails), and anything
+# that needs a display — ofd-print-file skips itself without one.
+name: checks
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: meson test + reuse lint
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    steps:
+      # git is not in the container image, and the checkout below needs it.
+      - name: Install the build and test dependencies
+        run: |
+          # noto-fonts-cjk is not a build dependency: the fixtures and the
+          # repository's reference render carry CJK text, and rofd's resolver
+          # falls back to `Noto Sans CJK SC` — without the font the run reports
+          # MissingGlyph diagnostics instead of the text it must measure. gjs and
+          # sushi make tests/test-sushi-plugin.js drive Sushi instead of
+          # skipping.
+          pacman -Syu --noconfirm --needed \
+            git gcc pkgconf meson rust reuse \
+            papers gtk4 poppler-glib gjs sushi \
+            noto-fonts noto-fonts-cjk
+
+      - uses: actions/checkout@v4
+
+      - name: Resolve the pinned rofd ABI tag
+        id: abi
+        run: |
+          set -eu
+          # patches/README.md is the consumer inventory; its current-release
+          # table is the one home of the tag the AUR package builds (D11).
+          tag=$(sed -n 's/^| Tag \/ version | `\(v[^`]*\)`.*/\1/p' patches/README.md | head -1)
+          [ -n "$tag" ] || { echo "no 'Tag / version' row in patches/README.md" >&2; exit 1; }
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Build the rofd ABI from the pinned fork release
+        run: |
+          git clone --depth 1 --branch "${{ steps.abi.outputs.tag }}" \
+            https://github.com/YangtseSu/rofd.git /rofd
+          cd /rofd
+          cargo build --release --offline -p rofd-ffi
+          # the module links the SONAME, so the tests need that name to resolve
+          ln -sf librofd_ffi.so /rofd/target/release/librofd_ffi.so.0
+
+      - name: Configure, build and test the module
+        run: |
+          meson setup build \
+            -Drofd_libdir=/rofd/target/release \
+            -Drofd_includedir=/rofd/crates/rofd-ffi/include \
+            -Drofd_src=/rofd
+          meson compile -C build
+          LD_LIBRARY_PATH=/rofd/target/release meson test -C build --print-errorlogs
+
+      - name: Licensing (REUSE)
+        run: reuse lint
