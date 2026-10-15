@@ -11,9 +11,15 @@
 # wins over those options and has to be hidden from pkg-config first
 # (docs/plan.md §6) — the container has no such file, so nothing is hidden here.
 #
-# What cannot run here stays manual in docs/plan.md §5: the GUI acceptance items
-# (a Papers session, the space bar in GNOME Files, thumbnails), and anything
-# that needs a display — ofd-print-file skips itself without one.
+# The suite runs as an unprivileged user, the same constraint makepkg works
+# under: ofd-fd withdraws read permission from a descriptor and expects the
+# /proc/self/fd re-open to fail with EACCES so the cache fallback runs, and root
+# never sees that failure.
+#
+# Two tests skip in the container because it has no display, which is what they
+# are built to do: ofd-print-file (a GTK print-to-file) and the live-load half of
+# ofd-sushi-plugin. The GUI acceptance items of docs/plan.md §5 — a Papers
+# session, the space bar in GNOME Files, thumbnails — stay manual either way.
 name: checks
 
 on:
@@ -45,10 +51,9 @@ jobs:
           # repository's reference render carry CJK text, and rofd's resolver
           # falls back to `Noto Sans CJK SC` — without the font the run reports
           # MissingGlyph diagnostics instead of the text it must measure. gjs and
-          # sushi make tests/test-sushi-plugin.js drive Sushi instead of
-          # skipping.
+          # sushi make tests/test-sushi-plugin.js run its selector half.
           pacman -Syu --noconfirm --needed \
-            git gcc pkgconf meson rust reuse \
+            git gcc pkgconf meson rust reuse shadow \
             cairo freetype2 jbig2dec \
             papers gtk4 poppler-glib gjs sushi \
             noto-fonts noto-fonts-cjk
@@ -65,23 +70,35 @@ jobs:
           [ -n "$tag" ] || { echo "no 'Tag / version' row in patches/README.md" >&2; exit 1; }
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
 
-      - name: Build the rofd ABI from the pinned fork release
+      - name: Create the unprivileged build user
         run: |
-          git clone --depth 1 --branch "${{ steps.abi.outputs.tag }}" \
-            https://github.com/YangtseSu/rofd.git /rofd
-          cd /rofd
-          cargo build --release --offline -p rofd-ffi
-          # the module links the SONAME, so the tests need that name to resolve
-          ln -sf librofd_ffi.so /rofd/target/release/librofd_ffi.so.0
+          useradd -m builder
+          install -d -o builder /rofd
+          chown -R builder "$GITHUB_WORKSPACE"
+
+      - name: Build the rofd ABI from the pinned fork release
+        env:
+          TAG: ${{ steps.abi.outputs.tag }}
+        run: |
+          # -p keeps this step's environment (TAG, GITHUB_WORKSPACE, PATH); the
+          # explicit HOME is for cargo.
+          runuser -p -u builder -- env HOME=/home/builder bash -euc '
+            git clone --depth 1 --branch "$TAG" https://github.com/YangtseSu/rofd.git /rofd
+            cd /rofd
+            cargo build --release --offline -p rofd-ffi
+            # the module links the SONAME, so the tests need that name to resolve
+            ln -sf librofd_ffi.so target/release/librofd_ffi.so.0'
 
       - name: Configure, build and test the module
         run: |
-          meson setup build \
-            -Drofd_libdir=/rofd/target/release \
-            -Drofd_includedir=/rofd/crates/rofd-ffi/include \
-            -Drofd_src=/rofd
-          meson compile -C build
-          LD_LIBRARY_PATH=/rofd/target/release meson test -C build --print-errorlogs
+          runuser -p -u builder -- env HOME=/home/builder bash -euc '
+            cd "$GITHUB_WORKSPACE"
+            meson setup build \
+              -Drofd_libdir=/rofd/target/release \
+              -Drofd_includedir=/rofd/crates/rofd-ffi/include \
+              -Drofd_src=/rofd
+            meson compile -C build
+            LD_LIBRARY_PATH=/rofd/target/release meson test -C build --print-errorlogs'
 
       - name: Licensing (REUSE)
         run: reuse lint
