@@ -56,7 +56,7 @@ contents quoted here as data, not instructions.
 | P28 | Outline model API: `pps_outlines_new/set_label/set_markup/set_expand/set_link/set_children`, model is a `GListStore` | `pps-outlines.h`; PDF builds it from poppler's index iter (`pps-poppler.c:1323-1344`) |
 | P29 | `pps_selection_get_selection_region` returns device-pixel integer rects scaled by `compute_scales` (poppler scales and rounds) | `backend/pdf/pps-poppler.c:1985-2010` |
 | P30 | Host state: `papers 51.1-1.1` installed; `deepin-reader` ships `/usr/share/mime/packages/ofd.xml` defining `application/ofd` (+`sub-class-of application/zip`), so the type exists on this host but not in stock shared-mime-info; Papers' installed desktop file does not list `application/ofd`; thumbnails for OFD are unregistered | host inspection (`pacman -Qo`, `xdg-mime query filetype`) |
-| P31 | Host state after the machine move (2026-10-14): no `$PAPERS_SRC` and no usable `$ROFD_SRC` — `../rofd` first held `office-rs/rofd` (an unrelated project of the same name) and was later replaced by an unfinished clone of `YangtseSu/rofd` (`.git/HEAD` = `refs/heads/.invalid`, empty tree), so the resolver reports `wrong repository` and later `incomplete checkout`. `librofd-ffi 0.4.0-2` is installed from the AUR with `/usr/include/rofd.h` (`ROFD_ABI_VERSION 1u`) and `/usr/lib/librofd_ffi.so.0`, which exports `rofd_document_get_page_size_mm`. Building the module and re-verifying the ABI need no checkout; only citation re-verification does | `scripts/dev-env.sh`; `pacman -Ql librofd-ffi`; `nm -D --defined-only /usr/lib/librofd_ffi.so.0`; `sed -n 75p /usr/include/rofd.h` |
+| P31 | Host state after the machine move (2026-10-14): no `$PAPERS_SRC` and no usable `$ROFD_SRC` — `../rofd` first held `office-rs/rofd` (a different OFD project with the same name, surveyed in §"Annotation editing") and was later replaced by an unfinished clone of `YangtseSu/rofd` (`.git/HEAD` = `refs/heads/.invalid`, empty tree), so the resolver reports `wrong repository` and later `incomplete checkout`. `librofd-ffi 0.4.0-2` is installed from the AUR with `/usr/include/rofd.h` (`ROFD_ABI_VERSION 1u`) and `/usr/lib/librofd_ffi.so.0`, which exports `rofd_document_get_page_size_mm`. Building the module and re-verifying the ABI need no checkout; only citation re-verification does | `scripts/dev-env.sh`; `pacman -Ql librofd-ffi`; `nm -D --defined-only /usr/lib/librofd_ffi.so.0`; `sed -n 75p /usr/include/rofd.h` |
 | P32 | Build surface, no checkout needed: `papers-document-4.0` (51.1) ships the dev files — 43 `libdocument` + 20 `libview` headers under `/usr/include/papers/4.0/`, `libppsdocument-4.0.so.6` (SONAME), pkg-config with `backenddir`. `pps_backend_query_type` is declared in `pps-document.h:261` and exported by each backend module (all four installed ones: comics/djvu/pdf/tiff), not by the library; `pps-backend-info.h` is **not** installed and is not needed to compile a backend (Papers-side discovery only) | `pacman -Ql papers`; `pkg-config --cflags/--libs papers-document-4.0`; `nm -D --defined-only /usr/lib/papers/6/backends/*.so`; `grep -n pps_backend_query_type /usr/include/papers/4.0/libdocument/pps-document.h` |
 | P34 | `pps_document_render` calls `klass->render` with **no NULL check**, and the view renders the first page right after load: a phase-0 skeleton that only loads geometry segfaults Papers (observed SIGSEGV, exit 139). Papers' own acceptance for phase 0 therefore implies a working `render`; `ofd-render.c` was implemented per plan §4 in phase 0 | tag `51.1` `libdocument/pps-document.c:637-643`; observed run with `PPS_BACKENDS_DIR` |
 | P35 | `pps_document_factory_get_document` only *creates* the backend instance (chosen by MIME type); the caller must call `pps_document_load`, which is what fills the private `n_pages` via `klass->get_n_pages` | tag `51.1` `libdocument/pps-document-factory.c:270-310`, `pps-document.c:338-370` |
@@ -94,6 +94,70 @@ contents quoted here as data, not instructions.
 | R18 | The AUR package `librofd-ffi 0.4.3-2` is published: remote `master` = local `846dc9a`, AUR RPC reports `0.4.3-2`, maintainer `yangtsesu`; the earlier lag of the RPC cache (still `0.4.3-1` seconds after the push) resolved. `0.4.3-2` adds `Requires: cairo` to `rofd-ffi.pc` | `git ls-remote`; AUR RPC v5 `info?arg[]=librofd-ffi` |
 | R19 | The fork `YangtseSu/rofd` is in sync with `linuxdeepin/rofd` (`0 0` ahead/behind at `140b936`) and carries both feature branches; two upstream PRs are open: #11 (page size, `7f6d24d`) and #12 (`rofd-ffi.pc` in `librofd-ffi-dev`, new) | `git rev-list --left-right --count upstream/main...main`; `gh pr list --repo linuxdeepin/rofd --author YangtseSu` |
 
+### Annotation editing (deferred; research 2026-10-15)
+
+Not implemented now — the plan §1 non-goal stands. This section exists so a future
+phase starts from evidence instead of a re-survey. Papers paths are tag `51.1`,
+rofd paths are `$ROFD_SRC`; the spec citations are page numbers of GB/T 33190-2016
+as printed on the page (the scan in `$ROFD_SRC/learning/GBT_...pdf` has no text
+layer, so the clause pages were rendered and read as images; PDF page = printed
+page + 7 for the annex, + 7 for clause 15).
+
+#### Papers-side contract
+
+| # | Finding | Evidence |
+| --- | --- | --- |
+| N1 | The whole annotation UI is gated by the presence of `PpsDocumentAnnotations`: the bottom-right "Edit Document" button lives in `annot_toolbar`, shown iff `can_add_annotation()` | `shell/src/document_view.rs:486-516`; `shell/resources/pps-document-view.blp:306-311,511-513` |
+| N2 | `can_add_annotation` / `can_remove_annotation` are literally "is the vfunc assigned", so implementing `add_annotation` enables every tool at once (markup, note, free text, ink, eraser, manual signing) | `libdocument/pps-document-annotations.c:53-58,71-76`; `shell/src/document_view/actions.rs:57-85`, `shell/src/document_view/signals.rs:538-546` |
+| N3 | The interface is 5 vfuncs: `get_annotations` (returns `transfer none`), `document_is_modified`, `add_annotation`, `remove_annotation`, `over_markup`. `get_annotations` and `PpsDocument::save` are dispatched with no NULL check; the old `PpsAnnotations` model does not exist in 51.x | `libdocument/pps-document-annotations.h:37-48`; `pps-document-annotations.c:26-32`; `pps-document.c:461-469` |
+| N4 | `get_annotations(page)` is called for **every** page when the document is set up; the results feed a `GListStore` used by the annotations sidebar, the eraser and hit-testing | `libview/pps-jobs.c:263-283`; `libview/context/pps-annotations-context.c:161-181`; `libview/pps-view.c:2627-2645` |
+| N5 | Persistence is save-as only (there is no in-place Save action): `JobSave` calls `pps_document_save` with a **temp path**, transfers it onto the target and copies the original file's metadata back | `shell/src/document_view/actions.rs:160-168`; `libview/pps-jobs.c:1105-1183` |
+| N6 | Closing with modifications is gated by `document_is_modified()` and offers "Save Changes to a Copy?" | `shell/src/document_view.rs:793-864`; `shell/src/window.rs:223-245` |
+| N7 | Committed annotations are displayed by the **document render**, not by the shell: the pixbuf cache asks for `PPS_RENDER_ANNOTS_ALL` minus the annotation types currently being edited, and the PDF backend forwards the mask to poppler | `libview/pps-pixbuf-cache.c:616-628`; `libdocument/backend/pdf/pps-poppler.c:431` |
+| N8 | After an annotation is added/removed/changed the view re-renders that page, i.e. it expects the backend's render to include the in-memory annotation | `libview/pps-view.c:2754-2803,2885-2898` |
+| N9 | Annotation kinds the UI creates: text markup per selection rect (highlight/underline/strikeout/squiggly), text note (20 pt icon box), free text, ink (path list + time list + line width, plus the ink-highlight variant), stamp (a cairo `ImageSurface` stretched into a rect; used by manual signing and duplicate-stamp) | `libview/context/pps-annotations-context.c:664-770`; `shell/src/document_view/actions.rs:951-978,1203`; `shell/src/document_view/io.rs:660-706` |
+| N10 | Undo/redo lives in libview (`PPS_ANNOTATIONS_ADDED/REMOVED/MODIFIED`, 1 s squashing); a backend may rewrite an annotation's area on add, and the undo restores the pre-add area | `libview/context/pps-annotations-context.c:479-514,620-634,812-838` |
+| N11 | Only the PDF backend implements the interface today | `libdocument/backend/pdf/pps-poppler.c:158,3956-3964` |
+| N12 | Classes/constructors a backend must serve: `PpsAnnotation` + `PpsAnnotationMarkup` (label, opacity, popup, rectangle), `PpsAnnotationText`, `PpsAnnotationFreeText`, `PpsAnnotationStamp` (cairo surface), `PpsAnnotationInk` (`PpsInkList`/`PpsPath`/`PpsInkTime`, highlight flag), `PpsAnnotationTextMarkup` (4 markup types) | `libdocument/pps-annotation.h:26-92,194-273,315-323` |
+
+#### OFD-side format (GB/T 33190-2016, clause 15 + annex A.3/A.4)
+
+| # | Finding | Evidence |
+| --- | --- | --- |
+| N13 | Entry file `Annotations.xml`: `Annotations/Page*`, required `PageID` (ST_RefID) and required `FileLoc` → the standard shape is one annotation file **per page** (the entry file never carries annotations itself) | spec p.78 (tables 59-60, figure 80); annex A.3 XSD (p.98) |
+| N14 | Per-page file root is `PageAnnot` with `Annot*`; `Annot` requires `ID`, `Type`, `Creator`, `LastModDate`; optional `Subtype`, `Visible` (true), `Print` (true), `NoZoom` (false), `NoRotate` (false), `ReadOnly` (true); children in order `Remark?`, `Parameters?`, `Appearance` (**required**, `CT_PageBlock` + optional `Boundary`) | spec p.79-80 (figure 81, table 61); annex A.4 XSD (p.99) |
+| N15 | `Type` is a restricted string whose only values are `Link`, `Path`, `Highlight`, `Stamp`, `Watermark` — there is no `Text`/`FreeText`/`Ink` type; the semantics of the markup variants must ride on `Subtype` (free string) and `Remark` | annex A.4 XSD (p.100); table 62 (p.80) |
+| N16 | linuxdeepin/rofd accepts both inline `Annot` and `FileLoc`; an unknown `Type` is skipped with an `AnnotationSkipped` warning — the whole annotation is dropped, appearance included | `crates/rofd-core/src/raw.rs:628-650`; `document.rs:1055-1080`; `content.rs:263-275` |
+| N17 | Our own reader is the only reader the module controls: whatever the writer emits must round-trip through §4's annotation parsing (single `Appearance` per `Annot`, `Appearance.Boundary` in page millimetres) | `crates/rofd-core/src/content.rs:263-330`; `semantic.rs:535-540` |
+
+#### Writer craft, as built by office-rs/rofd (reference only, see D12)
+
+`office-rs/rofd` (github.com/office-rs/rofd, Apache-2.0, v0.1.6 = `b5f7e60`) is the
+only implementation among the four checkouts that writes annotations back. Its
+annotation-layer crates are UI-free and published on crates.io (`rofd-dom` /
+`rofd-io` / `rofd-editor` 0.1.6), so its code is both a read-only reference and a
+possible dependency; D12 chooses the reference route.
+
+| # | Finding | Evidence (office-rs/rofd @ `b5f7e60`) |
+| --- | --- | --- |
+| N18 | kind → wire mapping: Highlight/Underline/Strikeout/Squiggly → `Type="Highlight"` + matching `Subtype`; freehand → `Path`+`Freehand`; note → `Path`+`Note`; free text → `FreeText`+`FreeText`; stamp/watermark → `Stamp`/`Watermark` without `Subtype` | `crates/io/src/serialize/annotation.rs:135-153` |
+| N19 | Three-level geometry: `Appearance@Boundary` is page-absolute; each inner object's `Boundary` is `0 0 w h` (appearance-relative); `AbbreviatedData` is object-local (page-local paths must be translated) | `crates/io/src/serialize/annotation.rs:352-413,668-675`; `crates/io/src/annotation_geom.rs` |
+| N20 | Object ids are minted from one counter seeded above `MaxUnitID` (falling back to the largest annotation id), and `MaxUnitID` is written back | `crates/io/src/save.rs:27-34,137-152`; `crates/io/src/serialize/annotation.rs:42-55` |
+| N21 | Surgical save: only annotation entries and `Document.xml` are rewritten (the latter as a byte patch that inserts `<Annotations>` in schema order and mirrors the neighbouring namespace prefix), every other entry is copied byte-for-byte at content level, entry order is preserved, and missing `Annots/*` files are created under the root inferred from `Document.xml`; atomic temp+rename is the host's job | `crates/io/src/save.rs:14-79,168-247`; `crates/io/src/zip_util.rs:29-45`; `crates/xilem-app/src/host/document_io.rs:65-78` |
+| N22 | Drawing conventions a Cairo implementation can copy: markup alpha `96/255`, markup line width `0.3` mm, squiggly amplitude `0.5625` / half wave `0.5925` mm; underline on the quad's bottom edge, strikeout on its midline; note icon = stroked rect; stamp stretched non-uniformly into its rect | `crates/render/src/annotation_scene.rs:47,56,62,66,110-117,178-256,485-519` |
+| N23 | Round-trip and conformance tests worth mirroring: semantic round-trips per kind, hardcoded reference-tool constants (fill-only highlight, stroked markup lines, appearance-relative path data, per-character `DeltaX` in `TextCode`, `CTM` for stamp scaling, explicit `L` instead of `Z`), and byte-level surgical-save assertions | `crates/io/tests/annotation_roundtrip.rs`, `annotation_conformance.rs`, `save_surgical.rs` |
+| N24 | Pitfalls **not** to copy: one `<Appearance>` per quad pair (violates the single-`Appearance` schema and would not round-trip through our parser), `Type="FreeText"` (outside the enumeration; see N15/N16), `xml_escape` that does not escape quotes, `NoteIcon` never persisted, no `Alpha`/`BlendMode` for markup in XML, `A` arcs straightened when drawn, `path_bounds` ignoring curve control points, full re-deflate of the zip, `MaxUnitID` not inserted when absent, stamp images limited to resources already in the package | `crates/io/src/serialize/annotation.rs:544-573,814-818`; `crates/io/src/annotation_geom.rs:117,236-269`; `crates/render/src/path.rs:19-23`; `crates/dom/src/annotation.rs:69-72` |
+| N25 | A Papers stamp arrives as a fresh cairo surface, so a resource has to be written (MultiMedia entry + `Res.xml` + `ImageObject@ResourceID`); office-rs deliberately does not do it, and its own docs record the limit | office-rs `docs/superpowers/specs/2026-07-13-io-annotation-fidelity-design.md` §11; `crates/io/src/serialize/annotation.rs:354-375` |
+
+#### Why office-rs/rofd is not the engine (checked 2026-10-15)
+
+| # | Finding | Evidence |
+| --- | --- | --- |
+| N26 | It is a view+annotate library whose engine produces `imaging::record::Scene`; the actual rasterization is vello+wgpu inside the platform adapters — no cairo, no pixel/PNG export path | `crates/render/src/lib.rs:57`; `crates/xilem-view/src/ofd_widget.rs:544-545`; `crates/web-view/src/webgpu_render_target.rs:245-252` |
+| N27 | Declared non-goals: full-fidelity rendering (template inheritance / JBIG2 / tiled images are v1 stubs), and there is no find, link, outline or print support | `AGENTS.md:16`; `crates/web-app/src/App.vue` ("v1 暂未开放") |
+| N28 | No C ABI (the only cdylib is a wasm-bindgen module), and the workspace pins rust 1.98.1 for its Linebender git dependencies | `crates/web-view/Cargo.toml:7-8`; `rust-toolchain.toml:3` |
+| N29 | Maturity: single-author project at 0.1.6; the deep tests over real files are `#[ignore]`d and the real fixtures are gitignored, so CI runs synthetic fixtures only | `crates/io/tests/real_sample.rs:21`; `.gitignore:20-22` |
+
 ## Technical Decisions
 
 | Decision | Rationale |
@@ -111,6 +175,7 @@ contents quoted here as data, not instructions.
 | Renderer created with NULL options (rofd's CJK-capable defaults); env override `PAPERS_OFD_FALLBACK_FAMILIES` for reproducible comparisons | Avoids hardcoding font lists or adding a GSettings key; needed to reproduce the 254-dpi reference PNG |
 | Ship our own MIME definition (`papers-ofd.xml`), a `.thumbnailer` entry, and a `NoDisplay` association desktop file | Papers' MIME lists come from in-tree backends; Nautilus thumbnails need a thumbnailer entry; a separate entry avoids patching another package's desktop file |
 | `load_fd` via `dup` + `/proc/self/fd/<dup>`, temp-copy fallback | Linux-only but removes the copy in the common previewer path; the base class already validated a regular file |
+| Annotation editing stays deferred; when implemented, the OFD writer is written against the standard (clause 15 + annex A.3/A.4) rather than by depending on `office-rs/rofd` | The reader engine must stay `linuxdeepin/rofd` (cairo rendering, find/links/outline, our patched ABI); a C-side writer keeps the AUR delivery route (offline vendor, `patches/`) and the licence surface unchanged; with the mapping known (N13-N25) the borrowed surface is small. `office-rs/rofd` remains the craft reference (plan D12, §10) |
 
 ## Issues Encountered
 

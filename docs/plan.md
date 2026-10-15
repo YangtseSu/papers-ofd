@@ -47,7 +47,9 @@ A user with Papers ≥ 51 and this module installed can:
 Non-goals for v1 (no rofd support today): annotations, signatures/seals, form
 filling, attachments, layers, transitions, editing/saving. Papers hides the
 corresponding UI automatically when an optional interface is absent.
-`PpsDocument::save` is present but refuses (§3).
+`PpsDocument::save` is present but refuses (§3). Annotation editing is researched
+and deferred, not forgotten: §10 records the contract, the writer craft and the
+decision a future phase starts from.
 
 ## 2. Architecture and decisions
 
@@ -98,6 +100,7 @@ Decisions that constrain everything else:
 | D9 | Lenient rofd strictness (default); parse warnings and render diagnostics logged at `g_debug` | A15: real-world invoices are messy; rofd's limits already bound work; diagnostics must never fail a render |
 | D10 | Page sizes come from a configure-time-detected `rofd_document_get_page_size_mm` when the linked rofd has it, otherwise from `rofd_document_get_page` | A17, A18: the fast path already exists in rofd-core but not in the ABI; without detection the module would either need a forked rofd or pay a full-document parse. The fallback keeps stock rofd working |
 | D11 | Dependency strategy is fork-first: the `YangtseSu/rofd` fork mirrors `linuxdeepin/rofd` and carries our patches; the AUR `librofd-ffi` package is ours and is the delivery channel for the patched ABI, and the fork's `feat/aur-carried` branch replays `patches/*.patch` on `main` so a clone reproduces the shipped ABI directly. Upstream PRs stay open as the exit path, not as the plan's critical path | PR #11 has drawn only bot traffic since 2026-10-14 (CLA, ok-to-test, OWNERS approval) and the upstream project serves deepin's own client, so acceptance is unlikely on our schedule. The fork keeps the wait off the critical path while `patches/` mirrors every fork commit, so a machine without the fork reproduces the same ABI; D10's configure-time probe keeps the module working against stock rofd in either case |
+| D12 | Annotation editing is out of v1; if taken up it is implemented against GB/T 33190-2016 clause 15 and annex A.3/A.4 inside the fork, with **no** dependency on `office-rs/rofd`, which stays a read-only craft reference. Future scope: a writer in `rofd-core`, additive ABI calls (list/add/remove annotations, save), then the module's `PpsDocumentAnnotations` and a real `PpsDocument::save` | The whole toolset is gated on that one interface, and both `get_annotations` and `PpsDocument::save` are dispatched without NULL checks (`libdocument/pps-document-annotations.c:26-32`, `pps-document.c:461-469`); our reader drops any `Annot` whose `Type` is outside the standard's five values, so the writer must stay inside them (`crates/rofd-core/src/document.rs:1055-1080`); the engine cannot change (cairo rasterization, find/links/outline, our patched ABI), and `office-rs/rofd` cannot embed the image a Papers stamp needs. Detail: §10 |
 
 ## 3. Interface contract
 
@@ -861,6 +864,68 @@ item blocks a phase; an upstream merge only deletes the matching entry in
    unchanged, 77 entries), plus `git apply --check` against the fork's `main`.
    One caveat documented in `rofd.h`: a renderer created with fallback families
    other than the defaults may draw glyphs the semantic layer did not resolve.
+
+## 10. Deferred: annotation editing
+
+Papers' bottom-right edit button and the whole annotation toolset appear as soon as
+a backend implements `PpsDocumentAnnotations` with a non-NULL `add_annotation`
+(`shell/src/document_view.rs:486-516`; `can_add_annotation` is literally "the vfunc
+is assigned", `libdocument/pps-document-annotations.c:53-58`). The interface is
+small — five vfuncs, of which `get_annotations` and `PpsDocument::save` are
+dispatched without NULL checks (`pps-document-annotations.h:37-48`,
+`pps-document.c:461-469`) — but the feature behind it is not: the UI offers
+highlight/underline/strikeout/squiggly, a note, free text, ink, an eraser and a
+handwritten stamp at once; committed annotations are displayed by the document
+render, so the render must include in-memory ones (`libview/pps-pixbuf-cache.c:616-628`
+plus the re-render on add, `libview/pps-view.c:2885-2898`); and persistence is
+save-as only, through `pps_document_save` with a temp path
+(`libview/pps-jobs.c:1105-1183`).
+
+Neither half exists today. `linuxdeepin/rofd` parses and renders annotation
+appearances but has **no** writer and exposes **no** annotation function among its 78
+C symbols (`crates/rofd-ffi/tests/c/expected-symbols.txt`). `office-rs/rofd` is the
+only checkout with a writer — annotation model, appearance synthesis, surgical save,
+transactions — and was therefore surveyed in full, but it is not a candidate engine:
+it rasterizes through vello/wgpu with no cairo or pixel-export path
+(`crates/render/src/lib.rs:57`, `crates/xilem-view/src/ofd_widget.rs:544-545`),
+declares full-fidelity rendering (template inheritance/JBIG2/tiles) a non-goal, has
+no find/links/outline/print, and has no C ABI (`AGENTS.md:16`, `rust-toolchain.toml:3`).
+
+D12 fixes the shape of that future phase: write the OFD side against the standard —
+clause 15's entry file with required `PageID`+`FileLoc` and per-page `PageAnnot`
+files, annex A.3/A.4's `Annot` (required `ID`/`Type`/`Creator`/`LastModDate`,
+optional `Subtype`/`Visible`/`Print`/`NoZoom`/`NoRotate`/`ReadOnly`, children
+`Remark?`, `Parameters?`, and a required `Appearance` `CT_PageBlock` with `Boundary`),
+`Type` limited to `Link`/`Path`/`Highlight`/`Stamp`/`Watermark` with the variant in
+`Subtype` (spec clause 15, tables 60-62 and annex A.4; the standard's PDF in
+`$ROFD_SRC/learning/` is a page scan) — inside the fork, keeping `office-rs/rofd` as
+a read-only reference for the craft: kind→`Type`/`Subtype` mapping
+(`crates/io/src/serialize/annotation.rs:135-153`), the three-level geometry
+(`Appearance@Boundary` page-absolute, object `Boundary` `0 0 w h`, `AbbreviatedData`
+object-local), object-id minting with `MaxUnitID` write-back and the surgical save
+(`crates/io/src/save.rs:14-79,137-247`), and the drawing constants
+(`crates/render/src/annotation_scene.rs:47,56,62,66`).
+
+Work streams when taken up: (1) `rofd-core` writer — annotation draft → appearance
+`PathObject`/`ImageObject`, surgical package rewrite, in-memory annotations in the
+display list; (2) additive `rofd-ffi` calls (list/add/remove annotations, save) with
+`expected-symbols.txt` and C tests; (3) the module — all five
+`PpsDocumentAnnotations` vfuncs, the `PpsAnnotation`↔OFD mapping, a real `save`, and
+in-memory drawing that honours `rc->annot_flags`. Acceptance for that phase: an OFD
+saved from Papers reopens in Papers and renders in a third-party reader, the real
+invoice's own annotations still render, and the eraser/undo paths work on
+not-yet-saved annotations.
+
+Known risks: in-memory versus baked-in annotations (rofd draws the file's
+annotations into the page, so the module must not draw them twice); the stamp's new
+image resource (MultiMedia entry + `Res.xml` + `ImageObject@ResourceID`, which
+`office-rs/rofd` deliberately does not write); `Type` tolerance (our reader skips an
+`Annot` whose `Type` is outside the five standard values —
+`crates/rofd-core/src/document.rs:1055-1080` — so a `Type="FreeText"` like the one
+real producers emit needs a decision); and the verification gap (no third-party OFD
+reader is automated here). Full evidence, including the pitfalls not to copy, is in
+`.planning/2026-10-14-papers-ofd-backend-plan-and-readme/findings.md`
+(§"Annotation editing", N1-N29).
 
 ## Appendix A — evidence index
 

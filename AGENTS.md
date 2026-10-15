@@ -27,8 +27,9 @@ the authoritative plan; read it before changing code.
   resolves them (environment → untracked `local.conf` → sibling defaults `../papers`,
   `../rofd`), validates them against a marker file, and exports `PAPERS_SRC`,
   `ROFD_SRC`, `ROFD_INCLUDEDIR`, `ROFD_LIBDIR`. A checkout directory that is missing,
-  empty, or a same-named different project (e.g. `office-rs/rofd`) is reported, never
-  used silently.
+  empty, or a different OFD project of the same name (e.g. `office-rs/rofd`, which
+  has a different API and is not a substitute; plan §10) is reported, never used
+  silently.
 - Never patch a local Papers checkout or the installed Papers files: Papers-side
   changes land as an upstream MR (plan §5 phase 4). rofd is fork-first (plan D11):
   changes go to a `feat/…` branch of `YangtseSu/rofd` (its `main` mirrors

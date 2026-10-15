@@ -97,8 +97,9 @@
     dependency checkouts as `../papers` and `../rofd`, and `docs/plan.md` opened with a
     structurally wrong link (`../../rofd/…` from `docs/`, resolving outside the projects
     directory). On this machine `../papers` does not exist and `../rofd` is
-    `office-rs/rofd` — an unrelated project of the same name — so the documented build
-    commands and every rofd citation silently pointed at the wrong tree.
+    `office-rs/rofd` — a different OFD project with the same name (corrected
+    2026-10-15, see findings P31) — so the documented build commands and every rofd
+    citation silently pointed at the wrong tree.
   - Added `scripts/dev-env.sh`: resolves `PAPERS_SRC`/`ROFD_SRC` (environment → untracked
     `local.conf` → sibling defaults), validates each against a marker file
     (`libdocument/pps-document.h`, `crates/rofd-ffi/include/rofd.h`), reports a same-named
@@ -926,3 +927,58 @@ reported 0.1.0-2 a minute after the push, the same frontend lag the earlier
 publications showed. The index caught up the same day: the user confirmed
 0.1.0-3 on the AUR side (the git repository, which is what `makepkg` clones, had
 it from the push).
+
+## Annotation editing research and deferral (2026-10-15)
+
+The user asked whether Papers' edit button (annotation tooling) could work for OFD —
+does `rofd` have it, or is it only an unexported ABI, and how hard would it be. Answer,
+all three layers checked:
+
+- **`linuxdeepin/rofd` has neither half in the ABI.** `rofd-core` parses annotation
+  appearances and draws them (`crates/rofd-core/src/content.rs:192-257`,
+  `crates/rofd-render/src/display_list.rs:263`) but has no writer (`ZipWriter` appears
+  only inside `#[cfg(test)]`, `crates/rofd-core/src/container.rs:139-188`), and none of
+  the 78 exported C symbols touches annotations or saving
+  (`crates/rofd-ffi/tests/c/expected-symbols.txt`); the header's only annotation name is
+  the `ROFD_WARNING_ANNOTATION_SKIPPED` constant. Upstream documents editing, form
+  filling and seal creation as a separate sub-project
+  (`docs/superpowers/specs/2026-09-03-rofd-library-reader-design.md:256`), and
+  deepin-reader's own OFD backend refuses to save for that reason
+  (`reader/document/OfdModel.cpp:152-168` in the `deepin-reader` checkout).
+- **Papers' contract** (tag `51.1`): the whole toolset is gated on
+  `PpsDocumentAnnotations` plus a non-NULL `add_annotation`
+  (`shell/src/document_view.rs:486-516`, `libdocument/pps-document-annotations.c:53-58`);
+  `get_annotations` (called for every page at setup, `transfer none`) and
+  `PpsDocument::save` are dispatched without NULL checks; persistence is save-as only
+  through `libview/pps-jobs.c:1105-1183`; committed annotations are shown by the
+  document render (`libview/pps-pixbuf-cache.c:616-628` plus the re-render on add,
+  `libview/pps-view.c:2885-2898`), i.e. in-memory annotations must appear in `render`.
+- **OFD side**: clause 15 and annex A.3/A.4 were read from the scanned standard in
+  `$ROFD_SRC/learning/` (no text layer — clause pages were rendered and read as images).
+  The entry file needs `PageID`+`FileLoc`, `Annot` needs `ID`/`Type`/`Creator`/
+  `LastModDate` and a required `Appearance`, and `Type` is restricted to the five values
+  `Link`/`Path`/`Highlight`/`Stamp`/`Watermark`, so Papers' variants have to ride on
+  `Subtype`.
+- **`office-rs/rofd`** (the same-named sibling; github.com/office-rs/rofd, v0.1.6,
+  Apache-2.0) is the only checkout with an annotation writer, and its engine crates
+  (`rofd-dom`/`rofd-io`/`rofd-editor`) are UI-free and on crates.io — so it was surveyed
+  in full as a craft reference (mapping, three-level geometry, id minting with
+  `MaxUnitID` write-back, surgical save, drawing constants) and rejected as the engine:
+  it rasterizes through vello/wgpu with no cairo or pixel-export path, has no C ABI, and
+  declares full-fidelity rendering (template inheritance/JBIG2/tiles) plus find/links/
+  outline/print out of scope.
+
+Outcome (user's call): annotation editing stays deferred; a future phase writes the OFD
+side against the standard inside the fork rather than depending on `office-rs/rofd`.
+Recorded as plan D12 + plan §10, with the full evidence in `findings.md`
+§"Annotation editing" (N1-N29), including the pitfalls not to copy (an `<Appearance>`
+per quad pair, `Type="FreeText"`, quote-unaware escaping, and the rest).
+
+Housekeeping from the same session: the three places that called `office-rs/rofd` "an
+unrelated project of the same name" now say what it is — a different OFD project of the
+same name (`AGENTS.md:29-32`, `scripts/dev-env.sh:23-25`, `findings.md` P31,
+`task_plan.md` line 253, plus a correction note in this log's Phase 8 entry).
+
+Verification: no code changed; `bash -n scripts/dev-env.sh` clean and a bare run still
+reports the same resolution table (the edit is inside the header comment); `reuse lint`
+57/57.

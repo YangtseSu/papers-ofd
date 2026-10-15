@@ -22,7 +22,7 @@
 #
 # Identity is validated, not assumed: a directory that exists but lacks the
 # expected marker is reported as a wrong repository (../rofd may be
-# office-rs/rofd, an unrelated project with the same name) instead of being used.
+# office-rs/rofd, a different OFD project with the same name) instead of being used.
 #
 # The ABI pair (header + library) comes from, in order: a built $ROFD_SRC, then
 # pkg-config (rofd-ffi.pc, installed by our AUR package), then /usr/include +
