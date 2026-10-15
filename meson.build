@@ -34,10 +34,29 @@ endif
 
 # The ABI comes from rofd-ffi.pc when it is installed (our AUR package ships it);
 # otherwise the caller points at a build tree. Only the .pc carries a version, so
-# the minimum documented in README.md (0.4.2, A19) can be enforced there and is
-# merely warned about for explicit directories.
-rofd_dep = dependency('rofd-ffi', version: ['>= 0.4.2'], required: false)
+# the minimum documented in README.md can be enforced there and is merely warned
+# about for explicit directories.
+#
+# The floor is the module's own: rofd <= 0.4.0 aborts a whole page render with
+# ROFD_STATUS_INTERNAL on a document object carrying a singular transform, and
+# 0.4.2 maps it to a diagnostic (plan A19, D9). The *packaging* floor is higher —
+# the AUR librofd-ffi package builds the fork's release, which also carries the
+# pkg-config file itself, the metadata-only page-size query and the font-resolved
+# text geometry — but neither is a build requirement: the page-size path is
+# detected below and the geometry model is classified by the test (plan §9).
+rofd_min_version = '>= 0.4.2'
+rofd_dep = dependency('rofd-ffi', version: [rofd_min_version], required: false)
 if not rofd_dep.found()
+  # A .pc that exists but is older is a different problem from a missing one, and
+  # saying "not found" for it sends the reader to install a package they have.
+  rofd_any_version = dependency('rofd-ffi', required: false)
+  if rofd_any_version.found()
+    error('rofd-ffi.pc reports ' + rofd_any_version.version() + ', but the module ' +
+          'needs ' + rofd_min_version + ': install a newer librofd-ffi, or pass ' +
+          '-Drofd_libdir=<dir> -Drofd_includedir=<dir> for a build tree ' +
+          '(see scripts/dev-env.sh)')
+  endif
+
   rofd_libdir = get_option('rofd_libdir')
   rofd_includedir = get_option('rofd_includedir')
   if rofd_libdir == '' or rofd_includedir == ''
@@ -48,7 +67,8 @@ if not rofd_dep.found()
     include_directories: include_directories(rofd_includedir, is_system: true),
     dependencies: cc.find_library('rofd_ffi', dirs: [rofd_libdir], required: true))
   message('rofd ABI taken from -Drofd_libdir/-Drofd_includedir; ' +
-          'rofd >= 0.4.2 is required but cannot be checked without rofd-ffi.pc')
+          'rofd ' + rofd_min_version + ' is required but cannot be checked ' +
+          'without rofd-ffi.pc')
 endif
 
 ofd_conf = configuration_data()

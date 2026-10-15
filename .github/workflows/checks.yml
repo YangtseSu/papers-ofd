@@ -69,6 +69,11 @@ jobs:
           tag=$(sed -n 's/^| Tag \/ version | `\(v[^`]*\)`.*/\1/p' patches/README.md | head -1)
           [ -n "$tag" ] || { echo "no 'Tag / version' row in patches/README.md" >&2; exit 1; }
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+          # the AUR librofd-ffi recipe's pkgver: the tag without its leading v and
+          # with dashes turned into dots (v0.4.3-fork.2 -> 0.4.3.fork.2), which is
+          # what the generated rofd-ffi.pc has to report.
+          version=$(printf '%s' "$tag" | sed -e 's/^v//' -e 's/-/./')
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
 
       - name: Create the unprivileged build user
         run: |
@@ -99,6 +104,46 @@ jobs:
               -Drofd_src=/rofd
             meson compile -C build
             LD_LIBRARY_PATH=/rofd/target/release meson test -C build --print-errorlogs'
+
+      - name: Configure, build and test the page-size fallback
+        run: |
+          # -Drofd_page_size=disabled builds the #else branch of
+          # rofd_document_get_page_size_mm detection (src/ofd-document.c), which
+          # the ordinary build never compiles; both ship, so both are tested.
+          runuser -p -u builder -- env HOME=/home/builder bash -euc '
+            cd "$GITHUB_WORKSPACE"
+            meson setup build-slow \
+              -Drofd_libdir=/rofd/target/release \
+              -Drofd_includedir=/rofd/crates/rofd-ffi/include \
+              -Drofd_src=/rofd \
+              -Drofd_page_size=disabled
+            meson compile -C build-slow
+            LD_LIBRARY_PATH=/rofd/target/release meson test -C build-slow --print-errorlogs'
+
+      - name: Configure, build and test against an installed rofd-ffi.pc
+        env:
+          VERSION: ${{ steps.abi.outputs.version }}
+        run: |
+          # The AUR package's own path: dependency('rofd-ffi') instead of
+          # -Drofd_libdir/-Drofd_includedir. The ABI is installed into a prefix
+          # exactly the way the librofd-ffi recipe does it (library + SONAME
+          # symlink + rofd.h + the .pc generated from the fork's template), and
+          # meson then takes header, library and version from pkg-config. No
+          # -Drofd_src here, so this is also the AUR package's test set (the
+          # oracle needs a rofd checkout).
+          runuser -p -u builder -- env HOME=/home/builder VERSION="$VERSION" bash -euc '
+            cd "$GITHUB_WORKSPACE"
+            prefix=/rofd/prefix
+            install -d "$prefix/lib/pkgconfig" "$prefix/include"
+            install -m755 /rofd/target/release/librofd_ffi.so "$prefix/lib/"
+            ln -sf librofd_ffi.so "$prefix/lib/librofd_ffi.so.0"
+            install -m644 /rofd/crates/rofd-ffi/include/rofd.h "$prefix/include/"
+            sed -e "s/@VERSION@/$VERSION/" -e "s|/lib/@MULTIARCH@|/lib|" \
+                /rofd/debian/rofd-ffi.pc.in > "$prefix/lib/pkgconfig/rofd-ffi.pc"
+            export PKG_CONFIG_PATH="$prefix/lib/pkgconfig"
+            meson setup build-pc
+            meson compile -C build-pc
+            LD_LIBRARY_PATH="$prefix/lib" meson test -C build-pc --print-errorlogs'
 
       - name: Licensing (REUSE)
         run: reuse lint

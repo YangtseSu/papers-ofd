@@ -1590,6 +1590,100 @@ test_broken_page (const gchar *module_path,
 	g_object_unref (document);
 }
 
+/* R4: how many glyphs of one page the renderer could not resolve. rofd reports
+ * that per glyph (ROFD_DIAGNOSTIC_MISSING_GLYPH), which is the signal that
+ * distinguishes "no font installed" from "the font is there, the metrics differ":
+ * a host without fonts still draws something (rofd substitutes a box), so ink
+ * alone does not tell the two apart. */
+static gint
+count_missing_glyphs (rofd_document_t *oracle, gint index)
+{
+	rofd_page_t *page = NULL;
+	rofd_renderer_t *renderer = NULL;
+	rofd_render_options_t options;
+	rofd_render_report_t *report = NULL;
+	rofd_error_t *rerror = NULL;
+	cairo_surface_t *surface;
+	cairo_t *cr;
+	gint width = 0, height = 0;
+	gint missing = 0;
+	size_t count = 0;
+	size_t i;
+
+	g_assert_cmpint (rofd_document_get_page (oracle, (size_t) index, &page, &rerror),
+	                 ==, ROFD_STATUS_OK);
+	g_assert_cmpint (rofd_renderer_new (NULL, &renderer, &rerror), ==, ROFD_STATUS_OK);
+
+	rofd_render_options_init (&options, sizeof (options));
+	options.dpi = 72.0;
+	options.scale = 1.0;
+	options.rotation_degrees = 0;
+	options.background_rgba = 0xFFFFFFFF;
+
+	g_assert_cmpint (rofd_renderer_get_pixel_canvas_size (renderer, page, &options,
+	                                                      &width, &height, &rerror),
+	                 ==, ROFD_STATUS_OK);
+	g_assert_cmpint (width, >, 0);
+
+	surface = cairo_image_surface_create (CAIRO_FORMAT_ARGB32, width, height);
+	cr = cairo_create (surface);
+	g_assert_cmpint (rofd_renderer_render_page_cairo (renderer, page, cr, &options,
+	                                                  &report, &rerror),
+	                 ==, ROFD_STATUS_OK);
+	cairo_destroy (cr);
+	cairo_surface_destroy (surface);
+
+	if (report != NULL) {
+		if (rofd_render_report_get_count (report, &count, &rerror) == ROFD_STATUS_OK) {
+			for (i = 0; i < count; i++) {
+				rofd_render_diagnostic_t diagnostic = { 0, };
+
+				diagnostic.struct_size = sizeof (diagnostic);
+				if (rofd_render_report_get_diagnostic (report, i, &diagnostic,
+				                                       &rerror) != ROFD_STATUS_OK)
+					break;
+				if (diagnostic.kind == ROFD_DIAGNOSTIC_MISSING_GLYPH)
+					missing++;
+			}
+		}
+		rofd_render_report_free (report);
+	}
+	if (rerror != NULL)
+		rofd_error_free (rerror);
+	rofd_renderer_free (renderer);
+	rofd_page_free (page);
+
+	return missing;
+}
+
+/* R4: the fixtures carry text but declare no font file, so rofd resolves a system
+ * font (through fontdb, not fontconfig — no environment variable hides a missing
+ * font). On a host without one every geometry assertion below fails on a
+ * millimetre comparison, which says nothing about the cause; this preflight
+ * renders both fixture pages through the linked ABI and names the dependency
+ * instead. The AUR recipe's check dependencies and the CI image install
+ * noto-fonts and noto-fonts-cjk for exactly this. */
+static void
+require_fixture_fonts (rofd_document_t *oracle)
+{
+	gint missing;
+
+	missing = count_missing_glyphs (oracle, 0);
+	g_print ("fixture page 0 (Latin): %d missing glyphs\n", missing);
+	if (missing > 0)
+		g_error ("the fixture's Latin page has %d unresolvable glyphs: the linked rofd "
+		         "resolved no usable font. Install the fonts the suite measures with "
+		         "(Arch: noto-fonts; the AUR recipe's check() lists them) and re-run.",
+		         missing);
+
+	missing = count_missing_glyphs (oracle, 1);
+	g_print ("fixture page 1 (CJK): %d missing glyphs\n", missing);
+	if (missing > 0)
+		g_error ("the fixture's CJK page has %d unresolvable glyphs: the linked rofd "
+		         "resolved no usable CJK font. Install one (Arch: noto-fonts-cjk; the AUR "
+		         "recipe's check() lists it) and re-run.", missing);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -1631,6 +1725,10 @@ main (int argc, char **argv)
 	g_assert_nonnull (oracle);
 	g_assert_cmpint (rofd_renderer_new (NULL, &renderer, &rerror), ==, ROFD_STATUS_OK);
 	g_assert_nonnull (renderer);
+
+	/* Before anything measures geometry: a host without fonts fails here, with the
+	 * dependency named (R4). */
+	require_fixture_fonts (oracle);
 
 	test_text_matches_oracle (text_document, oracle);
 	test_text_layout (text_document);

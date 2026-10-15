@@ -94,6 +94,12 @@ ofd_latency = executable('ofd-latency',
   files('ofd-latency.c', 'ofd-test-utils.c'),
   include_directories: ofd_include,
   dependencies: [papers_dep, glib_dep, gio_dep])
+# Deliberately *not* registered as a test (R10): its output is a timing table for
+# a 300-page fixture, and a wall-clock threshold is machine-dependent (minutes
+# apart between a developer host and a CI container), so an assertion would be
+# either vacuous or flaky. It fails loudly on anything structural (n_pages, the
+# render) and its numbers are the README's open-latency row; run it per build:
+#   LD_LIBRARY_PATH=... _build/tests/ofd-latency ... latency-300pages.ofd 5
 
 test_ofd_metadata = executable('test-ofd-metadata',
   files('test-ofd-metadata.c', 'ofd-test-utils.c'),

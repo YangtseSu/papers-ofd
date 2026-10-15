@@ -598,9 +598,10 @@ meson setup _build \
   -Drofd_src="$ROFD_SRC"
 meson compile -C _build && meson test -C _build
 # ofd-units, ofd-document, ofd-discovery-failure, ofd-render, ofd-print-file,
-# ofd-metadata, ofd-text, ofd-links, ofd-search, ofd-errors, ofd-fd, and
-# ofd-oracle with -Drofd_src (the AUR package build therefore
-# runs 11). ofd-search runs Papers' own search context over the text fixture,
+# ofd-metadata, ofd-text, ofd-links, ofd-search, ofd-errors, ofd-fd and
+# ofd-concurrency, plus ofd-sushi-plugin where gjs and Sushi are installed and
+# ofd-oracle with -Drofd_src (a package build, which has no rofd checkout, runs
+# 12–13, and ofd-print-file skips itself without a display). ofd-search runs Papers' own search context over the text fixture,
 # i.e. the snippets the Ctrl+F sidebar shows; it leaks that context on purpose
 # (A23). ofd-text compares find rectangles with the ink rofd renders and asserts
 # alignment and tiling when the linked library resolves font metrics (A24), and, with
@@ -662,7 +663,7 @@ installed on this machine):
 # build + verify the package from the AUR recipe (source = the v51.1.1 tag archive
 # of the public repository; the checksum is checked on every build)
 git clone https://aur.archlinux.org/papers-ofd.git /tmp/ofd-pkg && cd /tmp/ofd-pkg
-makepkg -f --noconfirm          # runs check(): 11 tests, ofd-print-file skips headless
+makepkg -f --noconfirm          # runs check(): 12-13 tests, ofd-print-file skips headless
 namcap papers-ofd-*.pkg.tar.zst # expect only the gcc-libs advisory
 
 # staged-tree checks without installing: extract, index, query
@@ -790,7 +791,7 @@ when a non-Arch consumer appears.
   builds is exactly that tag, and a release means a new tag plus a `source=` update;
   the AUR repository is the published recipe and its only copy.
   `makepkg` verifies the sha256, builds with `--buildtype=plain` so
-  the makepkg `CFLAGS`/`LDFLAGS` apply, and runs `check()` (`meson test`: 11 tests,
+  the makepkg `CFLAGS`/`LDFLAGS` apply, and runs `check()` (`meson test`: 12–13 tests,
   `ofd-oracle` needs `-Drofd_src`; `ofd-print-file` skips itself when GTK has no
   display). The package was verified by a build with an empty `SRCDIR`, i.e. from
   the anonymous download, and by `namcap` (only the `gcc-libs` advisory).
@@ -835,7 +836,7 @@ release when the tag has none. A container cannot cover the GUI acceptance items
 | Papers 52 bumps `pps_document_current` | module installed under `papers/6/backends` stops being found (fail-soft) | pin `>= 51, < 52`; §3 is the contract to re-verify |
 | Fixture licensing | cannot redistribute spec/ofdrw fixtures | generate our own; reference external fixtures by path |
 | The carried page-size query (A18) diverges from upstream or never lands | a fork-only change to maintain; stock rofd keeps working through the fallback path | ship it on the fork's `dev` branch (`patches/README.md`), never as an AUR dependency; re-check at every `dev` rebase and drop it once upstream has the function |
-| rofd older than 0.4.2 (or a stock package built from `v0.4.0`) fails entire pages whose objects carry a singular transform | blank pages on real-world documents, no error visible in the UI | pin ≥ 0.4.2 (A19): our AUR package builds the fork release (upstream `0.4.3` + carried changes); document the requirement in `README.md` |
+| rofd older than 0.4.2 (or a stock package built from `v0.4.0`) fails entire pages whose objects carry a singular transform | blank pages on real-world documents, no error visible in the UI | the module floor is ≥ 0.4.2 (A19), enforced in `meson.build` whenever a `rofd-ffi.pc` is present (a *too old* `.pc` is reported as such, not as "not found"; an explicit build tree cannot be version-checked and is only warned about). The **packaging** floor is higher, `librofd-ffi>=0.4.3`: that is the fork release which also ships the `.pc`, the metadata-only page-size query and the font-resolved text geometry — optional for the module (detected / classified at runtime) but what the AUR package and the CI deliver |
 
 ## 9. Upstream requests to rofd (ranked)
 

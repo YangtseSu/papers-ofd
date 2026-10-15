@@ -1881,3 +1881,138 @@ is reproduced: `load` freed the handle a concurrent `get_page` was inside.
 `tests/test-ofd-concurrency.c` + `tests/meson.build` +
 `tests/ofd-test-utils.c` (harness-leak fix), `docs/plan.md` (D2, diagram, §8,
 A28/A29), `README.md` (concurrency paragraph, latency split), `AGENTS.md`.
+
+## 2026-10-15 (session B): phase 24 — CI and packaging parity (R4, R10)
+
+### R4 in-repo — the text test names the missing font
+
+Reproduced first, in a mount namespace with `/usr/share/fonts` emptied
+(`unshare -rm --map-root-user`, the recipe from the review probes):
+
+```
+Bail out! ERROR:../tests/test-ofd-text.c:910:test_origin_normalisation:
+  assertion failed (areas[0].y2 > MM (6.0)): (17.007874 > 17.007874)
+```
+
+— a millimetre comparison that says nothing about the cause (rofd resolves fonts
+through `fontdb`, so no environment variable hides a missing font).
+
+`tests/test-ofd-text.c` now has `require_fixture_fonts()`, run before anything
+measures geometry: it renders both fixture pages through the linked ABI and counts
+`ROFD_DIAGNOSTIC_MISSING_GLYPH` diagnostics, because a host without fonts still
+paints *something* (rofd substitutes a box), so ink alone does not distinguish
+"no font" from "different metrics". Observed:
+
+- no fonts at all: `fixture page 0 (Latin): 143 missing glyphs` → `** ERROR **: the
+  fixture's Latin page has 143 unresolvable glyphs: the linked rofd resolved no
+  usable font. Install the fonts the suite measures with (Arch: noto-fonts; the AUR
+  recipe's check() lists them) and re-run.`
+- Latin fonts only (a namespace with `/usr/share/fonts/noto-cjk` hidden):
+  `fixture page 0 (Latin): 0 missing glyphs`, `fixture page 1 (CJK): 17 missing
+  glyphs` → the error names `noto-fonts-cjk`.
+- the host's normal environment: `0` and `0`, and the suite passes.
+
+### R4 packaging — the recipe declares them
+
+Prepared in the AUR working copy (`~/projects/ofd-reader/papers-ofd-aur`,
+**uncommitted**, the push is the user's step):
+
+```diff
+--- a/PKGBUILD
++++ b/PKGBUILD
+@@ -28,6 +28,15 @@ makedepends=(
+ # The space-bar preview in GNOME Files is Sushi's; our plugin only takes effect
+ # where Sushi is installed (and gjs + Sushi make tests/test-sushi-plugin.js run).
++# The suite measures the geometry of text the fixtures draw with a *system* font
++# (rofd resolves fonts through fontdb, not fontconfig, so no environment variable
++# hides a missing one), and tests/test-ofd-text.c names the missing package instead
++# of failing an opaque assertion. Declared here rather than in makedepends: they
++# are only needed while check() runs.
++checkdepends=(
++  'noto-fonts'      # the Latin pages
++  'noto-fonts-cjk'  # the CJK page of the text fixture
++)
+ optdepends=('sushi: space-bar previews in GNOME Files')
+```
+
+`makepkg --printsrcinfo` reports the two `checkdepends` lines, so
+`.SRCINFO` gains exactly those when the user regenerates and pushes;
+`.SRCINFO` currently differs from the working copy in nothing else. `namcap
+PKGBUILD` still reports only its pre-existing advisory (the ABI appears in both
+`depends` and `makedepends`, which is deliberate: `check()` needs the geometry of
+`>= 0.4.3-6` while `depends` needs `>= 0.4.3`). The deployment path itself (the
+tag archive, `--buildtype=plain`, `check()` invoking the suite) is unchanged, so
+the recipe revision is packaging-only and stays in `pkgrel`.
+
+### R10 — meson.build: an old `.pc` is not a missing one
+
+`dependency('rofd-ffi', version: ['>= 0.4.2'], required: false)` cannot tell the
+two apart, so `meson.build` now asks again without the constraint and, when the
+`.pc` exists but is older, fails with the versions named instead of "not found"
+(which sends the reader to install a package they already have).
+
+**Floor settled: the module floor stays 0.4.2, the packaging floor is 0.4.3.**
+0.4.2 is the module's own correctness floor (A19: `<= 0.4.0` aborts a whole page
+render on a singular transform, `0.4.2` maps it to a diagnostic); the page-size
+query and the font-resolved geometry are *optional* — detected at configure time
+and classified at runtime — while the AUR `librofd-ffi>=0.4.3-6` is the fork
+release that also ships `rofd-ffi.pc`, which is what a `.pc`-based build needs in
+the first place. Both floors are now stated where they belong: `meson.build`,
+README's requirements row, plan §8.
+
+Observed locally with a hand-written `.pc` (0.4.1 vs 0.4.3.fork.2 in a scratch
+`PKG_CONFIG_PATH`):
+
+```
+Dependency rofd-ffi for host machine found: NO. Found 0.4.1 but need: '>= 0.4.2'
+Run-time dependency rofd-ffi found: YES 0.4.1
+meson.build:54:4: ERROR: Problem encountered: rofd-ffi.pc reports 0.4.1, but the
+  module needs >= 0.4.2: install a newer librofd-ffi, or pass
+  -Drofd_libdir=<dir> -Drofd_includedir=<dir> for a build tree (see scripts/dev-env.sh)
+```
+
+### R10 — CI: the fallback build and the installed-`.pc` build
+
+`.github/workflows/checks.yml` gained two steps after the existing
+configure/build/test:
+
+- **page-size fallback**: `meson setup build-slow … -Drofd_page_size=disabled` plus
+  its own compile and test run, i.e. the `#else` branch of the page-size detection
+  that the ordinary build never compiles;
+- **installed `rofd-ffi.pc`**: the ABI is installed into `/rofd/prefix` exactly the
+  way the `librofd-ffi` recipe does it (library + SONAME symlink + `rofd.h` + the
+  `.pc` generated from the fork's `debian/rofd-ffi.pc.in`), and the module is
+  configured *without* `-Drofd_libdir`/`-Drofd_includedir`, so `dependency('rofd-ffi')`
+  is what provides headers, library and version. The tag-resolution step now also
+  derives the recipe's `pkgver` (`v0.4.3-fork.2` → `0.4.3.fork.2`) for the template
+  substitution.
+
+Both were verified locally (a container is not available on this machine) with the
+same commands: `_build-slow` is that configuration and passes 14/14; a scratch
+prefix with the pc built from the template configured, compiled and passed 13/13
+(the AUR package's set, without `-Drofd_src`), and the generated `.pc` is identical
+to the one the installed `librofd-ffi 0.4.3.fork.2-1` ships.
+
+### R10 — `ofd-latency` stays a tool, now explicitly
+
+Decision: **not registered with `test()`**. Its output is a wall-clock table, and a
+threshold would be machine-dependent (minutes apart between this host and a
+container), so an assertion would be vacuous or flaky. It keeps asserting what it
+depends on structurally (a non-empty page count — added in this phase — the
+document info and the first render), and the status is now stated in three places:
+the tool's header, `tests/meson.build` next to the executable, and the README
+limitations row that quotes its numbers.
+
+### Observed
+
+- `meson test -C _build`: **14/14**; `meson test -C _build-slow`: **14/14**
+  (the fallback configuration CI now builds).
+- `reuse lint`: compliant, 57/57 files. `.github/workflows/checks.yml` parses as YAML
+  (`yaml.safe_load`).
+- Test counts in the docs were made honest again (this session added
+  `ofd-concurrency`): README's Install section and plan §6/§7 now say 12–13 tests
+  for a package build instead of 11, and the suite lists include the new case.
+- Not verified: the workflow itself (no container on this machine); its steps are
+  the commands verified locally above, and pushing a branch runs the real one.
+- User steps left: the AUR `papers-ofd` revision (fonts as `checkdepends`, plus the
+  regenerated `.SRCINFO`) and the branch push that runs CI.

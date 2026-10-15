@@ -7,27 +7,35 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
-**Phases 22 and 23 are complete (2026-10-15, session B).** Phase 22: R3 (the
+**Session B (phases 22, 23, 24) is complete and stops here.** Phase 22: R3 (the
 raster budget is derived from the request under a 450 MiB cap, never below rofd's
 default, and the scale is lowered beyond it), R14 (oblique rotations snap to the
 nearest quarter turn), R15 (a failed page surface or render reports at
 `g_warning`). Phase 23: R7 — one `GRWLock`, writer in `load`/`load_fd`, reader
-around every vfunc, with the concurrency stress test that reproduced the
-predicted use-after-free under ASAN before the fix and is clean after. `meson
-test` is 14/14 in `_build` and `_build-slow`, `reuse lint` is compliant, and
-plan §2/§4/§8, D2, A16/A28/A29, `AGENTS.md` and the README carry the changes.
-Evidence: `progress.md` §"Phase 22" and §"Phase 23".
+around every vfunc, with the concurrency stress test that reproduced the predicted
+use-after-free under ASAN before the fix and is clean after (5/5 either way).
+Phase 24: R4 (the text test names the missing font/package; the AUR recipe's
+`checkdepends` change is prepared in the AUR working copy, uncommitted) and R10
+(`meson.build` tells an old `rofd-ffi.pc` from a missing one; the module floor
+stays 0.4.2 while the packaging floor is 0.4.3; CI builds and tests the
+page-size fallback and an installed-`.pc` build; `ofd-latency` is explicitly a
+tool, not a registered test). `meson test` is 14/14 in both page-size builds,
+`reuse lint` is compliant, and plan §2/§4/§6/§7/§8, D2, A16/A28/A29, `AGENTS.md`
+and the README carry everything. Evidence: `progress.md` §"Phase 22", §"Phase 23",
+§"Phase 24".
 
-The next work is phase 24 (CI and packaging parity, decision Q8): the in-repo half
-of R4 (make `tests/test-ofd-text.c` name the missing font/package instead of
-failing an opaque assertion, and prepare the AUR recipe's `check()` dependency
-change as a diff/checklist — the AUR push is the user's step), R10 (distinguish
-"rofd-ffi.pc too old" from "not found" in `meson.build` and settle whether the
-documented floor moves to 0.4.3), CI (a configure/build/test for
-`-Drofd_page_size=disabled`, and a configure pass over the installed
-`rofd-ffi.pc` path or the reason it stays out) and the `ofd-latency` status
-(registered check with an assertion, or an explicitly documented tool). Phase 25
-(documentation corrections) and phase 26 (the release) stay out of this session.
+Two things belong to the user before the next phase:
+
+1. the AUR `papers-ofd` revision — the prepared `checkdepends` diff and the
+   regenerated `.SRCINFO` (the working copy is
+   `~/projects/ofd-reader/papers-ofd-aur`, left uncommitted on purpose);
+2. a branch push, if CI should run the new steps (`main` here is six commits ahead
+   of `origin/main`).
+
+Then phase 25 (the R19 documentation corrections: plan §3's selection/rotation
+row, §2's file tree, §5 phase-0's acceptance wording, §7's file count, and the
+README items the review listed) and phase 26 (`51.1.2`: version bump, tag, AUR
+repackage, the still-open `pacman -Rns` uninstall regression).
 
 Session split agreed 2026-10-15: phase 20 + 21 are one session (blockers plus the
 mechanical fixes), phases 22–24 a second (render budget, concurrency, CI/packaging
@@ -120,10 +128,12 @@ and #12 when convenient.
 
 ## Current Phase
 
-Phase 24 (CI and packaging parity: R4, R10) — phases 22 and 23 are complete
-(2026-10-15) with `meson test` 14/14 in both page-size builds. `docs/plan.md`
-phases 0–3 stay shipped and accepted, phase 4 (upstream MR) remains the last
-planned module work.
+Session B is complete (phases 22–24, 2026-10-15). `meson test` is 14/14 in
+`_build` and `_build-slow` and CI now also builds the page-size fallback and the
+installed-`rofd-ffi.pc` path. Next: phase 25 (documentation corrections, R19),
+then phase 26 (the `51.1.2` release, user-gated); `docs/plan.md` phases 0–3 stay
+shipped and accepted and phase 4 (upstream MR) remains the last planned module
+work.
 
 ## Phases
 
@@ -338,11 +348,12 @@ and watching them fail.*
 
 *Session B. Decision made: declare the fonts and name the dependency.*
 
-- [ ] R4: the AUR `papers-ofd` recipe's check dependencies gain the fonts the suite measures with, and `tests/test-ofd-text.c` reports the missing font/package instead of an opaque assertion failure
-- [ ] `meson.build`: distinguish "rofd-ffi.pc too old" from "not found"; settle whether the floor moves to 0.4.3 (and say so where the version is named)
-- [ ] CI: build and test the `-Drofd_page_size=disabled` configuration, and exercise the installed-`rofd-ffi.pc` configure path (or record why it stays out)
-- [ ] Decide `ofd-latency`'s status: a registered check with an assertion, or an explicitly documented tool outside `meson test`
-- **Status:** pending
+- [x] R4: `tests/test-ofd-text.c` names the missing font/package (`require_fixture_fonts` counts `ROFD_DIAGNOSTIC_MISSING_GLYPH` on both fixture pages); reproduced without fonts (`143 missing glyphs` → the message names `noto-fonts`) and with `noto-cjk` hidden (`17` on the CJK page → `noto-fonts-cjk`); the AUR recipe change (`checkdepends`) is prepared uncommitted in the AUR working copy with its `.SRCINFO` diff — the push is the user's step
+- [x] `meson.build`: a `.pc` that exists but is older now fails with the versions named ("rofd-ffi.pc reports 0.4.1, but the module needs >= 0.4.2") instead of "not found"; floor settled — module 0.4.2 (A19 correctness), packaging 0.4.3 (the fork release that also ships the `.pc`); stated in `meson.build`, README and plan §8
+- [x] CI: a second configure/build/test for `-Drofd_page_size=disabled` (verified locally as `_build-slow`, 14/14) and a configure/build/test pass over an installed `rofd-ffi.pc` built from the fork template (verified locally: 13/13, the generated `.pc` identical to the installed package's)
+- [x] `ofd-latency` decided: explicitly a tool outside `meson test` (a wall-clock threshold would be machine-dependent), documented in its header, `tests/meson.build` and the README — with the structural assertions it does make (non-empty page count added)
+- [x] Docs: test counts corrected (12–13 for a package build), README/plan carry the new floors, CI and font dependency
+- **Status:** complete (2026-10-15; the two user steps — the AUR revision and the branch push — are listed in `progress.md`)
 
 ### Phase 25: Documentation corrections the review proved wrong (R19)
 

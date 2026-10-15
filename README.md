@@ -17,8 +17,9 @@ selection, search, page links and the outline, opens documents from a file
 descriptor (the Nautilus previewer's path) and ships as an Arch package on the AUR.
 
 - `meson test -C _build` runs the unit conversions, the factory round-trip with a
-  deliberate discovery failure, the rotation/zoom/origin render matrix (including
-  the 4–16× budget fit and the oblique-rotation snap), the
+  deliberate discovery failure, the concurrency case (workers using a document
+  while another thread reloads it), the rotation/zoom/origin render matrix
+  (including the 4–16× budget fit and the oblique-rotation snap), the
   same-options equivalence against a direct FFI render, a real GTK print-to-file
   whose PDF text is verified with poppler, the metadata fields and mask bits, the
   text/layout/find/selection checks and the link/outline model — each compared
@@ -85,7 +86,7 @@ keeps a handle from being freed under a call that is using it.
 | Dependency | Notes |
 | --- | --- |
 | Papers ≥ 51, < 52 (`papers-document-4.0`) | system pkg-config; backends' ABI version is the `papers/6` directory component |
-| rofd-ffi (ABI v1, ≥ 0.4.2) | `librofd_ffi.so.0` + `rofd.h`; the pkg-config file and the carried changes both come from the fork's own release: [`YangtseSu/rofd`](https://github.com/YangtseSu/rofd) integrates them on its `dev` branch (one `feat/*` / `fix/*` branch and upstream PR per change) and tags releases there (`v0.4.3-fork.2` — upstream `0.4.3` plus the page-size query [#11](https://github.com/linuxdeepin/rofd/pull/11), the font-resolved text geometry [#13](https://github.com/linuxdeepin/rofd/pull/13), the image decode budget [#14](https://github.com/linuxdeepin/rofd/pull/14), the region-AA test tolerance [#15](https://github.com/linuxdeepin/rofd/pull/15) and `rofd-ffi.pc` [#12](https://github.com/linuxdeepin/rofd/pull/12); the fork's own rules are its [`FORK.md`](https://github.com/YangtseSu/rofd/blob/dev/FORK.md)), and the AUR `librofd-ffi` (`0.4.3.fork.2-1`) builds that tarball, so it installs `rofd-ffi.pc` and the fork ABI with no patch files ([`patches/README.md`](patches/README.md) is the inventory). Stock upstream rofd works too, falling back to the slow page-size path and to rofd's size-based text geometry. **Do not go below 0.4.2**: earlier rofd fails whole pages whose objects carry a singular transform ([A19](docs/plan.md#appendix-a--evidence-index)). Delivery policy: [plan D11](docs/plan.md#2-architecture-and-decisions) |
+| rofd-ffi (ABI v1, ≥ 0.4.2) | `librofd_ffi.so.0` + `rofd.h`. The floor is the module's own: rofd ≤ 0.4.0 aborts a whole page render on a document object carrying a singular transform, and 0.4.2 turns that into a diagnostic ([A19](docs/plan.md#appendix-a--evidence-index)); the AUR package requires `≥ 0.4.3`, the fork release that also carries the pkg-config file, the page-size query and the font-resolved text geometry, and the build distinguishes a `rofd-ffi.pc` that is too old from a missing one. The pkg-config file and the carried changes both come from the fork's own release: [`YangtseSu/rofd`](https://github.com/YangtseSu/rofd) integrates them on its `dev` branch (one `feat/*` / `fix/*` branch and upstream PR per change) and tags releases there (`v0.4.3-fork.2` — upstream `0.4.3` plus the page-size query [#11](https://github.com/linuxdeepin/rofd/pull/11), the font-resolved text geometry [#13](https://github.com/linuxdeepin/rofd/pull/13), the image decode budget [#14](https://github.com/linuxdeepin/rofd/pull/14), the region-AA test tolerance [#15](https://github.com/linuxdeepin/rofd/pull/15) and `rofd-ffi.pc` [#12](https://github.com/linuxdeepin/rofd/pull/12); the fork's own rules are its [`FORK.md`](https://github.com/YangtseSu/rofd/blob/dev/FORK.md)), and the AUR `librofd-ffi` (`0.4.3.fork.2-1`) builds that tarball, so it installs `rofd-ffi.pc` and the fork ABI with no patch files ([`patches/README.md`](patches/README.md) is the inventory). Stock upstream rofd works too, falling back to the slow page-size path and to rofd's size-based text geometry. **Do not go below 0.4.2**: earlier rofd fails whole pages whose objects carry a singular transform ([A19](docs/plan.md#appendix-a--evidence-index)). Delivery policy: [plan D11](docs/plan.md#2-architecture-and-decisions) |
 | Papers/rofd sources (optional) | **Not needed to build**: the module compiles against `papers-document-4.0` (headers + `libppsdocument-4.0`) and `rofd.h` + `librofd_ffi.so.0`. `$ROFD_SRC` is required to carry or re-verify the rofd changes we ship ([`patches/README.md`](patches/README.md)) and to run rofd's own test suite; a Papers checkout (`$PAPERS_SRC`) only speeds up grepping — its citations are written against the upstream repository at tag `51.1`. `scripts/dev-env.sh` reports what this machine has (environment → untracked `local.conf` → siblings `../papers`, `../rofd`) and flags a same-named directory that is not the expected repository |
 | Meson ≥ 1.0, pkg-config, C compiler, GLib/GIO/GTK4/Cairo | pulled in through the Papers dependency |
 | Cairo + FreeType/fontconfig, a CJK font for CJK documents | rofd resolves glyphs through system fonts; its defaults name `Noto Sans CJK SC` |
@@ -164,8 +165,13 @@ makepkg -si
 The recipe lives in that AUR repository (this repository carries no PKGBUILD, so
 there is no copy to keep in sync); its source is the `v51.1.1` tag archive of this
 repository, so `makepkg` verifies a checksum, and its
-`check()` runs the test suite (11 tests — the invoice oracle needs `-Drofd_src`;
-`ofd-print-file` skips itself when GTK has no display). Dependencies are
+`check()` runs the test suite (13 tests on a host with Sushi, 12 without it — the
+invoice oracle needs `-Drofd_src`, which a package build does not have;
+`ofd-print-file` skips itself when GTK has no display). The fonts the suite
+measures with are the recipe's `checkdepends` (`noto-fonts`, `noto-fonts-cjk`; the
+change lands with the next package revision): the fixtures carry text but no font
+file, so a host without them fails `ofd-text` — with the missing package named
+instead of an opaque assertion (R4, plan §8). Dependencies are
 `librofd-ffi>=0.4.3` (the ABI plus its `rofd-ffi.pc`), `papers>=51` and `papers<52`,
 `cairo`, `gcc-libs`, `glib2`, `glibc`. `shared-mime-info` and `desktop-file-utils`
 are not listed because their pacman hooks (which index the MIME xml and the desktop

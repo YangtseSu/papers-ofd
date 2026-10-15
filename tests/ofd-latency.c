@@ -10,7 +10,11 @@
  *   meson setup _build-slow -Drofd_page_size=disabled            -> fallback
  *
  * This is a measurement tool, not a pass/fail test: it prints a line per run and
- * the minimum, and the numbers go into the README limitations. */
+ * the minimum, and the numbers go into the README limitations. It is therefore
+ * not registered with test() (R10) — a wall-clock threshold would be
+ * machine-dependent — while what it depends on structurally is asserted (a
+ * non-empty page count, the document info, the first render), so a broken build
+ * fails the tool instead of printing a suspicious number. */
 
 #include "ofd-test-utils.h"
 
@@ -61,6 +65,7 @@ main (int argc, char **argv)
 		g_assert_no_error (error);
 		g_assert_true (pps_document_load (document, uri, &error));
 		g_assert_no_error (error);
+		g_assert_cmpint (pps_document_get_n_pages (document), >, 0);
 
 		after_load = g_get_monotonic_time ();
 
