@@ -1166,3 +1166,52 @@ reports the same resolution table (the edit is inside the header comment); `reus
 - Documentation: `patches/README.md` gained the carried row, its retirement criterion and a
   renamed section that now states which upstream proposals are carried and which are not;
   `docs/plan.md` §9 item 7 says what ships and what the package needs.
+
+## 2026-10-15: dependency switched to fork releases (no more AUR patches)
+
+The user decided the AUR + patch delivery was unmaintainable: the fork now
+releases its own tarballs and the AUR package builds them directly.
+
+- Fork `YangtseSu/rofd`: new branch `release/0.4.3-fork.1` = `feat/aur-carried`
+  + cherry-picks `2983cf6` (decode budget) and `714d589` (region-AA test
+  tolerance) + merge of `ci/fork-checks` (the workflow is now on the release
+  branch; the separate `ci/fork-checks` branch stays until the next release
+  rebase trims the two upstream-red splits, both of which are green here).
+  Version fields (`Cargo.toml` workspace + the three crates +
+  `crates/rofd-core/tests/public_api.rs`) moved to `0.4.3-fork.1`; the
+  previously pinned version test was updated with the move. Tag `v0.4.3-fork.1`
+  at `baf6ab6`; release published with the `git archive` tarball
+  `rofd-0.4.3-fork.1.tar.gz` (69 MB, includes `vendor/`, sha256
+  `1ac7525a…a3efd4673` — note the GitHub tag-archive tarball, used by the AUR,
+  differs in gzip stream only and hashes `b19a464e…9f05681dd`).
+- Checks on the release branch: `cargo fmt --check` clean, clippy `-D warnings`
+  clean, full three-crate suite green (the two upstream-red tests
+  `decoded_limits_have_exact_and_one_over_boundaries` and the region
+  `real_fixture…` included), `run_c_tests.sh` exit 0, distribution
+  build `-p rofd --features rofd/qt-reader` green.
+- AUR `librofd-ffi 0.4.3.fork.1-1`: `source` = the fork's tag tarball URL
+  (sha256 pinned), three patch files and `rofd-ffi.pc.in` deleted,
+  `prepare()` emptied, `package()` installs `rofd-ffi.pc` regenerated from the
+  tarball's `debian/rofd-ffi.pc.in` with `@MULTIARCH@` replaced by `/lib`.
+  Verified: `makepkg -C -f` green; packaged library exports the 78
+  `rofd_*` symbols matching `expected-symbols.txt` (page-size query included),
+  SONAME `librofd_ffi.so.0`; papers-ofd configure + compile + `meson test`
+  12/12 against an extracted copy of the package. SrcINFO regenerated (the AUR
+  hook rejects a push whose SRCINFO still lists deleted source files — first
+  push was declined for exactly that). AUR `master` is `b8cd1e4`; pushed on the
+  user's explicit go-ahead. The tarball source means AUR users now get the fork
+  release identically.
+- This repository: `patches/README.md` rewritten as the release inventory
+  (release-model section, current-release table, per-change rows with new
+  retirement semantics, release/update routine); `docs/plan.md` D11 rewritten,
+  §9 policy paragraph and the delivery-status lines of items 1, 5, 6, 7, 8 and
+  the A24/A27 evidence rows reworded to the release delivery, §8 risk rows
+  updated; `README.md` requirements row and the two limitation mentions
+  updated. `AGENTS.md` layout row, fork-first rule and the licensing note now
+  describe the release model. `scripts/dev-env.sh` unchanged (its marker logic
+  never referenced versions; the resolution still prefers pkg-config +
+  `rofd-ffi.pc`, which the new pc file satisfies with version
+  `0.4.3.fork.1` ≥ the meson `>= 0.4.2` bound).
+- Still true: upstream PRs #11–#15 remain open as the exit path; the fork's
+  `main` keeps mirroring upstream, so the release branch alone carries our work
+  and a future rebase against upstream is a plain cherry-pick replay.

@@ -80,7 +80,7 @@ Papers' worker pool issues.
 | Dependency | Notes |
 | --- | --- |
 | Papers ≥ 51, < 52 (`papers-document-4.0`) | system pkg-config; backends' ABI version is the `papers/6` directory component |
-| rofd-ffi (ABI v1, ≥ 0.4.2) | `librofd_ffi.so.0` + `rofd.h`; no pkg-config file from upstream, but our AUR package `librofd-ffi` (currently `0.4.3-6`) installs `rofd-ffi.pc` plus the patched ABI, so `-Drofd_libdir` / `-Drofd_includedir` are only needed for a hand-built checkout — `scripts/dev-env.sh` fills them in either way. The patched build carries two fork changes ([#11](https://github.com/linuxdeepin/rofd/pull/11), [#13](https://github.com/linuxdeepin/rofd/pull/13)), which the AUR package applies from the patch files kept in its own repository ([`patches/README.md`](patches/README.md) is the inventory); stock rofd works too, falling back to the slow page-size path and to rofd's size-based text geometry. **Do not go below 0.4.2**: earlier rofd fails whole pages whose objects carry a singular transform ([A19](docs/plan.md#appendix-a--evidence-index)). Delivery policy: [plan D11](docs/plan.md#2-architecture-and-decisions) |
+| rofd-ffi (ABI v1, ≥ 0.4.2) | `librofd_ffi.so.0` + `rofd.h`; the pkg-config file and the carried changes both come from the fork's own release: [`YangtseSu/rofd`](https://github.com/YangtseSu/rofd) publishes tagged releases of its `release/*` branch (`v0.4.3-fork.1` — upstream `0.4.3` plus the page-size query [#11](https://github.com/linuxdeepin/rofd/pull/11), the font-resolved text geometry [#13](https://github.com/linuxdeepin/rofd/pull/13), the image decode budget [#14](https://github.com/linuxdeepin/rofd/pull/14) and `rofd-ffi.pc` [#12](https://github.com/linuxdeepin/rofd/pull/12)), and the AUR `librofd-ffi` (`0.4.3.fork.1-1`) builds that tarball, so it installs `rofd-ffi.pc` and the fork ABI with no patch files ([`patches/README.md`](patches/README.md) is the inventory). Stock upstream rofd works too, falling back to the slow page-size path and to rofd's size-based text geometry. **Do not go below 0.4.2**: earlier rofd fails whole pages whose objects carry a singular transform ([A19](docs/plan.md#appendix-a--evidence-index)). Delivery policy: [plan D11](docs/plan.md#2-architecture-and-decisions) |
 | Papers/rofd sources (optional) | **Not needed to build**: the module compiles against `papers-document-4.0` (headers + `libppsdocument-4.0`) and `rofd.h` + `librofd_ffi.so.0`. `$ROFD_SRC` is required to carry or re-verify the rofd changes we ship ([`patches/README.md`](patches/README.md)) and to run rofd's own test suite; a Papers checkout (`$PAPERS_SRC`) only speeds up grepping — its citations are written against the upstream repository at tag `51.1`. `scripts/dev-env.sh` reports what this machine has (environment → untracked `local.conf` → siblings `../papers`, `../rofd`) and flags a same-named directory that is not the expected repository |
 | Meson ≥ 1.0, pkg-config, C compiler, GLib/GIO/GTK4/Cairo | pulled in through the Papers dependency |
 | Cairo + FreeType/fontconfig, a CJK font for CJK documents | rofd resolves glyphs through system fonts; its defaults name `Noto Sans CJK SC` |
@@ -199,8 +199,8 @@ patch-free vs patch-the-desktop tradeoff:
   5 runs, best of): load 2 ms, then ~70 ms for the page walk (`setup_cache`,
   which fetches every page object) and ~48 ms for the first rendered page —
   ~120 ms from `pps_document_load` to the first page being visible. The
-  metadata-only page-size query (`rofd_document_get_page_size_mm`, carried by our
-  AUR package) makes the size walk itself 20 ms instead of 71 ms, but the
+  metadata-only page-size query (`rofd_document_get_page_size_mm`, shipped in
+  the fork's release) makes the size walk itself 20 ms instead of 71 ms, but the
   end-to-end time is
   the same in the shell's flow because `setup_cache` fetches the page objects
   either way; the fast path pays off for callers that only need sizes
@@ -212,9 +212,9 @@ patch-free vs patch-the-desktop tradeoff:
 - **Text geometry follows the ABI.** For a text run that declares no explicit
   `DeltaX`, rofd takes each scalar's advance from the resolved font and sizes its box
   by that face's typographic ascent and descent — and grows a selection region by an
-  eighth of its height on both sides — only in our patched build
-  ([#13](https://github.com/linuxdeepin/rofd/pull/13), carried as a patch by the AUR
-  `librofd-ffi` package). That is the model of a PDF reader's highlight: all glyphs
+  eighth of its height on both sides — only in the fork's release
+  ([#13](https://github.com/linuxdeepin/rofd/pull/13), shipped in `v0.4.3-fork.1`
+  and built by the AUR `librofd-ffi` package). That is the model of a PDF reader's highlight: all glyphs
   of a line share one band that clears
   the text above and below. With a stock `librofd-ffi`, rofd's semantic layer uses the
   font size instead, so search highlights, caret positions and selection regions on

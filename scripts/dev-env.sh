@@ -207,21 +207,22 @@ else
     fi
     case "$ROFD_SRC_STATUS" in
         wrong-repository)
-            printf '\n$ROFD_SRC is not the linuxdeepin/rofd ABI repository: no\n'
+            printf '\n$ROFD_SRC is not the rofd ABI repository: no\n'
             printf 'crates/rofd-ffi/include/rofd.h. Point $ROFD_SRC at the ABI checkout, or\n'
             printf 'leave it unset to use the installed package. Expected checkout, e.g.\n'
-            printf '  git clone https://github.com/linuxdeepin/rofd %s\n' "$ROFD_SRC"
+            printf '  git clone https://github.com/YangtseSu/rofd %s\n' "$ROFD_SRC"
             ;;
         incomplete)
             printf '\n$ROFD_SRC has no crates/rofd-ffi/include/rofd.h (unfinished clone or\n'
             printf 'empty directory), so the ABI comes from the installed librofd-ffi\n'
             printf 'package. Expected checkout:\n'
-            printf '  git clone https://github.com/linuxdeepin/rofd %s\n' "$ROFD_SRC"
+            printf '  git clone https://github.com/YangtseSu/rofd %s\n' "$ROFD_SRC"
             ;;
         missing)
             printf '\nrofd sources are needed to re-verify the rofd citations in docs/plan.md\n'
             printf 'and to maintain the carried rofd changes. Point $ROFD_SRC (or ROFD_SRC= in local.conf) at\n'
-            printf 'a checkout of https://github.com/linuxdeepin/rofd, or leave it unset.'
+            printf 'a checkout of https://github.com/YangtseSu/rofd (the fork; the carried\n'
+            printf 'changes live on its release/* branches — patches/README.md), or leave it unset.'
             ;;
     esac
     if [ "$ROFD_SRC_STATUS" = ok ] && [ "$ROFD_ABI_SOURCE" = installed ]; then
