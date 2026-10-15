@@ -1017,3 +1017,32 @@ reports the same resolution table (the edit is inside the header comment); `reus
   the new AUR-file references in `patches/README.md` / `docs/plan.md`.
 - Not touched: the AUR repositories (no payload or pin changed — this is a
   repository-hygiene change), the fork branches, and the code itself.
+
+### Phase 19: privacy incident — private names scrubbed, history rewritten (2026-10-15)
+
+- **Status:** complete
+- Problem (user-reported): the evidence trail in `docs/plan.md` A27 and in this log
+  named the user's local documents (a real invoice and a reference PDF) and one
+  absolute home path; a tracked `tests/__pycache__/` artifact embedded machine paths.
+  The repository is public, so the names were exposed in the working tree *and* in
+  every historical revision that carried them.
+- Actions taken:
+  - Named material replaced by role descriptions in `docs/plan.md` and this log
+    ("a real-world invoice kept outside this repository", "a real-world PDF kept
+    outside this repository"); home paths written as `~`; the cache removed and
+    `__pycache__/` added to `.gitignore`; AGENTS.md gained the hard rule that nothing
+    identifying the user or the machine may enter the repository or the working
+    memory (which is tracked and public too).
+  - History rewritten with `git filter-repo` (50 commits): `--replace-text` and
+    `--replace-message` over a literal mapping (document names → role descriptions,
+    home prefix → `~`) plus `--path tests/__pycache__/ --invert-paths`. Every commit
+    SHA changed; the AUR `papers-ofd` pin is bumped to the rewritten HEAD.
+  - Verification: `git rev-list --all | xargs git grep -F -l` returns zero hits for
+    every removed literal, in blobs and in commit messages; no `__pycache__` path
+    exists in any revision; `git fsck --strict` clean; `git count-objects` reports no
+    loose objects left after the rewrite's repack.
+  - Fork audit (`YangtseSu/rofd`, the user's request): clean — no document names,
+    home paths or machine paths in any of its six refs, in any commit message, or in
+    the upstream PR text/comments of #11/#12/#13.
+- Local backup of the pre-rewrite history: a `git bundle` in `/tmp` (it still
+  contains the leaked names — delete it when no longer needed).
