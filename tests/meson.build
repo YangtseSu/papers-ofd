@@ -64,7 +64,10 @@ papers_view_dep = dependency('papers-view-4.0', version: ['>= 51', '< 52'])
 test_ofd_units = executable('test-ofd-units',
   files('test-ofd-units.c', '../src/ofd-units.c'),
   include_directories: ofd_include,
-  dependencies: [papers_dep, glib_dep],
+  # ofd-units.c includes ofd-units.h, which includes <rofd.h>: the ABI include
+  # directory is not a default one when it arrives through -Drofd_includedir
+  # instead of an installed rofd-ffi.pc.
+  dependencies: [papers_dep, glib_dep, rofd_dep],
   c_args: ['-DG_LOG_DOMAIN="papers-ofd"'])
 
 test_ofd_document = executable('test-ofd-document',
