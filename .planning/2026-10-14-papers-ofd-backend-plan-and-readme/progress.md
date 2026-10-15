@@ -749,6 +749,16 @@ in-tree move that also lets our association entry and the Sushi plugin retire.
     0.92 mm above it, and the top moved from 1.18 mm above the painted top to
     0.03 mm. The body line's band went from y 43.80..49.45 to 44.68..50.13 against
     ink 44.71..50.01 (the CJK overshoot below the baseline is what the old box cut).
+- The fork's `feat/aur-carried` convenience branch was regenerated from the
+  current patch files (`git switch -C feat/aur-carried fork/main && git am
+  patches/rofd-ffi-page-size.patch patches/rofd-ffi-font-advances.patch`, four
+  commits, `74d32fb`), rebuilt (`cargo build --release --offline -p rofd-ffi`), its
+  exported set checked against `crates/rofd-ffi/tests/c/expected-symbols.txt`
+  (unchanged, 77 `rofd_*` symbols including the page-size query), and the module
+  suite run against that library: 12/12 — the checkout build of the carried ABI and
+  the packaged one behave identically on `_build`. Pushed to
+  `YangtseSu/rofd feat/aur-carried` (forced update, it is a regenerated convenience
+  branch).
 - Open: the local package `librofd-ffi-0.4.3-5-x86_64.pkg.tar.zst` is built in
   `~/projects/ofd-reader/librofd-ffi`; installing it needs root
   (`pacman -U`), and the AUR push stays deferred with PR #13 as before.
