@@ -58,7 +58,7 @@ jobs:
             papers gtk4 poppler-glib gjs sushi \
             noto-fonts noto-fonts-cjk
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Resolve the pinned rofd ABI tag
         id: abi
