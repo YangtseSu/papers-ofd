@@ -24,7 +24,7 @@ measurements and evidence ids.
 | --- | --- | --- | --- |
 | `rofd_document_get_page_size_mm` — metadata-only page sizes, so `setup_cache` stops parsing every page | `feat/ffi-page-size-query` at `7f6d24d`, [linuxdeepin/rofd#11](https://github.com/linuxdeepin/rofd/pull/11) | `rofd-ffi-page-size.patch` | a rofd release exports the function — then `meson.build`'s `cc.has_function` probe keeps the fast path and the patch disappears |
 | Font-resolved text geometry: a run without an explicit `DeltaX` advances by the resolved font, its character box spans that face's typographic ascent and descent, and a selection region grows by an eighth of its height on both sides, so page geometry, search rectangles and selection highlights match a PDF reader's | `feat/font-text-advances` at `a364014`, [linuxdeepin/rofd#13](https://github.com/linuxdeepin/rofd/pull/13) | `rofd-ffi-font-advances.patch` | a rofd release loads documents with a font-resolved metrics provider — then the ink-alignment test asserts on every library |
-| Image decode allocation budget: the image crate's `Limits::max_alloc` covers the decoder's own buffers on top of the finished RGBA8 raster, so budgeting it with the raster size alone dropped **seals (stamp annotations)** that are inside the document limits and reported a decode error where `RasterBudgetExceeded` is designed | `fix/decoded-image-alloc-budget` at `2983cf6`, [linuxdeepin/rofd#14](https://github.com/linuxdeepin/rofd/pull/14) | `rofd-ffi-image-decode-budget.patch` (+ `seal-16bit-boundary.png`, a binary fixture that cannot live in a patch) | a rofd release budgets the decoder with headroom over the raster — then the boundary test and the seal test assert on every library |
+| Image decode allocation budget: the image crate's `Limits::max_alloc` covers the decoder's own buffers on top of the finished RGBA8 raster, so budgeting it with the raster size alone dropped **seals (stamp annotations)** that are inside the document limits and reported a decode error where `RasterBudgetExceeded` is designed | `fix/decoded-image-alloc-budget` at `2983cf6`, [linuxdeepin/rofd#14](https://github.com/linuxdeepin/rofd/pull/14) | `rofd-ffi-image-decode-budget.patch` | a rofd release budgets the decoder with headroom over the raster — then the boundary test and the seal test assert on every library |
 
 All three are additive to ABI v1 and all are optional: a stock `librofd-ffi` still
 builds and runs this backend (slow page-size walk; rofd's size-based text
@@ -122,7 +122,10 @@ output, not just a test: `crates/rofd-render/tests/images.rs` was red on `main` 
 sits between roughly half and all of the document byte limit. The patch raises both
 sites' decoder budget to three times the raster; the raster checks stay the authority, so
 no limit is relaxed. Retirement: a rofd release that budgets the decoder with headroom
-over the raster — then drop the patch, the extra source and the `sha256sums` entry.
+over the raster — then drop the patch and the `sha256sums` entry. The AUR patch carries
+the two source hunks only (the package builds the library, not rofd-render's tests), so
+the regression test and its 430 KiB fixture are not part of it; they live on the fork
+branch and in the PR, regenerated from the same commit with the test files excluded.
 
 [linuxdeepin/rofd#15](https://github.com/linuxdeepin/rofd/pull/15)
 (`fix/region-aa-tolerance`) makes `crates/rofd-ffi/tests/region.rs` bound the

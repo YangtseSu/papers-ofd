@@ -883,11 +883,13 @@ the fork branch go.
    silently dropped seals whose decoded raster sits between roughly half and all of the
    document byte limit (measured: a 6000×6000 16-bit seal, 137 MiB raster, fails at the
    old budget and decodes now; 14336² still fails).
-   **Carried** by `librofd-ffi` `pkgrel` 7 as `rofd-ffi-image-decode-budget.patch` (the
-   regression test's fixture ships beside the patch, since binary diffs do not survive
-   `git format-patch` + `patch`), because it changes rendered output; the AUR package
-   needs the extra source `seal-16bit-boundary.png`. No limit is relaxed: the raster
-   checks stay the authority. `patches/README.md` has the retirement criterion.
+   **Carried** by `librofd-ffi` `pkgrel` 7 as `rofd-ffi-image-decode-budget.patch`,
+   because it changes rendered output. The AUR patch carries only the two source hunks —
+   the package builds the library, not rofd-render's tests, so the regression test and
+   its 430 KiB binary fixture stay on the fork branch and in the upstream PR (the patch
+   was regenerated from the same commit with the test files excluded). No limit is
+   relaxed: the raster checks stay the authority. `patches/README.md` has the retirement
+   criterion.
 
 8. **Region pixel-diff tolerance** — the same class of upstream-side repair, proposed as
    <https://github.com/linuxdeepin/rofd/pull/15> (`fix/region-aa-tolerance`).
