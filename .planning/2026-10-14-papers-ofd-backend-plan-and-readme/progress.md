@@ -1285,3 +1285,28 @@ removing the cherry-pick and release-branch bookkeeping.
   current-release table, routine, checkout example), `docs/plan.md` D11/§9/§8,
   `README.md` requirements and limitation rows, `AGENTS.md` layout and the
   fork-first rule. All now name `dev` + `FORK.md` and `v0.4.3-fork.2`.
+
+### Follow-up: the dev CI had never actually run
+
+Pushing `dev` failed its own workflow: run 38722644359 died in "collect refs"
+with `jq: error: syntax error, unexpected ==` on
+`map({ref: ., strict: . == "dev"})` — the runner's jq parses an object value as
+an arithmetic expression and needs the parens. Two lessons worth keeping:
+
+- this machine's `jq` is **jaq 3.1.1**, a reimplementation that accepts the
+  form, and `/usr/bin/jq` here is 1.8.2, which also accepts it — so a local
+  check of the expression proved nothing. Only the run itself did. The fix
+  (`e8d1429`, parens around the comparison) is accepted by all three.
+- the previously "green" runs on `dev`'s predecessor never exercised this path,
+  because the `release/*` runs picked refs from `DISPATCHED_REFS`/`PUSHED_REF`
+  and never fell through to the `git ls-remote` collector.
+
+`v0.4.3-fork.2` was already tagged and pinned by the AUR when this surfaced, so
+the tag was **not** moved: `dev` carries the CI-only fix one commit ahead
+(`e8d1429`), which is the normal relationship between an integration branch and
+its last release tag. The AUR tarball and sha256 are unaffected — the built
+library is identical.
+
+End-to-end after repackaging: `papers-thumbnailer` renders the fixture to a
+256x170 PNG and `papers-previewer --fd 3` exits 0 through the staged backend
+tree with the installed `0.4.3.fork.2-1` ABI.
