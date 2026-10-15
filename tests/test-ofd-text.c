@@ -1023,8 +1023,7 @@ test_find_rectangles_cover_rendered_ink (const gchar *module_path,
 			if (areas[i].x2 > areas[i + 1].x1 + MM (0.5)) {
 				g_error ("glyph boxes overlap by %.2f mm at scalar %u: this library "
 				         "resolves font advances but does not size the boxes by them. "
-				         "Install librofd-ffi >= 0.4.3-4 (patches/"
-				         "rofd-ffi-font-advances.patch, upstream PR #13).",
+				         "Install librofd-ffi >= 0.4.3-4 (upstream PR #13).",
 				         (areas[i].x2 - areas[i + 1].x1) / 72.0 * 25.4, i);
 			}
 		}
@@ -1172,8 +1171,7 @@ test_selection_region_covers_rendered_ink (const gchar *module_path,
 	if (!cairo_region_contains_point (region, column, y_last)) {
 		g_error ("selection region ends at row %d while the glyphs paint down to "
 		         "%d: the linked rofd reports a character box that stops at the "
-		         "baseline. Install librofd-ffi >= 0.4.3-6 (patches/"
-		         "rofd-ffi-font-advances.patch, upstream PR #13).",
+		         "baseline. Install librofd-ffi >= 0.4.3-6 (upstream PR #13).",
 		         extents.y + extents.height - 1, y_last);
 	}
 
@@ -1184,8 +1182,7 @@ test_selection_region_covers_rendered_ink (const gchar *module_path,
 		g_error ("selection region rows %d..%d do not clear the ink rows %d..%d: "
 		         "the linked rofd sizes a box by the font size, or by each glyph's "
 		         "own ink, instead of the face's metrics plus the eighth-height "
-		         "highlight margin. Install librofd-ffi >= 0.4.3-6 (patches/"
-		         "rofd-ffi-font-advances.patch, upstream PR #13).",
+		         "highlight margin. Install librofd-ffi >= 0.4.3-6 (upstream PR #13).",
 		         extents.y, extents.y + extents.height - 1, y_first, y_last);
 	}
 
@@ -1219,8 +1216,7 @@ test_selection_region_covers_rendered_ink (const gchar *module_path,
 				g_error ("paragraph regions differ in height (%d vs %d px at "
 				         "%.0fx): the linked rofd sizes a character box by each "
 				         "glyph's own ink instead of the face's metrics. Install "
-				         "librofd-ffi >= 0.4.3-6 (patches/"
-				         "rofd-ffi-font-advances.patch, upstream PR #13).",
+				         "librofd-ffi >= 0.4.3-6 (upstream PR #13).",
 				         box.height, first_height, scale);
 			}
 		}

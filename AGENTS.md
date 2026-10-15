@@ -8,11 +8,11 @@ the authoritative plan; read it before changing code.
 
 | Path | Purpose |
 | --- | --- |
-| `docs/plan.md` | Interface contract, decisions D1–D10, phases 0–4 with acceptance criteria, evidence index (every claim cites `file:line`) |
+| `docs/plan.md` | Interface contract, decisions D1–D12, phases 0–4 with acceptance criteria, evidence index (every claim cites `file:line`) |
 | `src/`, `data/`, `tests/` | Module sources, installed data files, tests (to be created by phase 0) |
 | `scripts/dev-env.sh` | Resolves the machine-local dependency checkouts and the rofd ABI pair (`PAPERS_SRC`, `ROFD_SRC`, `ROFD_INCLUDEDIR`, `ROFD_LIBDIR`); run it bare for a report, source it for the exported environment |
 | `local.conf` | Untracked, optional: `PAPERS_SRC=` / `ROFD_SRC=` for this machine |
-| `patches/` | Diffs carried against an upstream dependency; each has a `README.md` with the removal criterion |
+| `patches/README.md` | Inventory of the rofd changes this backend carries (fork branch, upstream PR, retirement criterion, sync routine). The patch payloads live in the AUR `librofd-ffi` repository, never here |
 | `.planning/<PLAN_ID>/` | Working memory: phase plan, research notes, progress log. Keep it current; it is tracked so parallel machines see the same state |
 
 ## Hard rules
@@ -33,10 +33,14 @@ the authoritative plan; read it before changing code.
 - Never patch a local Papers checkout or the installed Papers files: Papers-side
   changes land as an upstream MR (plan §5 phase 4). rofd is fork-first (plan D11):
   changes go to a `feat/…` branch of `YangtseSu/rofd` (its `main` mirrors
-  `linuxdeepin/rofd`), are mirrored here as `patches/*.patch` with a removal
-  criterion, and ship through our AUR `librofd-ffi` package. Open the upstream PR
-  too, but never wait on it; when it merges, delete the patch and drop the branch.
-  See `patches/README.md` for the sync routine.
+  `linuxdeepin/rofd`) and ship through our AUR `librofd-ffi` package, whose own
+  repository carries the patch files the package applies. Open the upstream PR
+  too, but never wait on it; when it merges, delete the patch from the AUR package
+  and drop the branch. `patches/README.md` is the inventory and the sync routine.
+- Keep every recipe and payload in exactly one place: the Arch recipes
+  (`librofd-ffi`, `papers-ofd`) are maintained in their AUR repositories only, and
+  the rofd patch files live in the `librofd-ffi` repository — this repository
+  carries no PKGBUILD and no patch payload.
 - Implement the phases in order. A phase counts as done only when its acceptance
   items have been *observed* and the evidence is recorded in
   `.planning/<PLAN_ID>/progress.md`.
@@ -84,6 +88,7 @@ under `$ROFD_SRC` (plan §6).
 - Code, comments, commits, docs: English. Commit subjects: imperative, one line,
   body explaining motivation and listing the verification commands.
 - Licensing: REUSE-compliant, `GPL-2.0-or-later` for this repository (see
-  `REUSE.toml`); files under `patches/` follow the upstream project's license.
+  `REUSE.toml`). A patch file added back under `patches/` is rofd-derived and
+  follows the upstream project's license (`LGPL-2.1-or-later`).
 - Prefer `g_debug` for parse warnings and render diagnostics; never fail a render
   because of a diagnostic.

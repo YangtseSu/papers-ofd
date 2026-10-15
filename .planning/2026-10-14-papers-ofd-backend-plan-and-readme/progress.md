@@ -982,3 +982,38 @@ same name (`AGENTS.md:29-32`, `scripts/dev-env.sh:23-25`, `findings.md` P31,
 Verification: no code changed; `bash -n scripts/dev-env.sh` clean and a bare run still
 reports the same resolution table (the edit is inside the header comment); `reuse lint`
 57/57.
+
+### Phase 18: one home per artefact (2026-10-15)
+
+- **Status:** complete
+- Actions taken (user's decision: the in-repo `packaging/PKGBUILD` duplicated the AUR
+  recipe for no benefit, and the carried rofd patches existed in three places — this
+  repository, the fork branches, the AUR `librofd-ffi` repository):
+  - Removed `packaging/PKGBUILD` — verified byte-identical to
+    `~/projects/ofd-reader/papers-ofd-aur/PKGBUILD` with `diff -u` before deletion.
+    The recipe is maintained in the AUR repository only; the AUR RPC reported
+    `papers-ofd 0.1.0-4` and `librofd-ffi 0.4.3-6` at the time of this change.
+  - Removed `patches/rofd-ffi-page-size.patch` and
+    `patches/rofd-ffi-font-advances.patch` — `sha256sum` identical to the copies the
+    AUR package applies (`812bebb544844164d0004f9854fde1714aa9da97b4fa9ff8d0fa6a8eea96564d`
+    and `0c7fe14c4659ec56292475964adbf748d02f80318dc332db7314424e4a5b4bcb`) — and
+    `LICENSES/LGPL-2.1-or-later.txt`, which `reuse lint` had just flagged as unused
+    (no LGPL file remains in the tree; `REUSE.toml` records what adding one back
+    needs).
+  - `patches/README.md` rewritten as the inventory (fork branch + commit, upstream PR,
+    AUR patch file, retirement criterion, `feat/aur-carried` regeneration from the AUR
+    patch files, sync routine). No payload lives here any more.
+  - Retargeted: AGENTS.md (layout row, fork-first rule, new rule that recipes and
+    payloads have one home, licensing note), README.md (status, ABI and sources rows,
+    install section, both limitations — `papers-ofd 0.1.0-4` / `librofd-ffi 0.4.3-6`),
+    docs/plan.md (D11 both cells, phase-3 step 2 and package evidence, §6 package
+    recipe now `git clone https://aur.archlinux.org/papers-ofd.git`, §7 Arch-package
+    section and source-pin paragraph, §8 patch risk row, §9 policy and items 1/5/6,
+    A24/A27 pointers), `scripts/dev-env.sh` (header and missing-checkout note),
+    `tests/test-ofd-text.c` (four install hints).
+- Verification: `reuse lint` compliant (54/54 files); `meson compile -C _build` +
+  `meson test -C _build` 12/12 after the test-string edits; a repository-wide
+  `git grep` for `packaging/` and the payload paths finds only this log's history and
+  the new AUR-file references in `patches/README.md` / `docs/plan.md`.
+- Not touched: the AUR repositories (no payload or pin changed — this is a
+  repository-hygiene change), the fork branches, and the code itself.

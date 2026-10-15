@@ -24,8 +24,10 @@ renderer without help and `gio mime application/ofd` has a single Papers entry.
 State to pick up from: `.planning/…/progress.md`, sections *Phase 3 — fd loading,
 packaging, install checks* and *Phase 3 follow-up — the space bar* (evidence), plus
 *Test Results* / *Error Log* rows.
-Repository main is at the phase-3 commits; `packaging/PKGBUILD` is mirrored to
-the AUR (`papers-ofd 0.1.0-2`) and installed on this machine.
+Repository main is at the phase-3 commits plus the artefact-consolidation commit
+(phase 18): the Arch recipes live in their AUR repositories (`papers-ofd 0.1.0-4`
+published and installed on this machine, `librofd-ffi 0.4.3-6`) and the carried rofd
+patch files live there too — this repository carries no PKGBUILD and no patch payload.
 
 ### Phase 3 handoff (2026-10-15)
 
@@ -231,6 +233,15 @@ and #12 when convenient.
 - [x] Docs updated: plan §4 (uniform scale), §5 (phase-1 steps/evidence), §6 (setup command, fixture matrix), §7 (magic); README (status, build, latency limitation, roadmap)
 - **Status:** complete
 
+### Phase 18: one home per artefact (AUR recipes and patch payloads)
+
+- [x] User decision applied: each artefact gets exactly one home — the Arch recipes live in their AUR repositories only, the carried rofd changes in the fork's `feat/…` branches, and their patch files in the AUR `librofd-ffi` repository; this repository keeps neither payload
+- [x] Removed `packaging/PKGBUILD` (byte-identical to the AUR copy), `patches/rofd-ffi-page-size.patch` and `patches/rofd-ffi-font-advances.patch` (sha256-identical to the `librofd-ffi` files) and the then-unused `LICENSES/LGPL-2.1-or-later.txt`
+- [x] `patches/README.md` rewritten as the inventory: fork branch and commit, upstream PR, AUR patch file, retirement criterion, `feat/aur-carried` regeneration, sync routine
+- [x] Retargeted AGENTS.md (layout row, fork-first rule, new "one home per recipe" rule), README.md (`0.1.0-4`), docs/plan.md (D11, phase 3, §6 recipe now clones the AUR repository, §7, §8, §9, A24/A27), `scripts/dev-env.sh`, `tests/test-ofd-text.c`
+- [x] Verified: `reuse lint` compliant, `meson test -C _build` 12/12, no dangling `packaging/` or patch-payload references outside `.planning` history
+- **Status:** complete
+
 ## Key Questions
 
 1. Does rofd's ABI allow concurrent read-only calls? → **Yes** (`rofd.h` header, `rofd-ffi/README.md:329-335`, internal locks in rofd-core/rofd-render).
@@ -252,7 +263,7 @@ and #12 when convenient.
 | Desktop integration: own MIME xml + own thumbnailer + `NoDisplay` association entry | Papers builds MIME lists from in-tree backends only; avoids patching system files |
 | Dependency checkouts are located through `scripts/dev-env.sh`, never by assuming a sibling directory | The docs were written on a machine where `../papers`/`../rofd` existed; on this one `../rofd` is `office-rs/rofd`, a different OFD project with the same name, so hardcoded relative paths fail — or worse, resolve to the wrong tree. Environment → `local.conf` → sibling default, with marker validation, serves both machines and the installed package |
 | Papers citations are written against upstream tag `51.1`; a local Papers checkout is optional | The module builds against the installed `papers-document-4.0` headers (43 libdocument + 20 libview shipped) and every reader can open `…/papers/-/blob/51.1/<path>`; only grepping and the phase-4 MR want a clone. rofd citations keep `$ROFD_SRC`, because the carried patch and the cross-repo tests run against that checkout |
-| The AUR `librofd-ffi` pins an upstream commit when upstream publishes no tag, adds `rofd-ffi.pc`, and applies `patches/*.patch` | 0.4.3 exists only as `140b936` on `main`, so a tag-based source cannot be used; a commit-pinned archive keeps the sha256 check meaningful and the vendored crates make the build fully offline. Pinning also makes the "which ABI is in the field" question answerable, and the `.pc` lets consumers (papers-ofd now, Papers after phase 4) use `dependency('rofd-ffi')` |
+| The AUR `librofd-ffi` pins an upstream commit when upstream publishes no tag, adds `rofd-ffi.pc`, and applies its own patch files | 0.4.3 exists only as `140b936` on `main`, so a tag-based source cannot be used; a commit-pinned archive keeps the sha256 check meaningful and the vendored crates make the build fully offline. Pinning also makes the "which ABI is in the field" question answerable, and the `.pc` lets consumers (papers-ofd now, Papers after phase 4) use `dependency('rofd-ffi')` |
 
 ## Errors Encountered
 

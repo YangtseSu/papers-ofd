@@ -7,13 +7,8 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Yangtse Su <yangtsesu@gmail.com>"
 SPDX-License-Identifier = "GPL-2.0-or-later"
 
-# Carried rofd patch: content originates from rofd (LGPL-2.1-or-later),
-# see patches/README.md and docs/plan.md §9
-[[annotations]]
-path = "patches/rofd-ffi-page-size.patch"
-precedence = "override"
-SPDX-FileCopyrightText = [
-  "2024-2026 HualetWang <hualet@hualet.org>",
-  "2026 Yangtse Su <yangtsesu@gmail.com>",
-]
-SPDX-License-Identifier = "LGPL-2.1-or-later"
+# The carried rofd patch payloads are not stored in this repository: the files
+# the package applies live in the AUR `librofd-ffi` repository and in the fork's
+# `feat/…` branches (patches/README.md is the inventory). Adding a patch file back
+# under patches/ therefore also means restoring LICENSES/LGPL-2.1-or-later.txt and
+# an `[[annotations]]` override for it.

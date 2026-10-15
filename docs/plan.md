@@ -99,7 +99,7 @@ Decisions that constrain everything else:
 | D8 | Renderer created with NULL options (rofd's CJK-capable defaults) plus `PAPERS_OFD_FALLBACK_FAMILIES` env override | A14: defaults already include `Noto Sans CJK SC`; the override is needed to reproduce the reference PNG |
 | D9 | Lenient rofd strictness (default); parse warnings and render diagnostics logged at `g_debug` | A15: real-world invoices are messy; rofd's limits already bound work; diagnostics must never fail a render |
 | D10 | Page sizes come from a configure-time-detected `rofd_document_get_page_size_mm` when the linked rofd has it, otherwise from `rofd_document_get_page` | A17, A18: the fast path already exists in rofd-core but not in the ABI; without detection the module would either need a forked rofd or pay a full-document parse. The fallback keeps stock rofd working |
-| D11 | Dependency strategy is fork-first: the `YangtseSu/rofd` fork mirrors `linuxdeepin/rofd` and carries our patches; the AUR `librofd-ffi` package is ours and is the delivery channel for the patched ABI, and the fork's `feat/aur-carried` branch replays `patches/*.patch` on `main` so a clone reproduces the shipped ABI directly. Upstream PRs stay open as the exit path, not as the plan's critical path | PR #11 has drawn only bot traffic since 2026-10-14 (CLA, ok-to-test, OWNERS approval) and the upstream project serves deepin's own client, so acceptance is unlikely on our schedule. The fork keeps the wait off the critical path while `patches/` mirrors every fork commit, so a machine without the fork reproduces the same ABI; D10's configure-time probe keeps the module working against stock rofd in either case |
+| D11 | Dependency strategy is fork-first: the `YangtseSu/rofd` fork mirrors `linuxdeepin/rofd` and carries our patches; the AUR `librofd-ffi` package is ours and is the delivery channel for the patched ABI, and the fork's `feat/aur-carried` branch replays the AUR package's patch files on `main` so a clone reproduces the shipped ABI directly. Upstream PRs stay open as the exit path, not as the plan's critical path | PR #11 has drawn only bot traffic since 2026-10-14 (CLA, ok-to-test, OWNERS approval) and the upstream project serves deepin's own client, so acceptance is unlikely on our schedule. The fork keeps the wait off the critical path while the AUR `librofd-ffi` repository carries the patch files and `patches/README.md` indexes them, so a machine without the fork reproduces the same ABI; D10's configure-time probe keeps the module working against stock rofd in either case |
 | D12 | Annotation editing is out of v1; if taken up it is implemented against GB/T 33190-2016 clause 15 and annex A.3/A.4 inside the fork, with **no** dependency on `office-rs/rofd`, which stays a read-only craft reference. Future scope: a writer in `rofd-core`, additive ABI calls (list/add/remove annotations, save), then the module's `PpsDocumentAnnotations` and a real `PpsDocument::save` | The whole toolset is gated on that one interface, and both `get_annotations` and `PpsDocument::save` are dispatched without NULL checks (`libdocument/pps-document-annotations.c:26-32`, `pps-document.c:461-469`); our reader drops any `Annot` whose `Type` is outside the standard's five values, so the writer must stay inside them (`crates/rofd-core/src/document.rs:1055-1080`); the engine cannot change (cairo rasterization, find/links/outline, our patched ABI), and `office-rs/rofd` cannot embed the image a Papers stamp needs. Detail: §10 |
 
 ## 3. Interface contract
@@ -152,7 +152,7 @@ its font's advance, which stock rofd resolves only for the renderer, and its box
 one font size above the baseline and stopped there: the semantic layer disagreed with
 the drawn glyphs, so highlights, caret positions and selection regions drifted off their
 text (A24) and cut the bottom off it (A27). Our fork carries the fix
-(`patches/rofd-ffi-font-advances.patch`, upstream PR #13); with a stock library the
+(upstream PR #13, shipped as a patch by the AUR `librofd-ffi` package); with a stock library the
 module still publishes rofd's model unchanged, and `tests/test-ofd-text.c` classifies
 the linked ABI against the rendered ink and only asserts alignment and coverage when the
 library resolves font metrics.
@@ -408,9 +408,11 @@ Steps:
    finalize) — the previewer binary's contract. Note that the *space bar* does not
    go through it: Sushi renders documents in-process through Papers' libraries and
    loads them by URI, which is what step 4 addresses.
-2. Packaging, Arch route (decided): `packaging/PKGBUILD` in this repository,
-   mirrored to the AUR as `papers-ofd`; module + descriptor + mime xml +
-   thumbnailer + association entry; `depends: librofd-ffi, papers>=51, papers<52`.
+2. Packaging, Arch route (decided): the AUR repository
+   [`papers-ofd`](https://aur.archlinux.org/packages/papers-ofd) is the only home
+   of the recipe — this repository carries no PKGBUILD; module + descriptor + mime
+   xml + thumbnailer + association entry; `depends: librofd-ffi, papers>=51,
+   papers<52`.
    `update-mime-database`/`update-desktop-database` come from the pacman hooks of
    `shared-mime-info`/`desktop-file-utils`, which `papers` already requires.
    `debian/` follows only when a non-Arch consumer appears.
@@ -460,8 +462,8 @@ Phase-3 evidence as observed (2026-10-15, `meson test` 12/12 in `_build`,
   file while the document uses it and none after a reload from a URI or after the
   document is finalized; the loaded document matches the URI document in the same
   five ways.
-- Package: `papers-ofd 0.1.0-1` built by `makepkg` from
-  `packaging/PKGBUILD`, source = pinned commit archive of the now-public
+- Package: `papers-ofd 0.1.0-1` built by `makepkg` from the AUR recipe,
+  source = pinned commit archive of the now-public
   `YangtseSu/papers-ofd` (`6936c96`, sha256
   `64c1797d6bcc5f…b28853b`), verified by an anonymous download and by a build
   with an empty `SRCDIR`. `namcap` reports only the `gcc-libs` advisory for the
@@ -567,7 +569,7 @@ meson setup _build \
 meson compile -C _build && meson test -C _build
 # ofd-units, ofd-document, ofd-discovery-failure, ofd-render, ofd-print-file,
 # ofd-metadata, ofd-text, ofd-links, ofd-search, ofd-errors, ofd-fd, and
-# ofd-oracle with -Drofd_src (the package build in packaging/PKGBUILD therefore
+# ofd-oracle with -Drofd_src (the AUR package build therefore
 # runs 11). ofd-search runs Papers' own search context over the text fixture,
 # i.e. the snippets the Ctrl+F sidebar shows; it leaks that context on purpose
 # (A23). ofd-text compares find rectangles with the ink rofd renders and asserts
@@ -623,9 +625,9 @@ Packaging and install checks (Arch; no container, the package is built and
 installed on this machine):
 
 ```bash
-# build + verify the package from packaging/PKGBUILD (source = pinned commit
-# archive of the public repository; the checksum is checked on every build)
-mkdir -p /tmp/ofd-pkg && cp packaging/PKGBUILD /tmp/ofd-pkg/ && cd /tmp/ofd-pkg
+# build + verify the package from the AUR recipe (source = pinned commit archive
+# of the public repository; the checksum is checked on every build)
+git clone https://aur.archlinux.org/papers-ofd.git /tmp/ofd-pkg && cd /tmp/ofd-pkg
 makepkg -f --noconfirm          # runs check(): 11 tests, ofd-print-file skips headless
 namcap papers-ofd-*.pkg.tar.zst # expect only the gcc-libs advisory
 
@@ -736,10 +738,11 @@ declarations but not line numbers or `.c` bodies.
 
 ### Arch package (the delivery route)
 
-`packaging/PKGBUILD` is the canonical recipe and is mirrored to the AUR as
-[`papers-ofd`](https://aur.archlinux.org/packages/papers-ofd) (`0.1.0-1` as of
-2026-10-15; the mirror lives in `~/projects/papers-ofd-aur` next to
-`librofd-ffi`). `debian/` follows only when a non-Arch consumer appears.
+The recipe is the AUR repository
+[`papers-ofd`](https://aur.archlinux.org/packages/papers-ofd) (`0.1.0-4` as of
+2026-10-15) — maintained there and nowhere else, so there is no copy to keep in
+sync (the same holds for `librofd-ffi` and its patch files). `debian/` follows only
+when a non-Arch consumer appears.
 
 - `depends`: `librofd-ffi>=0.4.3` (the ABI plus its `rofd-ffi.pc`, which the build
   uses instead of `-Drofd_libdir`), `papers>=51` and `papers<52` (the backend-ABI
@@ -750,8 +753,8 @@ declarations but not line numbers or `.c` bodies.
 - `makedepends`: `meson`, `gtk4`, `poppler-glib` (the test suite links them).
 - `source`: the commit-pinned archive of `YangtseSu/papers-ofd` (public since
   2026-10-15). A recipe cannot pin the commit that contains it, so the pinned tree
-  carries the previous revision of `packaging/PKGBUILD` and of these docs; the copy
-  in this repository and in the AUR repository is the published one.
+  is one revision behind these docs; the AUR repository is the published recipe and
+  its only copy.
   `makepkg` verifies the sha256, builds with `--buildtype=plain` so
   the makepkg `CFLAGS`/`LDFLAGS` apply, and runs `check()` (`meson test`: 11 tests,
   `ofd-oracle` needs `-Drofd_src`; `ofd-print-file` skips itself when GTK has no
@@ -773,7 +776,7 @@ declarations but not line numbers or `.c` bodies.
 | A find result cap of 4096 per page | documents with more occurrences on one page lose the tail on that page | documented constant (`OFD_FIND_MAX_RESULTS_PER_PAGE`); rofd itself bounds a page's matches by its own resource limit, and the shell materialises a result row per match |
 | `find_link_dest` / `find_link_page` stubs | named destinations / history restore incomplete | revisit if rofd gains a name→page lookup |
 | `application/ofd` may already be defined by another package | duplicate definition | distinct file name + magic rules; verify with `xdg-mime query filetype` |
-| Stock rofd sizes text runs without an explicit `DeltaX` by the font size while the renderer draws their font advances | search highlights, caret positions and selection regions drifts off the glyphs (observed: a `42` match rectangle 4.5 mm right of the end of the line) | fixed on the fork and carried as `patches/rofd-ffi-font-advances.patch` (A24, upstream PR #13); a stock library keeps rofd's model, documented in `README.md`, and the ink-alignment test only asserts when the linked ABI is font-aware |
+| Stock rofd sizes text runs without an explicit `DeltaX` by the font size while the renderer draws their font advances | search highlights, caret positions and selection regions drifts off the glyphs (observed: a `42` match rectangle 4.5 mm right of the end of the line) | fixed on the fork and carried as the AUR package's `rofd-ffi-font-advances.patch` (A24, upstream PR #13); a stock library keeps rofd's model, documented in `README.md`, and the ink-alignment test only asserts when the linked ABI is font-aware |
 | `PpsSearchContext` cannot be finalized (A23) | a crash in any Papers process that disposes a search context — not reachable from this module, but the shell may hit it when it drops a context | documented, worked around in the headless search test (no dispose), worthy of an upstream report in phase 4 |
 | A nested magic rule below `application/zip`'s priority | content-only detection (previewer, `load_fd`) answers `application/zip` and the document never reaches the module | priority 70 (A22) plus the byte-level assertion in `tests/test-ofd-errors.c` |
 | rofd's ABI opens by path, so fd loading needs `/proc/self/fd`; a sandbox without `/proc` (or a descriptor whose file cannot be re-entered) breaks it | the previewer would not open any OFD file | temp-copy fallback below `g_get_user_cache_dir()/papers-ofd`, removed on reload and at finalize (§3); both halves are observed by `tests/test-ofd-fd.c` (A25) |
@@ -783,15 +786,16 @@ declarations but not line numbers or `.c` bodies.
 | No CJK font installed | missing-glyph boxes | rofd defaults already name `Noto Sans CJK SC`; distro packaging should recommend a CJK font |
 | Papers 52 bumps `pps_document_current` | module installed under `papers/6/backends` stops being found (fail-soft) | pin `>= 51, < 52`; §3 is the contract to re-verify |
 | Fixture licensing | cannot redistribute spec/ofdrw fixtures | generate our own; reference external fixtures by path |
-| The carried page-size patch (A18) diverges from upstream or never lands | a patch to maintain in the meantime; stock rofd keeps working through the fallback path | keep it as a patch file, never a fork dependency; re-check at every rofd version bump and drop it once upstream has the function |
+| The carried page-size patch (A18) diverges from upstream or never lands | a patch to maintain in the meantime; stock rofd keeps working through the fallback path | keep it as a patch file in the AUR `librofd-ffi` repository, never a fork dependency; re-check at every rofd version bump and drop it once upstream has the function |
 | rofd older than 0.4.2 (or a stock package built from `v0.4.0`) fails entire pages whose objects carry a singular transform | blank pages on real-world documents, no error visible in the UI | pin ≥ 0.4.2 (A19): our AUR package builds `0.4.3` + patch; document the requirement in `README.md` |
 
 ## 9. Upstream requests to rofd (ranked)
 
 Policy (D11): these are *requests*, not dependencies. Everything below is
 implemented in our fork and delivered through our AUR `librofd-ffi` package, so no
-item blocks a phase; an upstream merge only deletes the matching entry in
-`patches/` (removal criteria there) and lets the fork branch go.
+item blocks a phase; an upstream merge only deletes the matching patch file from
+the AUR `librofd-ffi` repository, retires its row in `patches/README.md`, and lets
+the fork branch go.
 
 1. `rofd_document_get_page_size_mm(document, index, rofd_rect_t *size_mm, rofd_error_t **error)`
    — exports the existing metadata-only `Document::page_size()`, removing the
@@ -808,8 +812,8 @@ item blocks a phase; an upstream merge only deletes the matching entry in
    maintainers still decide whether the major stays.
    Status (2026-10-14): **implemented on the fork and shipped** —
    <https://github.com/linuxdeepin/rofd/pull/11> (branch `feat/ffi-page-size-query`
-   at `7f6d24d` on `YangtseSu/rofd`) is the request; the delivery is
-   `patches/rofd-ffi-page-size.patch`, which our AUR package applies to upstream
+   at `7f6d24d` on `YangtseSu/rofd`) is the request; the delivery is the AUR
+   package's `rofd-ffi-page-size.patch`, applied to upstream
    `main` @ `140b936` (`0.4.3`, published without a tag) — that pinned commit is
    the ABI this module is built and tested against. Local verification before
    shipping: `cargo fmt --all -- --check`,
@@ -830,8 +834,8 @@ item blocks a phase; an upstream merge only deletes the matching entry in
    `-Drofd_libdir`/`-Drofd_includedir`, and Papers after phase 4 could say
    `dependency('rofd-ffi', version: '>= 0.4')` — route 1 there.
    Owned, not blocked (D11): our AUR package installs the file already
-   (`rofd-ffi.pc.in` in the package repo), and it is packaging-side, so it is not a
-   source patch under `patches/`.
+   (`rofd-ffi.pc.in` in the package repo), and it is packaging-side, so it ships
+   there instead of as a source patch.
    Status (2026-10-14): submitted upstream as
    <https://github.com/linuxdeepin/rofd/pull/12> (branch `feat/pkgconfig` on the
    fork: `debian/rofd-ffi.pc.in` + the `librofd-ffi-dev` install rule, version from
@@ -848,8 +852,8 @@ item blocks a phase; an upstream merge only deletes the matching entry in
    resolution and `rofd-ffi` supplies from the default font stack.
    Status (2026-10-15): **implemented on the fork and shipped** —
    <https://github.com/linuxdeepin/rofd/pull/13> (branch `feat/font-text-advances`)
-   is the request; the delivery is `patches/rofd-ffi-font-advances.patch`, which the
-   AUR `librofd-ffi` package applies on top of the page-size patch. Three commits:
+   is the request; the delivery is the AUR `librofd-ffi`
+   package's `rofd-ffi-font-advances.patch`, applied on top of the page-size patch. Three commits:
    the provider seam, a resolved box sized by its glyph's advance instead of floored
    at the font size, and the box spanning that *face's* typographic ascent and descent
    with a selection region grown by an eighth of its height on both sides, the model
@@ -960,8 +964,8 @@ Evidence paths are repository-relative: Papers paths are files in tag `51.1` of
 | A21 | `PpsOutlines` has declared-but-undefined public functions: `pps_outlines_new` and `pps_outlines_set_link` are in the installed `pps-outlines.h` but neither the source nor the library provides them, so a module that calls them fails to link (`-Wl,--no-undefined`, observed). Use `g_object_new (PPS_TYPE_OUTLINES, NULL)` and the `link` property (whose setter takes its own reference); `pps_outlines_set_children` **is** defined and takes a reference, while the `children` property setter stores a borrowed pointer | `libdocument/pps-outlines.[ch]` (`new`/`set_link` declared, no definition); `nm -D --defined-only /usr/lib/libppsdocument-4.0.so.6 \| grep outlines` lists `get_type`, `get/set_children`, `get_expand`, `get_link`, `set_expand`, `set_label`, `set_markup` only; the module link error on `pps_outlines_new` |
 | A22 | MIME detection from bytes alone (no file name) answers `application/zip` for OFD files when the nested `application/ofd` magic rule is below `application/zip`'s priority 60: the nested rule only wins at 70, which is what the shared-mime-info container formats use. Measured with `g_content_type_guess (NULL, first 1024 bytes, n)` after `update-mime-database` for a generated fixture, the real invoice and a malformed zip (all `application/ofd` at 70, all `application/zip` at 50); a plain zip and a zip whose first entry is `hello.txt` stay `application/zip` at 70. The previewer and `load_fd` only have bytes (`libdocument/pps-file-helpers.c:337-378`, `previewer/pps-previewer.c`) | `data/papers-ofd.xml` (priority), `tests/test-ofd-errors.c` (`test_detection_from_bytes`), `/usr/share/mime/packages/freedesktop.org.xml` (`application/zip` at priority 60, `application/epub+zip` nested at 70) |
 | A23 | `PpsSearchContext` cannot be finalized: its dispose calls `g_clear_object ()` on the `GHashTable *per_page_store` instead of `g_clear_pointer (..., g_hash_table_unref)`, and `g_object_unref` then reads the hash table as a `GTypeInstance` and segfaults. Any process that drops the last reference to a search context crashes; the headless search test therefore leaks the context and the model on purpose | `libview/context/pps-search-context.c:421` (dispose) vs `:433` (the field is a `GHashTable *` created in `init`); observed: `tests/test-ofd-search` segfaults in `g_type_check_instance_is_fundamentally_a` under `g_object_unref` from that dispose, with the installed `libppsview-4.0.so.5`; the same code is in tag `51.1` (the only `libview` difference between the checkout and the tag is `pps-print-operation.c`) |
-| A24 | rofd's page text geometry positioned a scalar without an explicit `DeltaX` by the font size, while the renderer positions it by the resolved font's advance ("only a genuinely absent axis uses the selected glyph advance"), so layout, search and selection rectangles drifted from the drawn glyphs. Measured on the phase-2 text fixture (21-character line, size 3 mm, no `DeltaX`): boxes spanned 63.0 mm and the ink 28.2 mm, and the `42` match rectangle sat at 60.0–66.0 mm while the drawn line ends at 43.4 mm. Fixed on the fork by resolving advances through an injected provider and sizing a resolved box by that advance (`patches/rofd-ffi-font-advances.patch`, upstream PR #13): the same line then spans 29.8 mm and the `42` match rectangle sits at 33.9–38.6 mm inside the ink, while a two-scalar match like `on` narrows from 4.82 mm to 3.65 mm — the sum of the two glyph advances | `crates/rofd-core/src/semantic.rs` (`text_object`: `dx = … else size`) vs `crates/rofd-render/src/fonts.rs` (`position_glyph_runs`, advance from the selected face); measured with a throwaway renderer + ink scan against the installed `librofd_ffi.so.0` and the fork build; guarded by `tests/test-ofd-text.c::test_find_rectangles_cover_rendered_ink` |
-| A27 | rofd's character box spanned exactly one font size above the baseline and stopped at it, while a renderer paints the glyph below it and a PDF text box is built from the font's metrics — so a highlight cut the bottom off its text (CJK overshoot, Latin descenders) and its vertical extent depended on the glyph inside it, leaving punctuation and Latin unaligned with CJK. Measured on the user's real invoice (`the invoice`, six embedded subset fonts, sizes 4.9–7.8 mm): of 2464 glyphs with ink, 2117 (86%) reach below the baseline — CJK 0.098–0.129 em, Latin descenders 0.188 em — mean 0.50 mm and up to 1.46 mm below the old box, while the box top sat 1.45 mm above the painted top on average. Fixed on the fork by taking the box's extents from the face's FreeType metrics and growing a selection region by an eighth of its height on both sides, both as poppler does (`patches/rofd-ffi-font-advances.patch`, third commit, upstream PR #13) | `crates/rofd-core/src/semantic.rs` (`text_object`: `top = … - size`, `bottom = y.max (next_y)`; `selection_region`) vs `crates/rofd-render/src/fonts.rs` (`typographic_extents_mm`, FreeType `ascender`/`descender`); the model is poppler's: `TextWord::setInitialBounds` `yMin = y - ascent`, `yMax = y - descent` and `TextSelectionSizer::visitLine` `margin = (yMax - yMin) / 8` (poppler `poppler/TextOutputDev.cc`, master 2026-10-15, lines ~501 and ~4395), which Papers' PDF backend consumes through `poppler_page_get_selected_region` (`libdocument/backend/pdf/pps-poppler.c:2010-2035`); measured on the user's PDF (`a real-world PDF`: body band 15.87 pt for a 15.95 pt em, its selection region 20 pt, its find rectangle 15.87 pt) and on the OFD with a throwaway cairo overlay harness (page 1: body regions y 43.89..50.94 mm for ink 44.71..50.01, identical across the four objects of the line); guarded by `crates/rofd-render/tests/cairo_text.rs::semantic_character_boxes_cover_the_rendered_ink`, `crates/rofd-ffi/tests/semantic.rs::text_layout_rectangles_cover_the_rendered_ink_below_the_baseline` and `tests/test-ofd-text.c::test_selection_region_covers_rendered_ink` |
+| A24 | rofd's page text geometry positioned a scalar without an explicit `DeltaX` by the font size, while the renderer positions it by the resolved font's advance ("only a genuinely absent axis uses the selected glyph advance"), so layout, search and selection rectangles drifted from the drawn glyphs. Measured on the phase-2 text fixture (21-character line, size 3 mm, no `DeltaX`): boxes spanned 63.0 mm and the ink 28.2 mm, and the `42` match rectangle sat at 60.0–66.0 mm while the drawn line ends at 43.4 mm. Fixed on the fork by resolving advances through an injected provider and sizing a resolved box by that advance (`patches/README.md`; the AUR package's `rofd-ffi-font-advances.patch`, upstream PR #13): the same line then spans 29.8 mm and the `42` match rectangle sits at 33.9–38.6 mm inside the ink, while a two-scalar match like `on` narrows from 4.82 mm to 3.65 mm — the sum of the two glyph advances | `crates/rofd-core/src/semantic.rs` (`text_object`: `dx = … else size`) vs `crates/rofd-render/src/fonts.rs` (`position_glyph_runs`, advance from the selected face); measured with a throwaway renderer + ink scan against the installed `librofd_ffi.so.0` and the fork build; guarded by `tests/test-ofd-text.c::test_find_rectangles_cover_rendered_ink` |
+| A27 | rofd's character box spanned exactly one font size above the baseline and stopped at it, while a renderer paints the glyph below it and a PDF text box is built from the font's metrics — so a highlight cut the bottom off its text (CJK overshoot, Latin descenders) and its vertical extent depended on the glyph inside it, leaving punctuation and Latin unaligned with CJK. Measured on the user's real invoice (`the invoice`, six embedded subset fonts, sizes 4.9–7.8 mm): of 2464 glyphs with ink, 2117 (86%) reach below the baseline — CJK 0.098–0.129 em, Latin descenders 0.188 em — mean 0.50 mm and up to 1.46 mm below the old box, while the box top sat 1.45 mm above the painted top on average. Fixed on the fork by taking the box's extents from the face's FreeType metrics and growing a selection region by an eighth of its height on both sides, both as poppler does (the AUR package's `rofd-ffi-font-advances.patch`, third commit, upstream PR #13) | `crates/rofd-core/src/semantic.rs` (`text_object`: `top = … - size`, `bottom = y.max (next_y)`; `selection_region`) vs `crates/rofd-render/src/fonts.rs` (`typographic_extents_mm`, FreeType `ascender`/`descender`); the model is poppler's: `TextWord::setInitialBounds` `yMin = y - ascent`, `yMax = y - descent` and `TextSelectionSizer::visitLine` `margin = (yMax - yMin) / 8` (poppler `poppler/TextOutputDev.cc`, master 2026-10-15, lines ~501 and ~4395), which Papers' PDF backend consumes through `poppler_page_get_selected_region` (`libdocument/backend/pdf/pps-poppler.c:2010-2035`); measured on the user's PDF (`a real-world PDF`: body band 15.87 pt for a 15.95 pt em, its selection region 20 pt, its find rectangle 15.87 pt) and on the OFD with a throwaway cairo overlay harness (page 1: body regions y 43.89..50.94 mm for ink 44.71..50.01, identical across the four objects of the line); guarded by `crates/rofd-render/tests/cairo_text.rs::semantic_character_boxes_cover_the_rendered_ink`, `crates/rofd-ffi/tests/semantic.rs::text_layout_rectangles_cover_the_rendered_ink_below_the_baseline` and `tests/test-ofd-text.c::test_selection_region_covers_rendered_ink` |
 | A25 | `/proc/self/fd/<n>` re-enters the file a descriptor points at, which is what lets `rofd_document_open` (a path-based API) read a document the caller has already unlinked; the re-open starts at offset 0 no matter where the descriptor itself sits, and it fails with `EACCES` once read permission has been withdrawn after the `open` (the descriptor keeps reading, because permissions are checked at `open` time). The first half is why `load_fd` hands `dup(fd)` to rofd through that path; the second is why a temp copy exists for environments without a usable `/proc`, and it is also the test's deterministic trigger for that fallback | Measured on this machine (Linux 7.2.10-1-cachyos): a deleted file, a `memfd` and a descriptor seeked to offset 7 all return the whole file when reopened through `/proc/self/fd/<n>`; after `chmod 000`, `open` on that path fails with `EACCES` while `pread` on the open descriptor still returns the bytes. `tests/test-ofd-fd.c` covers the deleted-file case (loads, and no temp copy is created) and the `chmod 000` case (the copy appears in `$XDG_CACHE_HOME/papers-ofd` and is gone after a reload or at finalize) |
 | A26 | The space bar in GNOME Files is **Sushi**, and Sushi renders documents in-process through Papers' `libdocument`/`libview` (its `js/viewers/pdf.js` imports `gi://PapersDocument`/`PapersView` and loads with `PapersView.JobLoad.set_uri`, i.e. by URI — no file descriptor, so `load_fd` is not on that path). Which renderer a file gets is decided by content type: the selector matches `Gio.content_type_is_a` against every renderer's `contentTypes`, and the document renderer derives its list from the MimeType line of `org.gnome.Papers.desktop`; `application/ofd` is not in it out of tree, so the type falls through to the file-information renderer. Sushi loads plugins from its built-in resources, then `SYSTEM_PLUGIN_DIRECTORY` (`/usr/lib/sushi/plugins-1`), then `$XDG_DATA_HOME/sushi/plugins-1`, importing them before it builds the map, so a plugin can add the type (the renderer's `contentTypes` array is mutable and is the same array its own load gate reads). Nautilus' "Open With" chooser lists `g_app_info_get_all()` on top of default/recommended/fallback, which is why both desktop entries that run `papers` appear there while `gio mime application/ofd` reports exactly one registered entry | Sushi 51.2 sources (`src/core/rendererSelector.js`, `src/viewers/pdf.js:46,122-129`, `src/config.js.in`) and the installed resource (`gresource list /usr/share/sushi/org.gnome.NautilusPreviewer.src.gresource`); measured with gjs against the installed 51.2: without the plugin `selectRenderer ("application/ofd")` is `FallbackRenderer`, with it the Papers-backed `PdfRenderer` and the fixture loads with 2 pages; `xdg-mime query filetype`, `gio mime application/ofd` (default and recommended: `org.gnome.Papers.Ofd.desktop`), `nautilus-app-chooser-widget.c:301-330`; `tests/test-sushi-plugin.js` is the regression net |
 

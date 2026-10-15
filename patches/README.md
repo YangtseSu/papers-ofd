@@ -1,145 +1,88 @@
 <!-- SPDX-FileCopyrightText: 2026 Yangtse Su <yangtsesu@gmail.com> -->
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 
-# Carried rofd patches and the fork
+# Carried rofd changes: the inventory
 
-`patches/` mirrors every change we carry against
-[`linuxdeepin/rofd`](https://github.com/linuxdeepin/rofd): the fork branch, the
-patch file that reproduces the change on a stock checkout, and the criterion that
-retires it. Delivery is the AUR package `librofd-ffi` (ours), which applies these
-patch files to the upstream release tarball — see `docs/plan.md` D11. Upstream PRs
-stay open as the exit path; they are not on the critical path.
+The rofd changes this backend relies on are **not** stored in this repository.
+Each one lives in exactly two places, both derived from the fork branch that
+implements it:
 
-## Carried patches
+- [`YangtseSu/rofd`](https://github.com/YangtseSu/rofd) — the `feat/…` branch
+  carrying the change on top of upstream `main`, proposed upstream as a PR. It is
+  the source of truth.
+- the AUR [`librofd-ffi`](https://aur.archlinux.org/packages/librofd-ffi)
+  repository — the patch file (`git format-patch` output) that the package's
+  `prepare()` applies to its pinned upstream archive. That file is what ships.
 
-| Patch | Change | Retired when |
-| --- | --- | --- |
-| `rofd-ffi-page-size.patch` | `rofd_document_get_page_size_mm` (metadata-only page sizes) | upstream exposes the query in the C ABI ([#11](https://github.com/linuxdeepin/rofd/pull/11)) |
-| `rofd-ffi-font-advances.patch` | runs without an explicit `DeltaX` take their scalar advance from the resolved font; every character box spans that face's typographic ascent and descent and a selection region grows by an eighth of its height on both sides, so page geometry, search rectangles and selection highlights match a PDF reader's | upstream loads documents with a font-resolved metrics provider ([PR](https://github.com/YangtseSu/rofd) on `feat/font-text-advances`) |
+This file is the inventory: which change, where it comes from, when it goes away.
+`docs/plan.md` D11 is the delivery policy; §9 documents each change with its
+measurements and evidence ids.
 
-## The fork
+## Carried changes
 
-- Fork: [`YangtseSu/rofd`](https://github.com/YangtseSu/rofd). Its `main` mirrors
-  upstream (`git remote add upstream https://github.com/linuxdeepin/rofd &&
-  git fetch upstream`), and every carried change lives on its own `feat/…` branch
-  with one upstream PR per branch — `feat/ffi-page-size-query` at `7f6d24d` and
-  `feat/font-text-advances` today.
-  The clone used by this project is `$ROFD_SRC` (`~/projects/rofd`); it carries
-  both remotes.
-- Upstream releases are not always tagged: `0.4.3` exists only as commit
-  `140b936` on `main`. The AUR PKGBUILD therefore pins that commit in its source
-  URL (with its sha256) instead of a `v0.4.3` tag, and `pkgver` is set by hand.
-  Bump the pin deliberately: read the diff, re-run `git apply --check` for every
-  patch here, rebuild, and re-check the exported symbol list.
-- The AUR PKGBUILD applies `patches/*.patch` in order to the pinned upstream tree,
-  which keeps the shipped ABI identical to a stock checkout plus these patches;
-  `git apply --check` (and the branch below) is the only integration check needed.
-- `feat/aur-carried` on the fork is a **build convenience**, not a development
-  branch: it is `main` plus these patch files replayed with `git am`, so a clone
-  reproduces the ABI the AUR package ships without applying anything by hand
-  (`git switch feat/aur-carried && cargo build --release -p rofd-ffi`). Verify it
-  after touching a patch with
-  `diff -r --exclude=.git --exclude=target . "$srcdir/rofd-$_commit"` against the
-  PKGBUILD build tree. Regenerate it whenever the upstream pin moves
-  (`git switch -C feat/aur-carried main && git am patches/*.patch` in order) and
-  never merge it upstream: the per-change `feat/…` branches and their PRs are the
-  upstream path, and `main` keeps mirroring upstream.
-- Sync routine when upstream moves: `git -C "$ROFD_SRC" switch main &&
-  git -C "$ROFD_SRC" pull --ff-only upstream main`, rebase each `feat/…` branch,
-  re-run `cargo fmt --all -- --check`,
-  `cargo clippy -p rofd-core -p rofd-render -p rofd-ffi --all-targets -- -D warnings`,
-  `cargo test -p rofd-ffi`, `crates/rofd-ffi/tests/run_c_tests.sh`, refresh the
-  patch file with `git format-patch`, bump the AUR `pkgrel`, rebuild, and re-check
-  the exported symbol list (`nm -D --defined-only`).
-- The pkg-config metadata is **not** a patch here: it is packaging-side and lives
-  in the AUR package as `rofd-ffi.pc.in` (installed to
-  `/usr/lib/pkgconfig/rofd-ffi.pc`). The day a non-Arch package is needed, the same
-  file goes into the fork's `debian/` as `rofd-ffi-pkgconfig.patch`.
-
-## Upstream requests in flight
-
-| PR | Branch | What | Dropped when |
+| Change | Fork branch (`feat/…`) and upstream PR | AUR patch file in `librofd-ffi` | Retired when |
 | --- | --- | --- | --- |
-| [linuxdeepin/rofd#11](https://github.com/linuxdeepin/rofd/pull/11) | `feat/ffi-page-size-query` (`7f6d24d`) | `rofd_document_get_page_size_mm` (this directory's patch) | a rofd release ships the function — then delete `patches/rofd-ffi-page-size.patch` |
-| [linuxdeepin/rofd#12](https://github.com/linuxdeepin/rofd/pull/12) | `feat/pkgconfig` | `rofd-ffi.pc` installed by `librofd-ffi-dev` (packaging-side, deliberately **not** a patch here) | a release installs it — then the AUR package can drop its own copy |
+| `rofd_document_get_page_size_mm` — metadata-only page sizes, so `setup_cache` stops parsing every page | `feat/ffi-page-size-query` at `7f6d24d`, [linuxdeepin/rofd#11](https://github.com/linuxdeepin/rofd/pull/11) | `rofd-ffi-page-size.patch` | a rofd release exports the function — then `meson.build`'s `cc.has_function` probe keeps the fast path and the patch disappears |
+| Font-resolved text geometry: a run without an explicit `DeltaX` advances by the resolved font, its character box spans that face's typographic ascent and descent, and a selection region grows by an eighth of its height on both sides, so page geometry, search rectangles and selection highlights match a PDF reader's | `feat/font-text-advances` at `a364014`, [linuxdeepin/rofd#13](https://github.com/linuxdeepin/rofd/pull/13) | `rofd-ffi-font-advances.patch` | a rofd release loads documents with a font-resolved metrics provider — then the ink-alignment test asserts on every library |
 
-Both branches live on `YangtseSu/rofd`; `main` there mirrors upstream (verified
-`git rev-list --left-right --count upstream/main...main` = `0 0` on 2026-10-14).
+Both are additive to ABI v1 and both are optional: a stock `librofd-ffi` still
+builds and runs this backend (slow page-size walk; rofd's size-based text
+geometry), which the configure-time probe and the tests' classification of the
+linked library report. The measurements live in `docs/plan.md` §9 items 1 and 6
+(evidence A18, A24, A27).
 
-## `rofd-ffi-page-size.patch` — metadata-only page size
+The `pkg-config` metadata is **not** a carried patch: it ships in the AUR package
+as `rofd-ffi.pc.in` and upstream as
+[linuxdeepin/rofd#12](https://github.com/linuxdeepin/rofd/pull/12)
+(`feat/pkgconfig`). The day a non-Arch consumer needs it, it goes into the fork's
+`debian/` as `rofd-ffi-pkgconfig.patch` — still not this directory.
 
-Adds one additive entry point to the rofd C ABI:
-
-```c
-rofd_status_t rofd_document_get_page_size_mm(const rofd_document_t *document,
-                                             size_t page_index,
-                                             rofd_rect_t *page_size_mm,
-                                             rofd_error_t **error);
-```
-
-### Why
-
-Papers asks a document backend for the size of **every** page right after load
-(`pps_document_setup_cache`, `libdocument/pps-document.c` in tag `51.1`). The
-released ABI only offers `rofd_page_get_size_mm`, which needs an opened page, and
-opening a page in rofd parses and caches its whole content — so an unpatched rofd
-turns "open a document" into "parse the entire document".
-
-`rofd-core` already implements the metadata-only query (`Document::page_size`,
-documented as "Reads the physical page box without loading or caching graphical
-objects"); the patch only exposes it over the FFI, with tests, the pinned export
-list and the design doc updated.
-
-### How the module uses it
-
-`meson.build` probes the linked library:
-
-```meson
-have_page_size = cc.has_function('rofd_document_get_page_size_mm',
-                                 prefix: '#include <rofd.h>',
-                                 dependencies: rofd_ffi_dep)
-```
-
-- present → `HAVE_ROFD_PAGE_SIZE` is defined and `get_page_size` uses the
-  metadata-only call;
-- absent → the same vfunc falls back to `rofd_document_get_page` +
-  `rofd_page_get_size_mm`, so **stock rofd keeps working** (slower on large
-  documents; the difference is measured and published per `docs/plan.md` §5).
-
-### How to apply
-
-Resolve the checkout first (`. scripts/dev-env.sh`), then either apply to a stock
-checkout:
+## Using the branches instead of the package
 
 ```bash
-git -C "$ROFD_SRC" checkout main
-git -C "$ROFD_SRC" apply "$PWD/patches/rofd-ffi-page-size.patch"
-# or keep history: git -C "$ROFD_SRC" am "$PWD/patches/rofd-ffi-page-size.patch"
+. scripts/dev-env.sh                    # resolves and exports $ROFD_SRC
+git -C "$ROFD_SRC" fetch fork
+git -C "$ROFD_SRC" switch feat/font-text-advances    # or feat/ffi-page-size-query
+cargo build --release -p rofd-ffi       # $ROFD_INCLUDEDIR/$ROFD_LIBDIR then point here
 ```
 
-or take the shipped ABI — the AUR `librofd-ffi` package already carries it
-(`pkgrel` 2 onwards), which is what `scripts/dev-env.sh` finds on a machine without
-a checkout.
+`feat/aur-carried` on the fork is a **build convenience**, not a development
+branch: upstream `main` with the AUR patch files replayed by `git am`, so a single
+checkout reproduces the ABI the package ships. Regenerate it whenever the upstream
+pin or a patch moves (`$AUR_LIBROFD` = the AUR `librofd-ffi` checkout):
 
-The patch is generation-compatible with `git format-patch` and applies cleanly to
-`rofd` `main` as of the commit it was generated from (verified with
-`git apply --check` in a detached worktree).
+```bash
+git -C "$ROFD_SRC" switch -C feat/aur-carried main
+git -C "$ROFD_SRC" am "$AUR_LIBROFD"/rofd-ffi-page-size.patch \
+                     "$AUR_LIBROFD"/rofd-ffi-font-advances.patch
+```
 
-### Upstream status
+and verify it against an actual package build tree with
+`diff -r --exclude=.git --exclude=target "$ROFD_SRC" "$srcdir/rofd-$_commit"`.
+Never merge it upstream: the per-change branches and their PRs are the upstream
+path, and the fork's `main` keeps mirroring upstream.
 
-Requested as <https://github.com/linuxdeepin/rofd/pull/11> on 2026-10-14 from the
-`feat/ffi-page-size-query` branch of the fork (`7f6d24d`, on top of `140b936`).
-Generated from `rofd` `main` at `140b936` (`chore: Update version to 0.4.3`) and
-verified to apply to that revision with `git apply --check` — re-verified on this
-machine against `$ROFD_SRC` (7 files, clean). The AUR package ships it on top of
-the same commit as `librofd-ffi 0.4.3-1`. PR state is tracked in
-`.planning/2026-10-14-papers-ofd-backend-plan-and-readme/progress.md`.
+To reproduce the shipped ABI on a stock checkout outside Arch:
 
-### Removal criterion
+```bash
+git -C "$ROFD_SRC" switch main
+git -C "$ROFD_SRC" apply "$AUR_LIBROFD/rofd-ffi-page-size.patch"
+# or keep history: git -C "$ROFD_SRC" am "$AUR_LIBROFD"/rofd-ffi-page-size.patch
+```
 
-Delete this patch (and let the `cc.has_function` probe keep doing its job) once a
-rofd release ships `rofd_document_get_page_size_mm`; then drop the corresponding
-AUR `source`/`sha256sums` entries, bump the package to that release, and switch the
-fork to tracking upstream. Re-verify after every rofd version bump; if the
-function's contract changes upstream, update `docs/plan.md` §9 instead of carrying a
-divergent local variant.
+## Sync routine when upstream moves
+
+1. `git -C "$ROFD_SRC" fetch --all`, then fast-forward `main` to upstream
+   (this checkout has `origin` = `linuxdeepin/rofd`, `fork` = `YangtseSu/rofd`),
+   and rebase every `feat/…` branch onto it.
+2. Re-run the checks in the fork: `cargo fmt --all -- --check`,
+   `cargo clippy -p rofd-core -p rofd-render -p rofd-ffi --all-targets -- -D warnings`,
+   `cargo test -p rofd-ffi`, `crates/rofd-ffi/tests/run_c_tests.sh`.
+3. Regenerate each patch file (`git format-patch`), copy it into `$AUR_LIBROFD`,
+   re-run `git apply --check` for every patch against the new upstream revision.
+4. Bump the AUR pin deliberately: read the diff, rebuild (`makepkg -C -f`),
+   re-check the exported symbol list (`nm -D --defined-only` on the packaged
+   library, against `crates/rofd-ffi/tests/c/expected-symbols.txt`), commit and
+   push the AUR repository.
+5. Rebase `feat/aur-carried` as above and refresh this inventory if a change was
+   added, retired or renamed.

@@ -10,8 +10,9 @@
 #
 # The ABI comes from the installed librofd-ffi package or from a built checkout;
 # neither checkout is a build requirement. $ROFD_SRC is needed to carry or
-# re-verify patches/ and to run rofd's own test suite, $PAPERS_SRC only for
-# grepping and for phase 4 — the plan cites Papers files upstream at
+# re-verify the rofd changes we ship (patches/README.md) and to run rofd's own
+# test suite; $PAPERS_SRC only for grepping and for phase 4 — the plan cites
+# Papers files upstream at
 # https://gitlab.gnome.org/GNOME/papers/-/blob/51.1/. Resolution order per
 # checkout:
 #
@@ -219,7 +220,7 @@ else
             ;;
         missing)
             printf '\nrofd sources are needed to re-verify the rofd citations in docs/plan.md\n'
-            printf 'and to maintain patches/. Point $ROFD_SRC (or ROFD_SRC= in local.conf) at\n'
+            printf 'and to maintain the carried rofd changes. Point $ROFD_SRC (or ROFD_SRC= in local.conf) at\n'
             printf 'a checkout of https://github.com/linuxdeepin/rofd, or leave it unset.'
             ;;
     esac
