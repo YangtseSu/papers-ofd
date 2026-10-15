@@ -7,13 +7,15 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
-**Next action: start phase 21 with R5** — teach `scripts/dev-env.sh` to detect
-being sourced under zsh (`ZSH_EVAL_CONTEXT`) and move every `exit` into the
-non-sourced branch, then verify sourcing under bash **and** zsh plus `-h` in both.
-R6, R8, R9, R11, R12, R13 and R16 follow in the same phase.
+**Next action: get the four decisions (Key Questions 7–10) from the user, then
+start phase 22 with R3.** Phases 20 and 21 are complete (2026-10-15): the two
+blockers and the mechanical fixes are in, each with a regression test that failed
+before the change (evidence in `progress.md`). R11 was withdrawn after a probe
+showed rofd publishes one link entry per action.
 
-Phase 20 is complete (2026-10-15): the two blockers are fixed with regression
-tests that failed before the change and pass after it (see `progress.md`).
+Phase 22 (R3 render budget) is blocked on decision Q7; Q8 (fonts) gates phase 24,
+Q9 (concurrency) gates phase 23. Phase 25 (documentation corrections) can run
+without any decision.
 
 Session split agreed 2026-10-15: phase 20 + 21 are one session (blockers plus the
 mechanical fixes), phases 22–24 a second (render budget, concurrency, CI/packaging
@@ -106,10 +108,9 @@ and #12 when convenient.
 
 ## Current Phase
 
-Phase 21 (mechanical robustness fixes R5, R6, R8, R9, R11, R12, R13, R16) —
-starting with R5; phase 20 (blockers R1/R2) is complete. `docs/plan.md` phases 0–3
-stay shipped and accepted, phase 4 (upstream MR) remains the last planned module
-work.
+Phase 22 (render robustness: R3, R14, R15) — blocked on decision Q7; phases 20
+and 21 are complete. `docs/plan.md` phases 0–3 stay shipped and accepted, phase 4
+(upstream MR) remains the last planned module work.
 
 ## Phases
 
@@ -284,16 +285,16 @@ work.
 
 ### Phase 21: Mechanical robustness fixes (R5, R6, R8, R9, R11, R12, R13, R16)
 
-- [ ] R5 `scripts/dev-env.sh`: detect sourcing under zsh (`ZSH_EVAL_CONTEXT`) and move every `exit` into the non-sourced branch; verify sourcing under bash and zsh and `-h` in both
-- [ ] R6 `ofd-discovery-failure`: call `pps_init ()` and assert the `Failed to load backend` message (the positive control stays in the sibling invocation)
-- [ ] R8 outline: a node without its own action inherits the first reachable descendant GOTO; every row then answers `link_page != -1` (fixture gains an actionless grouping node)
-- [ ] R9 `ofd-text` test: classify the linked ABI through the oracle handle, not the module's output; print the model report with `g_print` (or `g_test_init` + `--verbose`) and correct README's claim
-- [ ] R11 links: keep trying later CLICK actions when the first yields no `PpsLinkAction` (fixture: an unresolved GOTO followed by a usable URI)
-- [ ] R12 `dup` → `F_DUPFD_CLOEXEC`; the fd test asserts `FD_CLOEXEC` with `fcntl (F_GETFD)`
-- [ ] R13 clear and drop the reused selection surface on every refusal path of `render_selection`
-- [ ] R16 clear `PPS_DOCUMENT_INFO_PAPER_SIZE` (or omit the array) when any page box is unresolved
-- [ ] Docs updated alongside the code per `AGENTS.md`; `meson test` in both builds
-- **Status:** pending
+- [x] R5 `scripts/dev-env.sh`: detect sourcing under zsh (`ZSH_EVAL_CONTEXT`) and move every `exit` into the non-sourced branch; verified sourcing under bash and zsh and `-h` in both
+- [x] R6 `ofd-discovery-failure`: call `pps_init ()` and assert the `Failed to load backend` message (the positive control stays in the sibling invocation)
+- [x] R8 outline: a node without its own action inherits the first reachable descendant GOTO; every row then answers `link_page != -1` (fixture gained an actionless grouping node)
+- [x] R9 `ofd-text` test: classify the linked ABI through the oracle handle, not the module's output; the report goes to stdout (`g_print`) and README/plan §6 say where it lands
+- [x] R11 links: **withdrawn after probing the ABI** — rofd publishes one entry per action, so the sibling URI action has an entry of its own; the fixture and test now assert that model (5 oracle entries, 4 published mappings)
+- [x] R12 `F_DUPFD_CLOEXEC` for the retained descriptor; the fd test asserts a child cannot see the file with `G_SPAWN_LEAVE_DESCRIPTORS_OPEN`
+- [x] R13 drop the reused selection surface on every refusal path of `render_selection`
+- [x] R16 publish `PAPER_SIZE` (and `N_PAGES`) only when the counts are real
+- [x] Docs updated alongside the code (plan §3 rows, §6, README); `meson test` 13/13 in both builds and `reuse lint` clean
+- **Status:** complete (2026-10-15)
 
 ### Phase 22: Render robustness (R3, R14, R15)
 

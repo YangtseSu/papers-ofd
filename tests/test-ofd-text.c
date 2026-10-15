@@ -1071,36 +1071,61 @@ ink_rows (cairo_surface_t *surface, gint x_from, gint x_to, gint y_from, gint y_
 	return found;
 }
 
-/* Classifies the linked ABI by comparing the first line's layout span with the ink
- * the same library draws for it: TRUE when character geometry follows the font, FALSE
- * when it spreads the glyphs by the font size (a stock 0.4.x library). The measured
- * spans come back through the optional outputs, for logging and for callers that
- * have to relax their pixel checks. */
+/* Classifies the linked ABI by comparing the first line's ABI *layout* span with the
+ * ink the same library draws for it: TRUE when character geometry follows the font,
+ * FALSE when it spreads the glyphs by the font size (a stock 0.4.x library). The
+ * layout is read from rofd directly, not from the module under test, so a
+ * module-side geometry regression cannot move the classifier into the lenient
+ * branch (R9). The measured spans come back through the optional outputs, for the
+ * report and for callers that have to relax their pixel checks. */
 static gboolean
-linked_abi_resolves_font_geometry (PpsDocument *document,
-                                   PpsPage *page,
-                                   rofd_document_t *oracle,
+linked_abi_resolves_font_geometry (rofd_document_t *oracle,
                                    gdouble *layout_span_mm,
                                    gdouble *ink_span_mm)
 {
-	g_autofree PpsRectangle *areas = NULL;
-	guint n_areas = 0;
-	guint line_end = 0;
-	gboolean font_aware;
+	rofd_page_t *page = NULL;
+	rofd_text_layout_t *layout = NULL;
+	rofd_error_t *rerror = NULL;
 	cairo_surface_t *surface;
 	gint x_first = 0, x_last = 0;
+	gdouble first_x = 0.0, last_x = 0.0, line_y = 0.0;
+	gboolean have_first = FALSE;
+	gboolean font_aware;
+	size_t count = 0, i;
 	gdouble layout_mm;
 	gdouble ink_mm;
 
-	g_assert_true (pps_document_text_get_text_layout (PPS_DOCUMENT_TEXT (document),
-	                                                  page, &areas, &n_areas));
+	g_assert_cmpint (rofd_document_get_page (oracle, 0, &page, &rerror), ==,
+	                 ROFD_STATUS_OK);
+	g_assert_cmpint (rofd_page_get_text_layout (page, &layout, &rerror), ==,
+	                 ROFD_STATUS_OK);
+	g_assert_cmpint (rofd_text_layout_get_count (layout, &count, &rerror), ==,
+	                 ROFD_STATUS_OK);
+	g_assert_cmpuint (count, >, 0);
 
-	/* The first line ends at the object separator, which has an empty box. */
-	g_assert_cmpuint (n_areas, >, 1);
-	while (line_end < n_areas && areas[line_end].x2 > areas[line_end].x1)
-		line_end++;
-	g_assert_cmpuint (line_end, >, 0);
-	layout_mm = (areas[line_end - 1].x2 - areas[0].x1) / 72.0 * 25.4;
+	/* The first line's run: characters that carry a box, up to the first empty box
+	 * (the synthesised object separator) or the first character on another line.
+	 * The fixture's page box starts at (0, 0), so rofd's absolute millimetres are
+	 * page coordinates. */
+	for (i = 0; i < count; i++) {
+		rofd_text_char_t character = { 0, };
+
+		character.struct_size = sizeof (character);
+		g_assert_cmpint (rofd_text_layout_get_char (layout, i, &character, &rerror),
+		                 ==, ROFD_STATUS_OK);
+		if (character.rect_mm.width_mm <= 0.0)
+			break;
+		if (!have_first) {
+			first_x = character.rect_mm.x_mm;
+			line_y = character.rect_mm.y_mm;
+			have_first = TRUE;
+		} else if (fabs (character.rect_mm.y_mm - line_y) > 1.0) {
+			break;
+		}
+		last_x = character.rect_mm.x_mm + character.rect_mm.width_mm;
+	}
+	g_assert_true (have_first);
+	layout_mm = last_x - first_x;
 
 	surface = render_with_rofd (oracle, 0);
 	g_assert_nonnull (surface);
@@ -1111,10 +1136,15 @@ linked_abi_resolves_font_geometry (PpsDocument *document,
 	ink_mm = (x_last - x_first) / 72.0 * 25.4;
 	cairo_surface_destroy (surface);
 
+	rofd_text_layout_free (layout);
+	rofd_page_free (page);
+	if (rerror != NULL)
+		rofd_error_free (rerror);
+
 	font_aware = fabs (layout_mm - ink_mm) / ink_mm < 0.25;
-	g_test_message ("first line: layout %.1f mm, ink %.1f mm -> %s geometry",
-	                layout_mm, ink_mm,
-	                font_aware ? "font-resolved" : "font-size footprint");
+	g_print ("first line: ABI layout %.1f mm, ink %.1f mm -> %s geometry\n",
+	         layout_mm, ink_mm,
+	         font_aware ? "font-resolved" : "font-size footprint");
 	if (layout_span_mm != NULL)
 		*layout_span_mm = layout_mm;
 	if (ink_span_mm != NULL)
@@ -1156,8 +1186,8 @@ test_find_rectangles_cover_rendered_ink (const gchar *module_path,
 	                 ==, ROFD_STATUS_OK);
 	g_assert_nonnull (oracle);
 
-	font_aware = linked_abi_resolves_font_geometry (document, page, oracle,
-	                                                &layout_span_mm, &ink_span_mm);
+	font_aware = linked_abi_resolves_font_geometry (oracle, &layout_span_mm,
+	                                                &ink_span_mm);
 
 	/* Glyph boxes tile their run when the advance is resolved: a box that is
 	 * wider than its glyph widens every match rectangle by the overlap. A library
@@ -1189,9 +1219,9 @@ test_find_rectangles_cover_rendered_ink (const gchar *module_path,
 		/* The linked ABI reports a conservative box per scalar instead of the
 		 * font advance for runs without deltas, so its boxes cannot sit on the
 		 * glyphs; the module must still publish a well-formed page space. */
-		g_test_message ("linked rofd reports size-based text geometry: highlight "
-		                "alignment is not checked (our AUR package carries the "
-		                "font-advance fix)");
+		g_print ("linked rofd reports size-based text geometry: highlight "
+		         "alignment is not checked (our AUR package carries the "
+		         "font-advance fix)\n");
 		g_assert_cmpfloat (areas[0].x1, <=, (gdouble) x_first + MM (tolerance_mm));
 		g_assert_cmpfloat (areas[0].x1, >=, (gdouble) x_first - MM (tolerance_mm));
 		g_assert_cmpfloat (layout_span_mm, >=, ink_span_mm);
@@ -1230,8 +1260,8 @@ test_find_rectangles_cover_rendered_ink (const gchar *module_path,
 			/* The match must overlap the drawn glyphs of its own line. */
 			g_assert_cmpfloat (match->x1, <=, (gdouble) x_last + MM (tolerance_mm));
 			g_assert_cmpfloat (match->x2, >=, (gdouble) x_first - MM (tolerance_mm));
-			g_test_message ("\"%s\" at %.1f..%.1f pt vs ink %d..%d px",
-			                queries[i], match->x1, match->x2, x_first, x_last);
+			g_print ("\"%s\" at %.1f..%.1f pt vs ink %d..%d px\n",
+			         queries[i], match->x1, match->x2, x_first, x_last);
 		}
 
 		g_list_free_full (matches, (GDestroyNotify) pps_find_rectangle_free);
@@ -1280,12 +1310,12 @@ test_selection_region_covers_rendered_ink (const gchar *module_path,
 	                 ==, ROFD_STATUS_OK);
 	g_assert_nonnull (oracle);
 
-	if (!linked_abi_resolves_font_geometry (document, page, oracle, NULL, NULL)) {
+	if (!linked_abi_resolves_font_geometry (oracle, NULL, NULL)) {
 		/* A stock 0.4.x library sizes every box by the font size, which stops at
 		 * the baseline, so its regions cannot cover the ink below it. */
-		g_test_message ("linked rofd reports size-based text geometry: vertical "
-		                "coverage is not checked (our AUR package carries the "
-		                "fix)");
+		g_print ("linked rofd reports size-based text geometry: vertical "
+		         "coverage is not checked (our AUR package carries the "
+		         "fix)\n");
 		rofd_document_free (oracle);
 		g_object_unref (page);
 		g_object_unref (document);
@@ -1311,8 +1341,8 @@ test_selection_region_covers_rendered_ink (const gchar *module_path,
 	g_assert_false (cairo_region_is_empty (region));
 
 	cairo_region_get_extents (region, &extents);
-	g_test_message ("second line: ink rows %d..%d, region rows %d..%d at column %d",
-	                y_first, y_last, extents.y, extents.y + extents.height - 1, column);
+	g_print ("second line: ink rows %d..%d, region rows %d..%d at column %d\n",
+	         y_first, y_last, extents.y, extents.y + extents.height - 1, column);
 
 	/* One band per selected logical line, covering the whole first line's width. */
 	g_assert_cmpint (extents.x, <=, x_first);
@@ -1374,8 +1404,8 @@ test_selection_region_covers_rendered_ink (const gchar *module_path,
 			}
 		}
 
-		g_test_message ("paragraph: %d regions, each %d px tall at %.0fx",
-		                count, first_height, scale);
+		g_print ("paragraph: %d regions, each %d px tall at %.0fx\n",
+		         count, first_height, scale);
 		cairo_region_destroy (bands);
 	}
 
@@ -1427,6 +1457,62 @@ test_scan_page (PpsDocument *document)
 	g_assert_true (cairo_region_is_empty (region));
 
 	cairo_region_destroy (region);
+	g_object_unref (page);
+}
+
+/* R13 (review 2026-10-15): the view keeps one selection surface per page and
+ * rebuilds its texture from whatever that surface holds
+ * (libview/pps-pixbuf-cache.c:1054-1068), so a refusal must not leave the
+ * previous selection's pixels behind — it drops the surface instead. */
+static void
+test_render_selection_refusal_drops_surface (PpsDocument *document)
+{
+	PpsPage *page = pps_document_get_page (document, 0);
+	PpsRectangle whole = { 0, };
+	gdouble width_pt = 0.0, height_pt = 0.0;
+	cairo_surface_t *surface = NULL;
+	GdkRGBA text = { 0, };
+	GdkRGBA base = { 0.2, 0.4, 0.6, 0.5 };
+
+	g_assert_nonnull (page);
+	oracle_page_size_pt (document, 0, &width_pt, &height_pt);
+	whole.x2 = width_pt;
+	whole.y2 = height_pt;
+
+	{
+		g_autoptr (PpsRenderContext) rc = pps_render_context_new (page, 0, 1.0,
+		                                                          PPS_RENDER_ANNOTS_NONE);
+
+		pps_selection_render_selection (PPS_SELECTION (document), rc, &surface, &whole,
+		                                NULL, PPS_SELECTION_STYLE_LINE, &text, &base);
+		g_assert_nonnull (surface);
+	}
+
+	/* The same reused surface, now with a rotated context: nothing drawn, and the
+	 * stale pixels must be gone with it. */
+	{
+		g_autoptr (PpsRenderContext) rotated = pps_render_context_new (
+			page, 90, 1.0, PPS_RENDER_ANNOTS_NONE);
+
+		pps_selection_render_selection (PPS_SELECTION (document), rotated, &surface,
+		                                &whole, NULL, PPS_SELECTION_STYLE_LINE,
+		                                &text, &base);
+		g_assert_null (surface);
+	}
+
+	/* And a caller error (no rectangle) is treated the same way. */
+	{
+		g_autoptr (PpsRenderContext) rc = pps_render_context_new (page, 0, 1.0,
+		                                                          PPS_RENDER_ANNOTS_NONE);
+
+		pps_selection_render_selection (PPS_SELECTION (document), rc, &surface, &whole,
+		                                NULL, PPS_SELECTION_STYLE_LINE, &text, &base);
+		g_assert_nonnull (surface);
+		pps_selection_render_selection (PPS_SELECTION (document), rc, &surface, NULL,
+		                                NULL, PPS_SELECTION_STYLE_LINE, &text, &base);
+		g_assert_null (surface);
+	}
+
 	g_object_unref (page);
 }
 
@@ -1556,6 +1642,7 @@ main (int argc, char **argv)
 	test_selection_point_rectangles (text_document);
 	test_selection_region_is_always_a_region (text_document);
 	test_render_selection (text_document, oracle, renderer);
+	test_render_selection_refusal_drops_surface (text_document);
 	test_scan_page (scan_document);
 	test_broken_page (module_path, descriptor_path, mime_xml_path, broken_fixture);
 	test_origin_normalisation (module_path, descriptor_path, mime_xml_path, origin_fixture);

@@ -45,9 +45,10 @@ oracle_page (rofd_document_t *document, gint index)
 	return page;
 }
 
-/* The fixture's outline, as the ABI reports it: four preorder nodes, the first
- * one collapsed, the third one a URI and the fourth resolved through a named
- * bookmark. */
+/* The fixture's outline, as the ABI reports it: six preorder nodes in four
+ * top-level entries, the first one collapsed, the third one a URI, the fourth
+ * resolved through a named bookmark, and the fifth a grouping node without an
+ * action of its own, which inherits the first reachable GOTO of its subtree. */
 static void
 test_outline_model (PpsDocument *document)
 {
@@ -61,10 +62,14 @@ test_outline_model (PpsDocument *document)
 		{ "1.1 详情", TRUE, 1, PPS_LINK_DEST_TYPE_FITH },
 		{ "网站", TRUE, -1, PPS_LINK_DEST_TYPE_UNKNOWN },
 		{ "书签目标", TRUE, 1, PPS_LINK_DEST_TYPE_XYZ },
+		{ "附属内容", TRUE, 1, PPS_LINK_DEST_TYPE_FITV },
+		{ "4.1 附录", TRUE, 1, PPS_LINK_DEST_TYPE_FITV },
 	};
 	g_autoptr (GListModel) model = NULL;
 	PpsOutlines *root;
 	PpsOutlines *child;
+	PpsOutlines *grouped;
+	PpsOutlines *grouped_child;
 	GListModel *children; /* borrowed from root, like the sidebar uses it */
 	guint i;
 
@@ -73,15 +78,15 @@ test_outline_model (PpsDocument *document)
 	model = pps_document_links_get_links_model (PPS_DOCUMENT_LINKS (document));
 	g_assert_nonnull (model);
 
-	/* Three top-level entries; the first one carries the single child. */
-	g_assert_cmpint (g_list_model_get_n_items (model), ==, 3);
-	for (i = 0; i < 3; i++) {
+	/* Four top-level entries; the first and the last carry a child. */
+	g_assert_cmpint (g_list_model_get_n_items (model), ==, 4);
+	for (i = 0; i < 4; i++) {
 		g_autoptr (PpsOutlines) outlines = g_list_model_get_item (model, i);
 		GListModel *node_children; /* borrowed */
 
 		g_assert_true (PPS_IS_OUTLINES (outlines));
 		node_children = pps_outlines_get_children (outlines);
-		if (i == 0) {
+		if (i == 0 || i == 3) {
 			g_assert_nonnull (node_children);
 			g_assert_cmpint (g_list_model_get_n_items (node_children), ==, 1);
 		} else {
@@ -92,14 +97,16 @@ test_outline_model (PpsDocument *document)
 	root = g_list_model_get_item (model, 0);
 	children = pps_outlines_get_children (root);
 	child = g_list_model_get_item (children, 0);
+	grouped = g_list_model_get_item (model, 3);
+	grouped_child = g_list_model_get_item (pps_outlines_get_children (grouped), 0);
 
 	/* Preorder flattening of the tree the fixture declares. */
 	{
 		g_autoptr (PpsOutlines) second = g_list_model_get_item (model, 1);
 		g_autoptr (PpsOutlines) third = g_list_model_get_item (model, 2);
-		PpsOutlines *flat[4] = { root, child, second, third };
+		PpsOutlines *flat[6] = { root, child, second, third, grouped, grouped_child };
 
-		for (i = 0; i < 4; i++) {
+		for (i = 0; i < G_N_ELEMENTS (flat); i++) {
 			g_autofree gchar *markup = NULL;
 			g_autofree gchar *escaped = NULL;
 			PpsLink *link;
@@ -176,6 +183,19 @@ test_outline_model (PpsDocument *document)
 		g_assert_cmpfloat_with_epsilon (value, 1.5, EPSILON);
 	}
 
+	/* The inherited destination is the child's own FitV, coordinates included. */
+	{
+		PpsLink *link = pps_outlines_get_link (grouped);
+		PpsLinkDest *dest = pps_link_action_get_dest (pps_link_get_action (link));
+		gboolean change_left = FALSE;
+		gdouble left = pps_link_dest_get_left (dest, &change_left);
+
+		g_assert_true (change_left);
+		g_assert_cmpfloat_with_epsilon (left, MM (15.0), EPSILON);
+	}
+
+	g_object_unref (grouped_child);
+	g_object_unref (grouped);
 	g_object_unref (child);
 	g_object_unref (root);
 }
@@ -192,6 +212,7 @@ test_page_links (PpsDocument *document, rofd_document_t *oracle)
 	PpsMappingList *links;
 	size_t oracle_count = 0;
 	guint i;
+	guint ours;
 
 	g_assert_nonnull (page);
 
@@ -204,20 +225,23 @@ test_page_links (PpsDocument *document, rofd_document_t *oracle)
 	g_assert_cmpint (rofd_link_list_get_count (oracle_links, &oracle_count, &rerror),
 	                 ==, ROFD_STATUS_OK);
 
-	/* The fixture declares a page-root URI action, an object GOTO and an
-	 * object URI action, in that order. */
-	g_assert_cmpint (oracle_count, ==, 3);
-	g_assert_cmpint (pps_mapping_list_length (links), ==, (gint) oracle_count);
+	/* rofd publishes one link entry per action (every entry carries exactly one
+	 * action here): the page-root URI, the two object actions that resolve, the
+	 * unresolved GOTO and the sibling URI action that object carries. The
+	 * unresolved entry has no page to jump to, so it is dropped instead of
+	 * becoming a link to page zero (plan §3). */
+	g_assert_cmpint (oracle_count, ==, 5);
+	g_assert_cmpint (pps_mapping_list_length (links), ==, 4);
 
-	for (i = 0; i < oracle_count; i++) {
-		PpsMapping *mapping = pps_mapping_list_nth (links, i);
+	for (i = 0, ours = 0; i < oracle_count; i++) {
+		PpsMapping *mapping;
 		PpsLink *link;
 		PpsLinkAction *action;
 		rofd_rect_t region_mm = { 0, };
 		size_t region_count = 0;
 		rofd_action_t oracle_action = { 0, };
+		rofd_destination_t oracle_destination = { 0, };
 
-		g_assert_nonnull (mapping);
 		g_assert_cmpint (rofd_link_list_get_region_count (oracle_links, i, &region_count,
 		                                                  &rerror),
 		                 ==, ROFD_STATUS_OK);
@@ -225,6 +249,26 @@ test_page_links (PpsDocument *document, rofd_document_t *oracle)
 		g_assert_cmpint (rofd_link_list_get_region (oracle_links, i, 0, &region_mm,
 		                                            &rerror),
 		                 ==, ROFD_STATUS_OK);
+
+		oracle_action.struct_size = sizeof (oracle_action);
+		g_assert_cmpint (rofd_link_list_get_action (oracle_links, i, 0, &oracle_action,
+		                                           &rerror),
+		                 ==, ROFD_STATUS_OK);
+		g_assert_cmpint (oracle_action.event, ==, ROFD_ACTION_EVENT_CLICK);
+
+		if (oracle_action.kind == ROFD_ACTION_GOTO) {
+			oracle_destination.struct_size = sizeof (oracle_destination);
+			g_assert_cmpint (rofd_link_list_get_action_destination (oracle_links, i, 0,
+			                                                        &oracle_destination,
+			                                                        &rerror),
+			                 ==, ROFD_STATUS_OK);
+
+			if (!(oracle_destination.flags & ROFD_DESTINATION_HAS_PAGE_INDEX))
+				continue; /* no reachable page: nothing for the module to publish */
+		}
+
+		mapping = pps_mapping_list_nth (links, ours++);
+		g_assert_nonnull (mapping);
 
 		/* D3: absolute millimetres become page points from the top-left. */
 		g_assert_cmpfloat_with_epsilon (mapping->area.x1, MM (region_mm.x_mm), EPSILON);
@@ -234,12 +278,6 @@ test_page_links (PpsDocument *document, rofd_document_t *oracle)
 		g_assert_cmpfloat_with_epsilon (mapping->area.y2,
 		                                MM (region_mm.y_mm + region_mm.height_mm), EPSILON);
 
-		oracle_action.struct_size = sizeof (oracle_action);
-		g_assert_cmpint (rofd_link_list_get_action (oracle_links, i, 0, &oracle_action,
-		                                           &rerror),
-		                 ==, ROFD_STATUS_OK);
-
-		g_assert_cmpint (oracle_action.event, ==, ROFD_ACTION_EVENT_CLICK);
 		link = PPS_LINK (pps_mapping_get_data (mapping));
 		g_assert_nonnull (link);
 		action = pps_link_get_action (link);
@@ -263,30 +301,25 @@ test_page_links (PpsDocument *document, rofd_document_t *oracle)
 			g_assert_nonnull (expected);
 			g_assert_cmpstr (pps_link_action_get_uri (action), ==, expected);
 		} else {
-			rofd_destination_t destination = { 0, };
 			PpsLinkDest *dest;
 			gdouble zoom;
 			gboolean change_zoom = FALSE;
 
-			g_assert_cmpint (oracle_action.kind, ==, ROFD_ACTION_GOTO);
 			g_assert_cmpint (pps_link_action_get_action_type (action),
 			                 ==, PPS_LINK_ACTION_TYPE_GOTO_DEST);
 
-			destination.struct_size = sizeof (destination);
-			g_assert_cmpint (rofd_link_list_get_action_destination (oracle_links, i, 0,
-			                                                        &destination, &rerror),
-			                 ==, ROFD_STATUS_OK);
-
 			dest = pps_link_action_get_dest (action);
 			g_assert_nonnull (dest);
-			g_assert_cmpint (pps_link_dest_get_page (dest), ==, (gint) destination.page_index);
+			g_assert_cmpint (pps_link_dest_get_page (dest), ==,
+			                 (gint) oracle_destination.page_index);
 
 			zoom = pps_link_dest_get_zoom (dest, &change_zoom);
 			g_assert_cmpint (change_zoom, ==,
-			                 (destination.flags & ROFD_DESTINATION_HAS_ZOOM) != 0);
-			g_assert_cmpfloat_with_epsilon (zoom, destination.zoom, EPSILON);
+			                 (oracle_destination.flags & ROFD_DESTINATION_HAS_ZOOM) != 0);
+			g_assert_cmpfloat_with_epsilon (zoom, oracle_destination.zoom, EPSILON);
 		}
 	}
+	g_assert_cmpint ((gint) ours, ==, pps_mapping_list_length (links));
 
 	/* Clicking inside the GOTO box must find the smaller mapping, not the
 	 * full-page URI action behind it. */

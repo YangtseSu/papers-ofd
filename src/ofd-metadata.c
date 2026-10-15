@@ -111,8 +111,13 @@ ofd_metadata_new (rofd_document_t *document,
 	rofd_metadata_t *metadata = NULL;
 	rofd_error_t *rerror = NULL;
 
-	info->n_pages = n_pages;
-	info->fields_mask |= PPS_DOCUMENT_INFO_N_PAGES;
+	/* A negative count means "not loaded"; today it cannot reach here (get_info
+	 * runs after a load), but the bit must not promise a count that does not
+	 * exist (R16). */
+	if (n_pages >= 0) {
+		info->n_pages = n_pages;
+		info->fields_mask |= PPS_DOCUMENT_INFO_N_PAGES;
+	}
 
 	if (page_sizes != NULL && n_pages > 0) {
 		info->page_sizes = g_memdup2 (page_sizes,

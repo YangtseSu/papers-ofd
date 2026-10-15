@@ -14,6 +14,7 @@
 
 #include <rofd.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -348,8 +349,11 @@ ofd_document_load_fd (PpsDocument *document, int fd, GError **error)
 	gint errsv;
 
 	/* Keep a descriptor of our own for the fallback below, and for the document's
-	 * lifetime: rofd opens by path, so the file must stay reachable. */
-	dup_fd = dup (fd);
+	 * lifetime: rofd opens by path, so the file must stay reachable. F_DUPFD_CLOEXEC
+	 * because the copy lives as long as the document and a plain dup () would be
+	 * inherited by every child the shell spawns (Papers' own descriptor handling
+	 * uses the same call, libview/pps-jobs.c:798-811). */
+	dup_fd = fcntl (fd, F_DUPFD_CLOEXEC, 3);
 	if (dup_fd < 0) {
 		errsv = errno;
 		g_set_error (error, G_FILE_ERROR, g_file_error_from_errno (errsv),
@@ -612,8 +616,13 @@ ofd_document_get_info (PpsDocument *document)
 		}
 	}
 
+	/* Publish the paper sizes only when every page resolved: a partial array
+	 * announces 0×0 pages to the properties dialog, which reads the field the bit
+	 * gates (R16). */
 	return ofd_metadata_new (self->rofd_document, self->n_pages,
-	                         resolved > 0 ? sizes : NULL);
+	                         (self->n_pages > 0 && resolved == self->n_pages)
+	                             ? sizes
+	                             : NULL);
 }
 
 static gboolean

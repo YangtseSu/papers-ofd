@@ -290,6 +290,62 @@ test_fd_matches_uri (const gchar *module_path, const gchar *descriptor_path,
 	g_remove (copy_path);
 }
 
+/* R12 (review 2026-10-15): the descriptor the module keeps for the document's
+ * lifetime must not be inherited by a child process — Papers spawns helpers
+ * (print services, URI handlers), and a plain dup () would carry the document
+ * bytes into them, keeping an unlinked file alive. Papers' own descriptor
+ * handling uses F_DUPFD_CLOEXEC (libview/pps-jobs.c:798-811), and the previewer
+ * hands over a descriptor that is not CLOEXEC either. */
+static void
+test_fd_not_inherited_by_children (const gchar *module_path, const gchar *descriptor_path,
+                                   const gchar *mime_xml_path, const gchar *fixture,
+                                   const gchar *scratch_dir)
+{
+	g_autofree gchar *copy_path = NULL;
+	g_autofree gchar *mime_type = NULL;
+	g_autofree gchar *base = NULL;
+	g_autofree gchar *child_fds = NULL;
+	PpsDocument *fd_document;
+	GError *error = NULL;
+	gchar *argv[] = { (gchar *) "sh", (gchar *) "-c",
+	                  (gchar *) "for f in /proc/self/fd/*; do readlink \"$f\" || true; done",
+	                  NULL };
+	gint status = 0;
+	gint fd, handed;
+
+	ofd_test_stage_all (module_path, descriptor_path, mime_xml_path);
+
+	fd = open_fixture_copy (fixture, scratch_dir, "inherit.ofd", &copy_path);
+	mime_type = sniff_mime_type (fd);
+	fd_document = document_for_fd (fd, mime_type);
+
+	/* Hand over a descriptor without FD_CLOEXEC, like the previewer does. */
+	handed = fcntl (fd, F_DUPFD, 3);
+	g_assert_cmpint (handed, >=, 0);
+	g_assert_false (fcntl (handed, F_GETFD) & FD_CLOEXEC);
+	g_assert_true (pps_document_load_fd (fd_document, handed, &error));
+	g_assert_no_error (error);
+
+	base = g_path_get_basename (copy_path);
+	{
+		/* LEAVE_DESCRIPTORS_OPEN, or GLib closes every descriptor above
+		 * stderr in the child and the probe could never see a leak. */
+		gboolean spawned = g_spawn_sync (NULL, argv, NULL,
+		                                 G_SPAWN_SEARCH_PATH | G_SPAWN_LEAVE_DESCRIPTORS_OPEN,
+		                                 NULL, NULL, &child_fds, NULL, &status, &error);
+
+		g_assert_no_error (error);
+		g_assert_true (spawned);
+	}
+	g_assert_cmpint (status, ==, 0);
+	/* What a child process can see must not include the document file. */
+	g_assert_null (g_strstr_len (child_fds, -1, base));
+
+	g_object_unref (fd_document);
+	close (fd);
+	g_remove (copy_path);
+}
+
 /* The previewer opens a temporary copy and unlinks it before Papers gets to the
  * descriptor; /proc/self/fd re-enters the file all the same (plan §3). */
 static void
@@ -557,6 +613,8 @@ main (int argc, char **argv)
 	                     metadata_fixture, scratch_dir);
 	test_fd_of_unlinked_file (module_path, descriptor_path, mime_xml_path,
 	                          text_fixture, scratch_dir);
+	test_fd_not_inherited_by_children (module_path, descriptor_path, mime_xml_path,
+	                                   text_fixture, scratch_dir);
 	test_fd_copy_fallback (module_path, descriptor_path, mime_xml_path,
 	                       text_fixture, scratch_dir);
 	test_fd_rejected_descriptors (scratch_dir);

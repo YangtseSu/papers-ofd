@@ -141,6 +141,22 @@ LINKS_PAGE_0_OBJECTS = """      <ofd:PathObject ID="71" Boundary="40 100 60 20" 
           </ofd:Action>
         </ofd:Actions>
       </ofd:PathObject>
+      <ofd:PathObject ID="73" Boundary="40 180 60 20" Fill="true">
+        <ofd:FillColor Value="0 0 0"/>
+        <ofd:AbbreviatedData>M 0 0 L 60 0 L 60 20 L 0 20 C</ofd:AbbreviatedData>
+        <ofd:Actions>
+          <!-- An unresolved GOTO first (no such page), a usable action second:
+               the link must still be clickable (R11). -->
+          <ofd:Action Event="CLICK">
+            <ofd:Goto>
+              <ofd:Dest Type="Fit" PageID="99"/>
+            </ofd:Goto>
+          </ofd:Action>
+          <ofd:Action Event="CLICK">
+            <ofd:URI URI="https://example.test/fallback-action"/>
+          </ofd:Action>
+        </ofd:Actions>
+      </ofd:PathObject>
 """
 
 LINKS_PAGE_0_ACTIONS = """  <ofd:Actions>
@@ -193,6 +209,19 @@ LINKS_DOCUMENT_TAIL = """  <ofd:Outlines>
           </ofd:Goto>
         </ofd:Action>
       </ofd:Actions>
+    </ofd:OutlineElem>
+    <ofd:OutlineElem ID="104" Title="附属内容">
+      <!-- No action of its own: the row inherits the first reachable GOTO of its
+           subtree, or the sidebar would read page -1 for it (R8). -->
+      <ofd:OutlineElem ID="105" Title="4.1 附录">
+        <ofd:Actions>
+          <ofd:Action Event="CLICK">
+            <ofd:Goto>
+              <ofd:Dest Type="FitV" PageID="2" Left="15"/>
+            </ofd:Goto>
+          </ofd:Action>
+        </ofd:Actions>
+      </ofd:OutlineElem>
     </ofd:OutlineElem>
   </ofd:Outlines>
   <ofd:Bookmarks>
@@ -415,7 +444,7 @@ def fixture_spec(kind, count):
         return {"pages": [page(ORIGIN_BOX, ORIGIN_TEXT_OBJECTS)],
                 "max_unit": 92, "font_catalog": True}
     if kind == "links":
-        return {"pages": links_pages(), "max_unit": 103, "font_catalog": True,
+        return {"pages": links_pages(), "max_unit": 106, "font_catalog": True,
                 "document_tail": LINKS_DOCUMENT_TAIL}
     if kind == "broken-page":
         return {"pages": [page(A4, text_object(81, "20 30 120 10",

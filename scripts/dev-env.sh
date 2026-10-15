@@ -8,6 +8,9 @@
 #   scripts/dev-env.sh      # print the resolution table; non-zero exit when the ABI is unresolved
 #   scripts/dev-env.sh -h   # this help
 #
+# Sourcing is supported from bash and zsh: the script exports the variables and
+# hands control back without ending the caller's shell.
+#
 # The ABI comes from the installed librofd-ffi package or from a built checkout;
 # neither checkout is a build requirement. $ROFD_SRC is needed to carry or
 # re-verify the rofd changes we ship (patches/README.md) and to run rofd's own
@@ -32,7 +35,15 @@
 _papers_ofd_self=${BASH_SOURCE[0]:-$0}
 _papers_ofd_root=$(cd -- "$(dirname -- "$_papers_ofd_self")/.." && pwd)
 _papers_ofd_sourced=0
-[ "$_papers_ofd_self" != "$0" ] && _papers_ofd_sourced=1
+# Sourced, not executed. bash and ksh report it through BASH_SOURCE differing
+# from $0; zsh sets $0 to the sourced file, so that comparison says "executed"
+# and the exits below would end the caller's shell — ZSH_EVAL_CONTEXT carries the
+# answer there (`toplevel:file` when sourced, `toplevel` when executed). Sourcing
+# is supported from those two shells; a bare POSIX sh cannot be told apart.
+case "${ZSH_EVAL_CONTEXT:-}" in
+    *:file) _papers_ofd_sourced=1 ;;
+    *) [ "${BASH_SOURCE[0]:-$0}" != "$0" ] && _papers_ofd_sourced=1 ;;
+esac
 
 _papers_ofd_usage() {
     awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' \
@@ -62,6 +73,7 @@ _papers_ofd_row() {
 case "${1:-}" in
     -h|--help)
         _papers_ofd_usage
+        [ "$_papers_ofd_sourced" = 1 ] && return 0
         exit 0
         ;;
 esac
@@ -242,9 +254,11 @@ fi
 export PAPERS_SRC ROFD_SRC ROFD_INCLUDEDIR ROFD_LIBDIR
 export PAPERS_SRC_STATUS ROFD_SRC_STATUS ROFD_ABI_SOURCE
 
-if [ "$_papers_ofd_sourced" = 0 ]; then
-    if [ -f "$ROFD_HEADER" ] && [ -e "$ROFD_LIBRARY" ]; then
-        exit 0
-    fi
-    exit 1
-fi
+# Sourced: hand control back without touching the caller's shell (a bare POSIX sh
+# is not detected above, so this must not `exit` — a wrong `return` is a no-op
+# here only because the detection is exact in bash and zsh).
+[ "$_papers_ofd_sourced" = 1 ] && return 0
+
+# Executed: the status of the last command is the script's answer — non-zero when
+# neither a checkout nor the installed package provides the ABI (README).
+[ -f "$ROFD_HEADER" ] && [ -e "$ROFD_LIBRARY" ]

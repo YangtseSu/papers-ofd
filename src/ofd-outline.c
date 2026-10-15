@@ -131,6 +131,8 @@ ofd_outline_get_links_model (OfdDocument *self)
 	rofd_error_t *rerror = NULL;
 	GListStore *root = NULL;
 	GListStore **children_stores = NULL;
+	rofd_outline_node_t *nodes = NULL;
+	PpsLinkAction **actions = NULL;
 	size_t count = 0;
 	size_t i;
 	GListModel *model = NULL;
@@ -156,57 +158,85 @@ ofd_outline_get_links_model (OfdDocument *self)
 	if (count == 0)
 		goto out;
 
-	root = g_list_store_new (PPS_TYPE_OUTLINES);
-	children_stores = g_new0 (GListStore *, count);
-
+	/* The whole snapshot first: the action a row activates with can come from a
+	 * descendant, which the reverse pass below needs to resolve. */
+	nodes = g_new0 (rofd_outline_node_t, count);
 	for (i = 0; i < count; i++) {
-		rofd_outline_node_t node = { 0, };
-		PpsLinkAction *link_action;
-		PpsOutlines *outlines;
-		PpsLink *link;
-		g_autofree gchar *markup = NULL;
-		GListStore *parent_store;
-
-		node.struct_size = sizeof (node);
-		if (rofd_outline_get_node (outline, i, &node, &rerror) != ROFD_STATUS_OK) {
+		nodes[i].struct_size = sizeof (nodes[i]);
+		if (rofd_outline_get_node (outline, i, &nodes[i], &rerror) != ROFD_STATUS_OK) {
 			g_debug ("outline node %zu failed: %s", i,
 			         rerror != NULL ? rofd_error_get_message (rerror) : "unknown error");
 			goto out;
 		}
 		ofd_outline_clear_error (&rerror);
+	}
 
-		if (node.parent == ROFD_NO_INDEX) {
+	/* The action per row, resolved in reverse preorder so a node's subtree answer
+	 * is known before the node itself: a row without an action of its own
+	 * inherits the first reachable one below it. The sidebar dereferences every
+	 * row's link and reads its page, and -1 for a grouping node would print the
+	 * whole document from page 1 and collide on usize::MAX in its page map (R8;
+	 * shell/src/sidebar_links.rs:686,548-551,748; the PDF backend skips
+	 * actionless entries outright, pps-poppler.c:1292-1297). */
+	actions = g_new0 (PpsLinkAction *, count);
+	for (i = count; i > 0; i--) {
+		size_t index = i - 1;
+		size_t child;
+
+		actions[index] = ofd_outline_node_action (self, outline, index, &nodes[index]);
+		if (actions[index] != NULL)
+			continue;
+
+		/* Children follow their parent in preorder and share its parent link. */
+		for (child = nodes[index].first_child;
+		     child != ROFD_NO_INDEX && child < count && nodes[child].parent == index;
+		     child = nodes[child].next_sibling) {
+			if (actions[child] != NULL) {
+				actions[index] = g_object_ref (actions[child]);
+				break;
+			}
+		}
+	}
+
+	root = g_list_store_new (PPS_TYPE_OUTLINES);
+	children_stores = g_new0 (GListStore *, count);
+
+	for (i = 0; i < count; i++) {
+		const rofd_outline_node_t *node = &nodes[i];
+		PpsOutlines *outlines;
+		PpsLink *link;
+		g_autofree gchar *markup = NULL;
+		GListStore *parent_store;
+
+		if (node->parent == ROFD_NO_INDEX) {
 			parent_store = root;
 		} else {
 			/* Preorder guarantees that a parent was visited already; a
 			 * violation means malformed relations, and the node is kept
 			 * visible as a root instead of being dropped. */
-			if (node.parent >= i || children_stores[node.parent] == NULL)
+			if (node->parent >= i || children_stores[node->parent] == NULL)
 				g_debug ("outline node %zu has unusable parent %zu; showing it at "
-				         "the top level", i, node.parent);
-			parent_store = node.parent < i ? children_stores[node.parent] : NULL;
+				         "the top level", i, node->parent);
+			parent_store = node->parent < i ? children_stores[node->parent] : NULL;
 			if (parent_store == NULL)
 				parent_store = root;
 		}
 
-		link_action = ofd_outline_node_action (self, outline, i, &node);
-		link = pps_link_new (node.title, link_action);
-		if (link_action != NULL)
-			g_object_unref (link_action);
+		link = pps_link_new (node->title, actions[i]);
 
-		markup = node.title != NULL ? g_markup_escape_text (node.title, -1) : NULL;
+		markup = node->title != NULL ? g_markup_escape_text (node->title, -1) : NULL;
 
 		/* pps_outlines_new is declared but not exported either (A21); the type is
 		 * a plain final GObject. */
 		outlines = g_object_new (PPS_TYPE_OUTLINES, NULL);
 		pps_outlines_set_markup (outlines, markup != NULL ? markup : "");
-		pps_outlines_set_expand (outlines, node.expanded != 0);
+		pps_outlines_set_expand (outlines, node->expanded != 0);
 		/* pps_outlines_set_link is declared but not defined (A21); the "link"
 		 * property takes its own reference, so g_object_set is the usable path. */
 		g_object_set (outlines, "link", link, NULL);
 		g_object_unref (link);
 
-		if (node.first_child != ROFD_NO_INDEX) {
+		if (node->first_child != ROFD_NO_INDEX && node->first_child < count) {
 			children_stores[i] = g_list_store_new (PPS_TYPE_OUTLINES);
 			pps_outlines_set_children (outlines, G_LIST_MODEL (children_stores[i]));
 		}
@@ -219,6 +249,12 @@ ofd_outline_get_links_model (OfdDocument *self)
 
 out:
 	ofd_outline_clear_error (&rerror);
+	if (actions != NULL) {
+		for (i = 0; i < count; i++)
+			g_clear_object (&actions[i]);
+		g_free (actions);
+	}
+	g_free (nodes);
 	if (root != NULL)
 		g_object_unref (root);
 	if (children_stores != NULL) {

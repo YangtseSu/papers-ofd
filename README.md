@@ -136,7 +136,10 @@ papers-previewer --fd 3 3< "$ROFD_SRC/learning/test.ofd"
 `scripts/dev-env.sh` prints the resolution table on its own
 (`PAPERS_SRC`, `ROFD_SRC`, `ROFD_INCLUDEDIR`, `ROFD_LIBDIR`, the ABI tier in use)
 and exits non-zero when neither the installed package nor a checkout provides the
-ABI. Fixtures named in `docs/plan.md` §6 live under `$ROFD_SRC`.
+ABI. Sourcing it (`. scripts/dev-env.sh`) exports those variables; bash and zsh are
+supported and the script hands control back without ending the caller's shell.
+
+Fixtures named in `docs/plan.md` §6 live under `$ROFD_SRC`.
 
 `PPS_BACKENDS_DIR` replaces the whole backend directory: keep the system
 `.papers-backend` files present (as above) or PDF/DjVu/TIFF stop working for that
@@ -225,7 +228,11 @@ patch-free vs patch-the-desktop tradeoff:
   font size instead, so search highlights, caret positions and selection regions on
   such text can sit right of the glyphs, and the box stops at the baseline, leaving the
   bottom of the text (CJK overshoot, Latin descenders) unhighlighted. Everything else is
-  unaffected, and `meson test` reports which model the linked library uses.
+  unaffected, and the test reports which model the linked library uses: the line
+  `first line: ABI layout … mm, ink … mm -> font-resolved|font-size footprint
+  geometry` is printed to stdout by `ofd-text`, so it lands in
+  `_build/meson-logs/testlog.txt` (or on screen with
+  `meson test -C _build --print-errorlogs`).
 - The space-bar preview needs the shipped Sushi plugin, which depends on Sushi
   internals (its plugin directory, the document renderer's content-type list).
   It is removed together with the plugin once Papers lists `application/ofd` in

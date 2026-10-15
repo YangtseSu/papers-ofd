@@ -208,6 +208,10 @@ ofd_links_get_links (OfdDocument *self, PpsPage *page)
 				ofd_links_clear_error (&rerror);
 			}
 
+			/* rofd publishes one entry per action (probed: every entry has
+			 * action_count 1), so this is the entry's only chance to be a link;
+			 * an unresolved GOTO is dropped below rather than read as page zero
+			 * (plan §3). */
 			found = TRUE;
 		}
 

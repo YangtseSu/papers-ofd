@@ -128,32 +128,71 @@ test_geometry_document (PpsDocument *document)
 	pps_document_info_free (info);
 }
 
+/* R16 (review 2026-10-15): a document whose page boxes do not all resolve must
+ * not announce a paper size — `PPS_DOCUMENT_INFO_PAPER_SIZE` gates the array the
+ * properties dialog reads, and a page that never resolved sat in it as 0×0. The
+ * invariant is asserted rather than the per-build outcome: the metadata-only
+ * query resolves this fixture's broken page, the per-page fallback cannot parse
+ * it. */
+static void
+test_partial_geometry_document (PpsDocument *document)
+{
+	PpsDocumentInfo *info;
+	gint i;
+
+	pps_document_setup_cache (document);
+	info = pps_document_get_info (document);
+	g_assert_nonnull (info);
+	g_assert_cmpint (info->n_pages, ==, 2);
+
+	if (info->fields_mask & PPS_DOCUMENT_INFO_PAPER_SIZE) {
+		g_assert_nonnull (info->page_sizes);
+
+		for (i = 0; i < info->n_pages; i++) {
+			g_assert_cmpfloat (info->page_sizes[i].width, >, 0.0);
+			g_assert_cmpfloat (info->page_sizes[i].height, >, 0.0);
+		}
+	} else {
+		/* No published sizes means the dialog hides the paper-size row; what it
+		 * must never do is read a zero entry as a real size. */
+		g_assert_null (info->page_sizes);
+	}
+
+	pps_document_info_free (info);
+}
+
 int
 main (int argc, char **argv)
 {
 	g_autofree gchar *metadata = NULL;
 	g_autofree gchar *geometry = NULL;
+	g_autofree gchar *broken = NULL;
 	PpsDocument *metadata_document;
 	PpsDocument *geometry_document;
+	PpsDocument *broken_document;
 
-	if (argc < 6) {
+	if (argc < 7) {
 		g_printerr ("usage: %s <module> <descriptor> <mime-xml> <metadata.ofd> "
-		            "<geometry-3pages.ofd>\n",
+		            "<geometry-3pages.ofd> <broken-page-2pages.ofd>\n",
 		            argv[0]);
 		return 2;
 	}
 
 	metadata = g_canonicalize_filename (argv[4], NULL);
 	geometry = g_canonicalize_filename (argv[5], NULL);
+	broken = g_canonicalize_filename (argv[6], NULL);
 
 	metadata_document = ofd_test_load_fixture (argv[1], argv[2], argv[3], metadata);
 	geometry_document = ofd_test_load_fixture (argv[1], argv[2], argv[3], geometry);
+	broken_document = ofd_test_load_fixture (argv[1], argv[2], argv[3], broken);
 
 	test_metadata_document (metadata_document);
 	test_geometry_document (geometry_document);
+	test_partial_geometry_document (broken_document);
 
 	g_object_unref (metadata_document);
 	g_object_unref (geometry_document);
+	g_object_unref (broken_document);
 	ofd_test_cleanup ();
 
 	g_print ("phase-1 metadata fields and fields_mask checks passed\n");

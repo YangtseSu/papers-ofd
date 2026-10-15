@@ -385,6 +385,20 @@ ofd_text_get_text_attrs (PpsDocumentText *document_text, PpsPage *page)
 	return NULL;
 }
 
+/* The view keeps one selection surface per page and rebuilds its texture from
+ * whatever that surface holds (libview/pps-pixbuf-cache.c:1054-1068), so a
+ * refusal has to drop the previous selection's pixels instead of leaving them to
+ * be drawn as a highlight over a page the selection does not belong to (R13). */
+static void
+ofd_selection_drop_surface (cairo_surface_t **surface)
+{
+	if (surface == NULL || *surface == NULL)
+		return;
+
+	cairo_surface_destroy (*surface);
+	*surface = NULL;
+}
+
 void
 ofd_selection_render_selection (PpsSelection *selection,
                                 PpsRenderContext *rc,
@@ -413,24 +427,34 @@ ofd_selection_render_selection (PpsSelection *selection,
 	(void) old_points;
 	(void) text;
 
-	if (surface == NULL || points == NULL || base == NULL)
+	if (surface == NULL)
 		return;
+	if (points == NULL || base == NULL) {
+		ofd_selection_drop_surface (surface);
+		return;
+	}
 
-	if (!ofd_text_context_unrotated (rc) || rc->page == NULL)
+	if (!ofd_text_context_unrotated (rc) || rc->page == NULL) {
+		ofd_selection_drop_surface (surface);
 		return;
+	}
 
-	if (!ofd_page_ref_acquire (OFD_DOCUMENT (PPS_DOCUMENT (selection)), rc->page, &page_ref))
+	if (!ofd_page_ref_acquire (OFD_DOCUMENT (PPS_DOCUMENT (selection)), rc->page, &page_ref)) {
+		ofd_selection_drop_surface (surface);
 		return;
+	}
 
 	if (!ofd_text_pixel_scales (&page_ref, rc, &canvas_width, &canvas_height,
 	                           &scale_x, &scale_y)) {
 		ofd_page_ref_release (&page_ref);
+		ofd_selection_drop_surface (surface);
 		return;
 	}
 
 	rofd_selection = ofd_text_select (&page_ref, style, points);
 	if (rofd_selection == NULL) {
 		ofd_page_ref_release (&page_ref);
+		ofd_selection_drop_surface (surface);
 		return;
 	}
 

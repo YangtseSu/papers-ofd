@@ -334,11 +334,17 @@ without a `test()` registration. Also `meson.build:39-52` reports an *old*
 `rofd-ffi.pc` as "not found", and the real floor (0.4.3 / 0.4.3-6) is only
 documented.
 
-**R11 (medium, code evidence) — page links consider only the first CLICK
-action.** `src/ofd-links.c:200-240` stops after the first `ROFD_ACTION_EVENT_CLICK`
-even when `ofd_link_action_from_rofd` returns NULL (unresolved GOTO), dropping a
-link a later action could serve; `ofd_outline_node_action`
-(`src/ofd-outline.c:16-70`) loops until one resolves. Fix: keep looping.
+**R11 (not a defect — probed and withdrawn)** An earlier reading of the code
+suggested that a link whose first CLICK action is an unresolved GOTO is dropped
+even though a later action could serve it. A probe of the ABI over the fixture
+shows rofd publishes **one entry per action** (every entry reports
+`action_count == 1`), so the sibling URI action gets an entry of its own and is
+published; the unresolved entry is dropped, which is the documented rule ("an
+unresolved GOTO yields no link instead of page zero"). The fixture and the test
+now assert exactly that model: five oracle entries, four published mappings, the
+unresolved entry skipped and the sibling URI compared against its own entry.
+No code change was needed (a defensive "keep looking" loop was written, found
+unreachable, and reverted).
 
 **R12 (low, code evidence) — `dup ()` without `FD_CLOEXEC`.**
 `src/ofd-document.c:352`; the descriptor is kept for the document's lifetime, so
@@ -398,3 +404,25 @@ install); `README.md`'s descriptor snippet says
 exist and omits `scripts/`, `patches/`, `.github/` and the Sushi plugin;
 `README.md`'s "~120 ms" open-latency limitation matches the *fallback* build
 (the fast build, which ships, measures ~139 ms with the metadata walk included).
+
+### Closed by phases 20–21 (2026-10-15)
+
+Each item below carries a regression test that failed before the change; the
+run-by-run evidence is in `progress.md`.
+
+| Item | Fix | Test that failed before |
+| --- | --- | --- |
+| R1 | point queries widened to a 0.02 mm hair box in `ofd_text_select_mm` | `test_selection_point_rectangles` (`strlen (point_glyph) >= 1`) |
+| R2 | every refusal of `get_selection_region` returns an empty region | `test_selection_region_is_always_a_region` + `test_broken_page` |
+| R5 | `dev-env.sh` detects zsh sourcing and never `exit`s in the caller | shell matrix (bash/zsh × source/`-h`/execute) |
+| R6 | `ofd-discovery-failure` calls `pps_init ()` and asserts the discovery message | the new `Failed to load backend` assertion |
+| R8 | an actionless outline row inherits its subtree's first reachable GOTO | `test_outline_model` (`action` should not be NULL) |
+| R9 | the ABI classifier reads the layout through rofd, the report goes to stdout | code-level (the classifier can no longer be moved by the module) |
+| R12 | `F_DUPFD_CLOEXEC` for the retained descriptor | `test_fd_not_inherited_by_children` (child saw the document file) |
+| R13 | a refusal drops the reused selection surface | `test_render_selection_refusal_drops_surface` (`surface` should be NULL) |
+| R16 | `PAPER_SIZE` only when every page box resolved | `test_partial_geometry_document` (`width > 0.0`) |
+| R11 | withdrawn after probing the ABI (see above) | — |
+
+Still open: R3 (render budget, needs decision Q7), R4 (font dependency, Q8), R7
+(concurrency, Q9), R10 (CI parity), R14, R15, R17, R18 and the documentation
+items of R19.

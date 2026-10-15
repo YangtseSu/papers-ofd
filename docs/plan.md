@@ -110,7 +110,7 @@ Full mapping (Papers vfunc → rofd call → rule):
 | vfunc | rofd | Rule |
 | --- | --- | --- |
 | `load(uri)` | `g_file_get_path` → `rofd_document_open` | non-local URI → `G_IO_ERROR_NOT_SUPPORTED`; check `rofd_abi_version()` against the header's `ROFD_ABI_VERSION`; keep the document handle |
-| `load_fd(fd)` | `dup(fd)` → `rofd_document_open("/proc/self/fd/<dup>")` | fall back to a temp copy in `g_get_user_cache_dir()/papers-ofd/`; unlink at finalize; base class already proved `S_ISREG` |
+| `load_fd(fd)` | `fcntl(fd, F_DUPFD_CLOEXEC, 3)` → `rofd_document_open("/proc/self/fd/<dup>")` | fall back to a temp copy in `g_get_user_cache_dir()/papers-ofd/`; unlink at finalize; base class already proved `S_ISREG`. The copy is CLOEXEC like Papers' own descriptor handling (`libview/pps-jobs.c:798-811`), so a child the shell spawns cannot inherit the document file |
 | `save(uri)` | — | refusal stub: `FALSE` + `G_IO_ERROR_NOT_SUPPORTED` (unguarded upstream) |
 | `get_n_pages` | `rofd_document_get_page_count` | cached at load |
 | `get_page(i)` | `rofd_document_get_page(i)` | `pps_page_new(i)` + attach handle (D1) |
@@ -118,7 +118,7 @@ Full mapping (Papers vfunc → rofd call → rule):
 | `get_page_label` | — | left NULL (base class prints `"%d"`) |
 | `render(rc)` | `rofd_renderer_render_page_cairo` | §4 |
 | `get_thumbnail` / `get_thumbnail_surface` | — | left NULL (base class falls back to `render`) |
-| `get_info` | `rofd_document_get_metadata` + `rofd_metadata_get_keyword` | map title/author/subject/keywords/creator/producer/dates; OR the "`PPS_DOCUMENT_INFO_*`" bits into `fields_mask` |
+| `get_info` | `rofd_document_get_metadata` + `rofd_metadata_get_keyword` | map title/author/subject/keywords/creator/producer/dates; OR the "`PPS_DOCUMENT_INFO_*`" bits into `fields_mask`. `N_PAGES` only for a non-negative count, and `PAPER_SIZE` only when **every** page box resolved — a partial array would announce 0×0 pages to the properties dialog, which reads exactly the field the bit gates |
 | `get_backend_info` | `rofd_library_version()` | `name = "rofd"` (static string); version borrowed (static storage) |
 | *Print* `print_page` | `rofd_renderer_render_page_cairo` | `dpi=72, scale=1, rotation=0` into the borrowed `cairo_t` (**required**, unguarded upstream) |
 | *Text* `get_text` | `rofd_page_get_text` | copy via `rofd_string_get_data`, then free; `NULL` when the query fails, so `get_text` and `get_text_layout` always agree on whether the page has text |
@@ -130,10 +130,10 @@ Full mapping (Papers vfunc → rofd call → rule):
 | *Find* `find_text` | `rofd_page_find_text_with_options` | one `PpsFindRectangle` per match, `next_line = after_hyphen = FALSE`; `max_results = 4096` (`OFD_FIND_MAX_RESULTS_PER_PAGE`: the ABI rejects 0 and the search context has no cap of its own) — **unguarded upstream**, returns NULL for an empty query or no match |
 | *Selection* `get_selected_text` | `rofd_page_get_selected_text` | selection style maps 1:1 (GLYPH/WORD/LINE) — **unguarded upstream**, returns an empty string rather than NULL for a page it cannot query. A query degenerate on either axis is a *point*, which is what a double/triple click and a scroll increment hand over (`libview/pps-view.c:4235-4249,920-931`); rofd's hit test is a strict positive-area overlap, so the module widens it to a 0.02 mm hair box centred on the point and the point then selects the glyph, word or line it sits on |
 | *Selection* `get_selection_region` | same call, region rects | mm→pt (origin-normalized), scaled by rofd's canvas size over the page size, rounded into a `cairo_region_t` in device pixels; **always a region** — empty when the selection is declined or unavailable — because Papers dereferences the answer without a check (`libview/pps-view.c:925-931`) and cairo's region accessors dereference unconditionally |
-| *Selection* `render_selection` | same call | fill the region rects with `base` into an ARGB32 surface sized by rofd (`ofd_render_page_canvas_size`), cleared first because the view reuses it; ABI has no text mask, so the glyph recolour pass cannot be reproduced |
+| *Selection* `render_selection` | same call | fill the region rects with `base` into an ARGB32 surface sized by rofd (`ofd_render_page_canvas_size`), cleared first because the view reuses it; a refusal (rotated context, unusable page, failed query) drops that surface instead of leaving the previous selection's pixels for the view to rebuild its texture from. ABI has no text mask, so the glyph recolour pass cannot be reproduced |
 | *Selection* any | — | rotation ≠ 0 → nothing drawn / no region: Papers refuses to start a selection on a rotated page ("Selection in rotated documents has never worked", `libview/pps-view.c:4512`), and the mapping is unrotated page points → canvas. `render_selection` draws nothing and `get_selection_region` answers an empty region — never NULL, because `compute_scroll_increment` reads the region without a NULL check (`libview/pps-view.c:925-931`) |
 | *Links* `has_document_links` | `rofd_document_get_outline` | outline count > 0 |
-| *Links* `get_links_model` | outline snapshot | `GListStore` of `PpsOutlines`, rebuilt from `parent`/`first_child`/`next_sibling` (one children store per node that has children), `NULL` when there is no outline like the PDF backend; `set_expand(node.expanded)`; every node gets a `PpsLink` (the sidebar dereferences the selected row's link), whose action is the first usable GOTO/URI — a node without one keeps an actionless link |
+| *Links* `get_links_model` | outline snapshot | `GListStore` of `PpsOutlines`, rebuilt from `parent`/`first_child`/`next_sibling` (one children store per node that has children), `NULL` when there is no outline like the PDF backend; `set_expand(node.expanded)`; every node gets a `PpsLink` (the sidebar dereferences the selected row's link), whose action is the first usable GOTO/URI of its own, or — when it has none — the first reachable one in its subtree (reverse-preorder pass). An actionless row is never published: `pps_document_links_get_link_page` answers -1 for it, which the sidebar turns into "print from page 1" and a `usize::MAX` page-map key (`shell/src/sidebar_links.rs:686,548-551,748`); the PDF backend skips such entries outright (`pps-poppler.c:1292-1297`) |
 | *Links* `get_links` | `rofd_page_get_links` | one `PpsMapping` per region of the first `ROFD_ACTION_EVENT_CLICK` action, in rofd's source order; `GOTO`→`pps_link_dest_new_*` (skipped when the destination has no resolved page), `URI`→`pps_link_action_new_external_uri`; attachment/unknown kinds skipped; `NULL` when the page handle is unusable |
 | *Links* destinations | `rofd_*_get_action_destination` | coordinates are absolute in the **target** page's space, so they are re-based on that page's box origin (D3); presence bits become `change_left`/`change_top`; zoom becomes `change_zoom` only when the ABI reports it and it is non-zero (GB/T 33190 table 54: zero/absent keeps the current zoom); an unresolved GOTO yields no link instead of page zero |
 | *Links* URIs | `rofd_action_t.uri` / `.uri_base` | rofd preserves both unresolved; the module resolves a relative URI against `Base` with `g_uri_resolve_relative` (the shell hands the string to the desktop), falling back to the raw string when resolution fails |
@@ -589,7 +589,11 @@ meson compile -C _build && meson test -C _build
 # highlight margin: it must cover the ink of its own line, stick out above and below it,
 # and keep one height per paragraph (A27). That needs librofd-ffi >= 0.4.3-6 (or a build
 # of the fork branch); an older library is reported instead of failing silently, and a
-# stock one is classified as size-based footprint geometry. ofd-fd drives the previewer's path (MIME sniffing from the
+# stock one is classified as size-based footprint geometry. The classification reads the
+# layout through rofd itself, not through the module, so a module-side geometry
+# regression cannot move it into the lenient branch, and the verdict is printed to
+# stdout (`first line: ABI layout … mm, ink … mm -> … geometry`), which `meson test`
+# collects into `_build/meson-logs/testlog.txt`. ofd-fd drives the previewer's path (MIME sniffing from the
 # descriptor, pps_document_factory_get_document_for_fd, pps_document_load_fd) and
 # compares the result with the URI document pixel by pixel; it sets XDG_CACHE_HOME
 # to a scratch directory to watch the temp-copy fallback (A25) come and go.

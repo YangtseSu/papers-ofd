@@ -1537,3 +1537,107 @@ it, then the whole suite in both page-size builds.
   row says the refusal is an empty region, not NULL.
 - Still open: the optional GUI pass (double-click/triple-click/Ctrl+C and PageDown
   after a rotation) — the live session was not part of this run.
+
+## 2026-10-15 (later): phase 21 — the mechanical robustness fixes
+
+Every change below was written as a test first and observed failing, then fixed
+and observed passing; the full suite is 13/13 in `_build` and `_build-slow` at the
+end, `reuse lint` is clean.
+
+### R5 — `scripts/dev-env.sh` killed the caller's shell under zsh
+
+- Evidence before: `zsh -c 'echo B; . ./scripts/dev-env.sh; echo A'` printed only
+  `B` (the script's `exit` ran inside the caller and nothing was exported);
+  `bash -c '. scripts/dev-env.sh -h; echo A'` printed only `A`'s absence for the
+  same reason.
+- Fix: sourcing is detected from `ZSH_EVAL_CONTEXT` (`*:file`) or a `BASH_SOURCE`
+  that differs from `$0`; the `-h` branch returns when sourced; the tail no longer
+  `exit`s at all — the script's status is the last command's status, so
+  `scripts/dev-env.sh` still answers 0/1 while a sourced run only sets `$?`.
+
+### R6 — the deliberate discovery failure asserted nothing
+
+- Evidence before: with a *valid* descriptor, a probe without `pps_init ()` also
+  answered `File type … is not supported` — the same error the test accepted from a
+  broken `Module=`.
+- Fix: `pps_init ()` after `PPS_BACKENDS_DIR` is staged, and the error must contain
+  `Failed to load backend`, which only the module-open path produces (probe:
+  broken `Module=` + init → `Failed to load backend for 'application/ofd'`; valid
+  descriptor + init → document returned).
+
+### R8 — an actionless outline row reported page -1
+
+- Evidence before: the fixture's new grouping node made
+  `tests/test-ofd-links.c:125` fail (`'action' should not be NULL`), because
+  `pps_document_links_get_link_page` answers -1 for an actionless link, which the
+  sidebar turns into "print from page 1" (`sidebar_links.rs:686`) and a
+  `usize::MAX` page-map key (`:548-551`).
+- Fix: `ofd-outline.c` caches the node snapshot, resolves each row's action in a
+  reverse-preorder pass (own action, else the first child whose subtree has one),
+  and the model is built from that cache. The fixture gained a grouping node
+  ("附属内容" with child "4.1 附录", FitV page 2 left 15) and the test asserts both
+  rows navigate to page 1 with the child's coordinates.
+
+### R9 — the ABI classifier could be moved by the code it classifies
+
+- Fix: `linked_abi_resolves_font_geometry` now reads the first line's span through
+  `rofd_page_get_text_layout` on the oracle handle instead of the module's
+  `get_text_layout`, and the verdict is printed with `g_print`
+  (`first line: ABI layout 28.7 mm, ink 28.2 mm -> font-resolved geometry`), which
+  `meson test` collects into `_build/meson-logs/testlog.txt` — the old
+  `g_test_message` calls were no-ops without `g_test_init`, which this program
+  cannot call (it takes positional arguments). README and plan §6 corrected.
+
+### R11 — withdrawn after probing the ABI
+
+- Probe (`/tmp/rev/linkprobe.c`, plain rofd.h): the links fixture reports five
+  entries, **each with `action_count == 1`** — rofd publishes one entry per action,
+  so the object whose first action is an unresolved GOTO still has its URI action
+  published as its own entry (`entry 4 … uri=https://example.test/fallback-action`),
+  and the unresolved entry (`page=18446744073709551615`, no `HAS_PAGE_INDEX`) is
+  dropped, which is the documented rule.
+- A defensive "keep scanning actions within an entry" loop was written, found
+  unreachable (no fixture can produce `action_count > 1`), and reverted; the
+  comment in `ofd-links.c` records the probed model. The fixture and test now
+  assert it: 5 oracle entries, 4 published mappings, the drop and the sibling URI
+  compared entry by entry.
+
+### R12 — the retained descriptor was inherited by children
+
+- Test first: `test_fd_not_inherited_by_children` hands `pps_document_load_fd` a
+  descriptor without `FD_CLOEXEC` and then runs `sh -c 'for f in /proc/self/fd/*; do
+  readlink "$f"; done'` with `G_SPAWN_LEAVE_DESCRIPTORS_OPEN` (without that flag
+  GLib closes every descriptor above stderr in the child, which is why the first
+  version of the test passed against the unfixed code).
+- Fail before: `'g_strstr_len (child_fds, -1, base)' should be NULL` — the child
+  could see the document file.
+- Fix: `fcntl (fd, F_DUPFD_CLOEXEC, 3)`, the same call Papers' own descriptor
+  handling uses (`libview/pps-jobs.c:798-811`).
+
+### R13 — a refusal left the previous selection's pixels in the reused surface
+
+- Test first: `test_render_selection_refusal_drops_surface` renders a selection,
+  then calls `render_selection` again with a rotated context and with a NULL
+  rectangle; fail before: `'surface' should be NULL`.
+- Fix: `ofd_selection_drop_surface` destroys the reused surface on every refusal
+  path, so the view cannot rebuild a stale highlight from it
+  (`pps-pixbuf-cache.c:1054-1068` builds the texture from whatever the surface
+  holds).
+
+### R16 — the paper-size bit announced pages that never resolved
+
+- Test first: `test_partial_geometry_document` loads the broken-page fixture and
+  asserts the invariant "if `PAPER_SIZE` is set, no page size is 0"; fail before:
+  `(info->page_sizes[i].width > 0.0): (0 > 0)`.
+- Fix: `get_info` passes the sizes only when every page box resolved, and
+  `ofd-metadata.c` sets `N_PAGES` only for a non-negative count.
+
+### Observed
+
+- `meson test -C _build`: **13/13**; `meson test -C _build-slow`
+  (`-Drofd_page_size=disabled`): **13/13**; `reuse lint` compliant.
+- The shell matrix for R5: source under bash and zsh both export; `-h` under both
+  returns to the caller; an executed run exits 0 with a working ABI and 1 without
+  one; the report output is unchanged.
+- Not verified: no live GUI session in this run (the blockers' manual items and
+  the outline sidebar still deserve one).

@@ -149,7 +149,7 @@ test('ofd-print-file',
 test('ofd-metadata',
   test_ofd_metadata,
   args: [ofd_module, descriptor_in_build, files('../data/papers-ofd.xml'),
-         metadata_fixture, fixtures],
+         metadata_fixture, fixtures, broken_page_fixture],
   timeout: 60)
 
 test('ofd-text',

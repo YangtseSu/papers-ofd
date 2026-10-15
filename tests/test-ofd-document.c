@@ -134,6 +134,12 @@ run_discovery_failure_test (const gchar *mime_xml, const gchar *fixture_path)
 	g_assert_no_error (error);
 	g_setenv ("PPS_BACKENDS_DIR", backend_dir, TRUE);
 
+	/* Initialise the library *after* the backend directory is set: the factory's
+	 * backend list is built by pps_init (), and without it the factory answers
+	 * "File type … is not supported" for every MIME type, which asserts nothing
+	 * about the discovery path (R6). */
+	g_assert_true (pps_init ());
+
 	canonical_fixture = g_canonicalize_filename (fixture_path, NULL);
 	uri = g_filename_to_uri (canonical_fixture, NULL, &error);
 	g_assert_no_error (error);
@@ -141,8 +147,10 @@ run_discovery_failure_test (const gchar *mime_xml, const gchar *fixture_path)
 	document = pps_document_factory_get_document (uri, &error);
 	g_assert_null (document);
 	g_assert_nonnull (error);
-	/* The factory reports PPS_DOCUMENT_ERROR_INVALID with "File type ... is not
-	 * supported"; only the fact that discovery failed matters here. */
+	/* The descriptor is read (so the MIME type resolves to it) and the module
+	 * lookup then fails: proof that descriptor -> g_module_open -> query_type is
+	 * the path being exercised. */
+	g_assert_nonnull (g_strstr_len (error->message, -1, "Failed to load backend"));
 	g_clear_error (&error);
 
 	g_remove (descriptor);
