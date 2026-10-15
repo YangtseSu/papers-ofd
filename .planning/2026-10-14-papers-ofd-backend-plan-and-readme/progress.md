@@ -1244,3 +1244,44 @@ only knew `feat|fix`. Fixed in `71cb816` on `release/0.4.3-fork.1`:
   (`release/<next>` branched from the previous release branch and cherry-picking
   the new changes; version `<upstream>-fork.<n>`). A published tag is never
   moved — the AUR `source=` URL and its `sha256sums` pin it.
+
+## 2026-10-15 (final): one integration branch (dev), fork.1 withdrawn
+
+The user rejected the per-release branch + cherry-pick model as too much
+mechanical work and asked for a single development branch. Correct call: a
+`feat/*` branch based on `main` merged `--no-ff` into a long-lived `dev` keeps
+the upstream PR diff clean (verified: the feature branches are 1–3 commits
+against `origin/main` with a diff that touches only their own files) while
+removing the cherry-pick and release-branch bookkeeping.
+
+- Fork: `dev` = `origin/main` + `git merge --no-ff` of each of
+  `feat/ffi-page-size-query`, `feat/font-text-advances`,
+  `fix/decoded-image-alloc-budget`, `fix/region-aa-tolerance`, `feat/pkgconfig`.
+  The carried inventory is now machine-derived, not hand-written:
+  `git log --oneline --merges origin/main..dev` lists exactly those five merges
+  and `git diff --stat origin/main..dev` is the whole delta (26 files).
+- Version on `dev`: `0.4.3-fork.2`. A new number was required because the tree
+  differs from `v0.4.3-fork.1` (CI workflow moved onto `dev`, `FORK.md` added)
+  and two trees must never share one version when consumers pin a checksum.
+- `FORK.md` added on `dev`: branch table, release steps, CI description, and an
+  explicit section overriding this repo's `AGENTS.md` "Versioning and Releases"
+  (which still says to prepend `debian/changelog` and match the Debian version —
+  that is upstream's flow and contradicted ours). `AGENTS.md` itself stays
+  untouched, so upstream merges never conflict.
+- CI retargeted from `release/*` to `dev` (strict on `dev`, loose for
+  dispatched `feat/*` / `fix/*` refs). Local strict equivalent green: fmt,
+  clippy `-D warnings`, 49 test-suite groups, `debian/rules`-style release
+  build, `run_c_tests.sh` exit 0.
+- Published `v0.4.3-fork.2` with the `git archive` tarball (sha256
+  `45478ff4…c5c0f65`; the AUR uses the GitHub tag archive, sha256
+  `6b6c462a…73c5ba6c0`). Deleted `v0.4.3-fork.1`: GitHub release + tag + the
+  `release/0.4.3-fork.1` branch, remote and local — the old archive URL now
+  returns 404.
+- AUR `librofd-ffi 0.4.3.fork.2-1` pushed (`704808a`): same PKGBUILD shape, new
+  `_tag`, `pkgver`, `_dirname` and sha256; `makepkg -C -f` green, packaged
+  library exports exactly the 78 `rofd_*` symbols of `expected-symbols.txt`,
+  papers-ofd 12/12 against it.
+- This repository's consumer docs follow: `patches/README.md` (release model,
+  current-release table, routine, checkout example), `docs/plan.md` D11/§9/§8,
+  `README.md` requirements and limitation rows, `AGENTS.md` layout and the
+  fork-first rule. All now name `dev` + `FORK.md` and `v0.4.3-fork.2`.

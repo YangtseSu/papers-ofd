@@ -12,7 +12,7 @@ the authoritative plan; read it before changing code.
 | `src/`, `data/`, `tests/` | Module sources, installed data files, tests (to be created by phase 0) |
 | `scripts/dev-env.sh` | Resolves the machine-local dependency checkouts and the rofd ABI pair (`PAPERS_SRC`, `ROFD_SRC`, `ROFD_INCLUDEDIR`, `ROFD_LIBDIR`); run it bare for a report, source it for the exported environment |
 | `local.conf` | Untracked, optional: `PAPERS_SRC=` / `ROFD_SRC=` for this machine |
-| `patches/README.md` | Inventory of the rofd releases this backend targets (what the fork's `release/*` branch carries over upstream, upstream PR status, retirement criterion, release/update routine). The AUR `librofd-ffi` package builds a release tarball and carries no patch files |
+| `patches/README.md` | Consumer-side inventory of the rofd releases this backend targets (what the fork's `dev` branch carries over upstream, upstream PR status, retirement criterion, release/update routine). The fork's own rules live in its `FORK.md`; the AUR `librofd-ffi` package builds a release tarball and carries no patch files |
 | `.planning/<PLAN_ID>/` | Working memory: phase plan, research notes, progress log. Keep it current; it is tracked so parallel machines see the same state |
 
 ## Hard rules
@@ -32,13 +32,13 @@ the authoritative plan; read it before changing code.
   silently.
 - Never patch a local Papers checkout or the installed Papers files: Papers-side
   changes land as an upstream MR (plan §5 phase 4). rofd is fork-first (plan D11):
-  changes go to a `feat/…` / `fix/…` branch of `YangtseSu/rofd` (its `main`
-  mirrors `linuxdeepin/rofd`) and ship through a tagged release of the fork's
-  `release/*` branch (`<upstream>-fork.<n>`), which our AUR `librofd-ffi` package
-  builds from the release tarball — no patch files. Open the upstream PR
-  too, but never wait on it; when it merges, the change stops being carried in
-  the next `release/*` rebase. `patches/README.md` is the inventory and the
-  release routine.
+  a change goes to a `feat/…` / `fix/…` branch of `YangtseSu/rofd` (its `main`
+  mirrors `linuxdeepin/rofd`) and is merged `--no-ff` into the fork's `dev`
+  integration branch; releases are tags on `dev` (`<upstream>-fork.<n>`), which
+  our AUR `librofd-ffi` package builds from the tag tarball — no patch files.
+  Open the upstream PR too, but never wait on it; when it merges, the change
+  stops being carried in the next `dev` rebase. `patches/README.md` is the
+  consumer inventory and the fork's `FORK.md` its own rules.
 - Keep every recipe and payload in exactly one place: the Arch recipes
   (`librofd-ffi`, `papers-ofd`) are maintained in their AUR repositories only —
   this repository carries no PKGBUILD and no packaging payload.
