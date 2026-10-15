@@ -1641,3 +1641,47 @@ end, `reuse lint` is clean.
   one; the report output is unchanged.
 - Not verified: no live GUI session in this run (the blockers' manual items and
   the outline sidebar still deserve one).
+
+## 2026-10-15 (later): session A closed — decisions taken, phase 22 handed over
+
+Session A (phases 20 + 21) ends here by the split agreed at the start of the
+campaign. The four open decisions were taken by the user at the end of it:
+
+| Question | Decision |
+| --- | --- |
+| Q7 / R3 render budget | derive `max_raster_bytes` from the request (rofd's worst case ≈9·w·h) under a module cap, and lower the scale beyond it instead of failing |
+| Q8 / R4 fonts | declare the fonts the suite measures with in the AUR recipe **and** make the in-repo test name the missing dependency |
+| Q9 / R7 concurrency | poppler's model: `GRWLock`, writer on `load`/`load_fd`, reader around each vfunc |
+| Q10 release | one release (`51.1.2`) after R3/R4/R10, not the blockers alone |
+
+Session state to pick up from:
+
+- `main` is at `1d0cef5` (phase 21) on top of `3de5b97` (phase 20) and `c4233d8`
+  (the review record); the tree is clean and `meson test` is 13/13 in `_build` and
+  `_build-slow`.
+- Phase 22's test skeleton was written during that decision round and then
+  **reverted** (`git checkout -- tests/test-ofd-render.c`), so the tree stays
+  green: the assertions below are the design to re-create first, module-side fix
+  second. The campaign rule is test-first, and a red test must not be committed.
+
+### Phase 22 test design (re-create in `tests/test-ofd-render.c`)
+
+`test_high_zoom_still_renders (metadata_document)`, scales `{4, 7, 8, 10, 12, 16}`
+(7 renders today, 8+ returns NULL):
+
+- `pps_document_render` returns non-NULL with `CAIRO_STATUS_SUCCESS`;
+- width/height are `> 0`, `<= requested + 1` (never larger than asked for) and
+  `>= requested / 2` (not degraded into uselessness);
+- a selection overlay rendered through `pps_selection_render_selection` with the
+  *same* render context has exactly the texture's dimensions — the view draws them
+  over one another, which is why the degrade must happen in one place (plan §4).
+
+`test_oblique_rotation_snaps (metadata_document)`, rotations 0 / 45 / 90:
+
+- the 45° render has the 90° render's dimensions (snapped to the nearest quarter
+  turn) and the upright render's swapped dimensions — i.e. a real rotated page,
+  not the blank one rofd's `INVALID_ARGUMENT` used to produce.
+
+Also in phase 22: R15 (a failed `rofd_renderer_render_page_cairo` reports at
+`g_warning`, diagnostics stay at `g_debug`) and a README latency/limitation
+refresh if the render path's numbers move.

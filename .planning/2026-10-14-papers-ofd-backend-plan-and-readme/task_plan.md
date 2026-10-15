@@ -7,15 +7,24 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
-**Next action: get the four decisions (Key Questions 7–10) from the user, then
-start phase 22 with R3.** Phases 20 and 21 are complete (2026-10-15): the two
-blockers and the mechanical fixes are in, each with a regression test that failed
-before the change (evidence in `progress.md`). R11 was withdrawn after a probe
-showed rofd publishes one link entry per action.
+**Session A is closed; the next work happens in a new session, starting phase 22
+with R3.** The four decisions are recorded (Key Questions 7–10 and the decisions
+table): render budget derived from the request with a degrade fallback, fonts
+declared in the AUR recipe plus a named in-repo failure, `GRWLock` on the
+poppler model, and one `51.1.2` after R3/R4/R10.
 
-Phase 22 (R3 render budget) is blocked on decision Q7; Q8 (fonts) gates phase 24,
-Q9 (concurrency) gates phase 23. Phase 25 (documentation corrections) can run
-without any decision.
+Phases 20 and 21 are complete (2026-10-15): the two blockers and the mechanical
+fixes are in, each with a regression test that failed before the change (evidence
+in `progress.md`; R11 was withdrawn after a probe showed rofd publishes one link
+entry per action). `main` is at `1d0cef5`, the tree is clean and the suite is
+13/13 in both page-size builds.
+
+To start phase 22: re-create the two tests described in `progress.md` §"Phase 22
+test design" first (`test_high_zoom_still_renders`,
+`test_oblique_rotation_snaps` in `tests/test-ofd-render.c`), observe them fail,
+then implement the budget/scale fix in `src/ofd-render.c` plus R14/R15. Q8 gates
+phase 24, Q9 gates phase 23; phase 25 (documentation corrections) needs no
+decision.
 
 Session split agreed 2026-10-15: phase 20 + 21 are one session (blockers plus the
 mechanical fixes), phases 22–24 a second (render budget, concurrency, CI/packaging
@@ -298,25 +307,36 @@ and 21 are complete. `docs/plan.md` phases 0–3 stay shipped and accepted, phas
 
 ### Phase 22: Render robustness (R3, R14, R15)
 
-- [ ] Record the R3 decision (Key Question 7), then stop allocating before the budget check: probe with a budget-aware query, derive `max_raster_bytes` from the request under a Papers-scale cap, or degrade the scale — the page texture and the overlay must keep using one option set
-- [ ] Test: the high-zoom render (scale ≥ 8 on the A4 fixture, and a 2×-device-scale-sized target) succeeds or degrades explicitly; a regression that reinstates the silent NULL fails
-- [ ] R14 snap a non-quarter-turn rotation to the nearest quarter; R15 report a failed render at `g_warning` while keeping diagnostics on `g_debug`
-- [ ] Latency re-measured (the budget work touches the render path) and README's limitation table refreshed
+*Session B. Test-first: the two tests in `progress.md` §"Phase 22 test design"
+were drafted and reverted at the end of session A, so start by re-creating them
+and watching them fail.*
+
+- [ ] Test first: `test_high_zoom_still_renders` (scales 4/7/8/10/12/16, surface size bounds, overlay == texture) and `test_oblique_rotation_snaps` (0/45/90) in `tests/test-ofd-render.c`
+- [ ] R3: derive `max_raster_bytes` from the request (rofd's worst case ≈9·w·h) under a module cap in `ofd_render_options_from_context`, so a legitimate Papers zoom cannot fail the render
+- [ ] R3: beyond the cap, lower `options.scale` until the canvas fits and use the same fitted options for the page texture and the overlays (`ofd_render_page_surface`, `ofd_render_page_canvas_size`)
+- [ ] R14: snap a non-quarter-turn rotation to the nearest quarter turn instead of letting rofd reject the render
+- [ ] R15: report a failed `rofd_renderer_render_page_cairo` at `g_warning` while object-level diagnostics stay at `g_debug` (D9)
+- [ ] Latency re-measured if the render path's numbers move; README limitation table refreshed
+- [ ] `meson test` 13/13 in both builds; plan §4/§8 and README updated with the budget rule and the degrade behaviour
 - **Status:** pending
 
 ### Phase 23: Concurrency hardening (R7)
 
-- [ ] Record the R7 decision (Key Question 9) and implement it: poppler-style rwlock (writer during `load`/`load_fd`, reader across each vfunc call) or a retire list plus a geometry generation counter
-- [ ] Stress test: worker threads rendering page 0..n while the main thread reloads the same document instance over the URI and the fd path; run it under `-Db_sanitize=address` (or valgrind) once and keep a deterministic short version in the suite
-- [ ] `rofd.h`'s handle-lifetime contract stated in the code comment; D2's wording in plan §2 updated to match the implementation
+*Session B. Decision made: `GRWLock`, poppler's model.*
+
+- [ ] Replace the single `GMutex` with a `GRWLock`: writer in `load`/`load_fd`, reader around every vfunc (including the outline and links paths that borrow the handle)
+- [ ] Stress test: worker threads rendering pages while the main thread reloads the same instance over the URI and the fd path; run it under `-Db_sanitize=address` once and keep a short deterministic version in the suite
+- [ ] rofd.h's handle-lifetime contract stated in the code comment; D2 and plan §2 reworded to match the implementation
 - **Status:** pending
 
 ### Phase 24: CI and packaging parity (R4, R10)
 
-- [ ] Record the R4 decision (Key Question 8): declare the fonts the suite measures with, and make the in-repo failure name the missing dependency instead of an opaque assertion
-- [ ] `meson.build`: distinguish "rofd-ffi.pc too old" from "not found", and settle whether the floor moves to 0.4.3
+*Session B. Decision made: declare the fonts and name the dependency.*
+
+- [ ] R4: the AUR `papers-ofd` recipe's check dependencies gain the fonts the suite measures with, and `tests/test-ofd-text.c` reports the missing font/package instead of an opaque assertion failure
+- [ ] `meson.build`: distinguish "rofd-ffi.pc too old" from "not found"; settle whether the floor moves to 0.4.3 (and say so where the version is named)
 - [ ] CI: build and test the `-Drofd_page_size=disabled` configuration, and exercise the installed-`rofd-ffi.pc` configure path (or record why it stays out)
-- [ ] Decide `ofd-latency`'s status: registered check with an assertion, or an explicit tool outside `meson test`
+- [ ] Decide `ofd-latency`'s status: a registered check with an assertion, or an explicitly documented tool outside `meson test`
 - **Status:** pending
 
 ### Phase 25: Documentation corrections the review proved wrong (R19)
@@ -341,10 +361,10 @@ and 21 are complete. `docs/plan.md` phases 0–3 stay shipped and accepted, phas
 4. Is `PpsDocumentPrint`/`PpsSelection` optional? → **No in practice**: both wrappers are dispatched without NULL checks.
 5. Can `get_thumbnail*`/`get_page_label` be skipped? → **Yes**, base-class fallbacks exist.
 6. Is a cheap page-size path available for `setup_cache`? → **No in the ABI**; `Document::page_size()` exists in rofd-core but is unexported → upstream request.
-7. **R3 (render budget):** raise `max_raster_bytes` to the request's worst case (`≈9·w·h`, i.e. 2.25× Papers' 4 B/px budget) under a cap, or degrade the scale when the canvas exceeds the budget, or both? Recommended: derive the budget from the request and keep a degrade fallback, so a legitimate Papers zoom cannot fail the render.
-8. **R4 (fonts):** declare the fonts as check dependencies in the AUR recipe (as CI already does), make the font-dependent assertions skip with an explicit message, or vendor a test font into the fixtures? Recommended: declare them **and** name the missing dependency from the in-repo test.
-9. **R7 (concurrency):** poppler-style rwlock (writer during `load`, reader across each vfunc) or a retire list plus a geometry generation counter (keeps the single mutex)? Recommended: the rwlock — it mirrors the reference backend and covers the handle, not just the array.
-10. **Release:** is a `51.1.2` release wanted at the end of the campaign, or only once the highs (R3/R4) are in? Packaging-only changes would otherwise stay in the AUR `pkgrel`.
+7. **R3 (render budget)** → **decided 2026-10-15: derive the budget from the request, with a degrade fallback.** `max_raster_bytes` is raised to rofd's worst case for the request (≈9·w·h) under a module cap, and a request beyond the cap lowers the scale until it fits instead of failing; the page texture and the overlays use the same fitted options.
+8. **R4 (fonts)** → **decided 2026-10-15: declare them and name the dependency.** The AUR recipe gains the fonts the suite measures with, and the in-repo test reports the missing package/font instead of an opaque assertion.
+9. **R7 (concurrency)** → **decided 2026-10-15: poppler-style rwlock.** `load`/`load_fd` take the writer, every vfunc runs under the reader, which covers the rofd handle, the geometry array and the renderer.
+10. **Release** → **decided 2026-10-15: one release after R3/R4/R10.** The blockers, the mechanical fixes and the render/CI work ship as `51.1.2`; phases 25–26 follow.
 
 ## Decisions Made
 
@@ -362,6 +382,10 @@ and 21 are complete. `docs/plan.md` phases 0–3 stay shipped and accepted, phas
 | The review-fix campaign extends this plan (phases 20–26) instead of creating a second plan directory | `resolve-plan-dir.sh` selects this directory, the repository's working memory must stay one file, and a second plan for the same module would fork the state; the phases continue the existing numbering |
 | Review findings are recorded as R1–R19 in `findings.md`, with the probe recipes and raw numbers in `progress.md` | The next session must be able to resume from the files alone, not from a chat transcript; the probes were throwaway programs outside the repository and only their recipes and outputs belong here |
 | Every phase of this campaign carries its own regression test (or an explicitly recorded manual acceptance) | The review found that the ordinary suite missed both blockers, so a fix without a test that fails before it is not accepted |
+| Render budget derived from the request (≈9·w·h) under a cap, with a degrade fallback beyond it (Q7) | rofd checks its budget in the render call, not in the canvas query, and counts ~9 bytes/pixel against Papers' 4 B/px allowance; deriving the budget keeps a legitimate zoom working while the cap still bounds a pathological request, and lowering the scale beats returning NULL |
+| The AUR recipe declares the fonts the suite measures with, and the test names the missing dependency (Q8) | CI already installs them for the same reason; a silent skip would hide the strongest geometry assertions on a fontless build host, and vendoring a font into the fixtures would add a binary payload |
+| Concurrency: GRWLock with the writer on load and a reader around each vfunc (Q9) | It is the reference backend's model (libview/pps-poppler.c) and rofd.h requires that no handle is freed while another call uses it; the lock is uncontended in practice |
+| One release (`51.1.2`) after R3/R4/R10, rather than shipping the blockers alone first (Q10) | The blocker fixes are a few lines each and the render work changes the same code paths, so one tag keeps the AUR cycle and the verification story single |
 
 ## Errors Encountered
 
