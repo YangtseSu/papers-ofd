@@ -727,4 +727,6 @@ Published as `papers-ofd 0.1.0-3`: the pin in `packaging/PKGBUILD` moved to
 built 0.1.0-3 with 12/12 tests). The installed file list is unchanged, so a
 rebuild is a no-op for the module, the plugin and the MIME xml; the AUR RPC still
 reported 0.1.0-2 a minute after the push, the same frontend lag the earlier
-publications showed.
+publications showed. The index caught up the same day: the user confirmed
+0.1.0-3 on the AUR side (the git repository, which is what `makepkg` clones, had
+it from the push).
