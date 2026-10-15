@@ -1122,3 +1122,47 @@ reports the same resolution table (the edit is inside the header comment); `reus
     fixup. Note that upstream's own suite would fail the `MissingGlyph` assertion the same
     way on any font-less environment — their Distribution Builder never runs tests, so
     nobody has seen it there.
+
+### Phase 21: the decode-budget fix completed and shipped through the AUR (2026-10-15)
+
+- **Status:** complete
+- The user asked for two things: make the fix complete, and let AUR users have it now.
+- Completeness: the second decode site was the real hole. `rofd-render` also decodes
+  stamp pictures (electronic seals) in `cairo_renderer.rs::decode_seal_raster`, with the
+  image crate's *default* `Limits`; the budget there is entropy dependent (the crate
+  charges each allocation against `max_alloc`), which is why my first estimate of the
+  failing range was wrong. Measured with the real `ImageReader` on flat RGBA8 PNGs and on
+  16-bit RGBA PNGs:
+  - flat RGBA8: 8192² (256 MiB) decodes, 8704² (289 MiB) fails at the old budget but is
+    also outside the 256 MiB raster budget, so only the error *kind* changed;
+  - 16-bit RGBA (decoder holds 8 bytes/px, conversion makes 4 more): **6000² (137 MiB
+    raster, 274 MiB decoder memory) failed at the old budget although it is inside both
+    documented limits** — i.e. a legal seal was silently dropped — and 14336² is still
+    rejected after the change.
+  `decode_pixels` and `decode_seal_raster` now budget the decoder with three times the
+  finished raster and keep the raster checks as the authority (no limit relaxed).
+- Regression test: `crates/rofd-render/tests/cairo_stamp.rs::a_large_seal_raster_within_the_document_limits_is_not_called_over_budget`
+  with a generated 6000×6000 16-bit RGBA seal (420 KiB, ~11 s). **Fails before the
+  change** (the stamp pixel stays page-white, i.e. the seal was dropped) and passes
+  after; `cargo test -p rofd-render --test images` is 14/14 and the crate suite is green;
+  `cargo fmt --all -- --check` and `cargo clippy -p rofd-render --all-targets --
+  -D warnings` clean. Fixture provenance (generation script + sha256) recorded in
+  `crates/rofd-render/tests/fixtures/images/PROVENANCE.md`.
+- Fork/PR: branch `fix/decoded-image-alloc-budget` at `2983cf6` (force-push, the earlier
+  single-site commit was amended); PR #14 retitled and its body rewritten with both sites,
+  the probe table and the new test.
+- Delivery: `librofd-ffi` `pkgrel` 7 carries it as `rofd-ffi-image-decode-budget.patch`.
+  AUR's server-side hook rejects blobs above 488 KiB, so the regression fixture cannot ride
+  in the commit: it ships as a checked `source` (`seal-16bit-boundary.png`, sha256
+  `264bfb51…`) and `prepare()` installs it after applying the patch. First push attempt was
+  rejected because `git add -A` had swept the build tree (`src/`, `pkg/`, the tarballs,
+  ~70 MB) into the commit — reset and re-committed with only the four recipe files; the
+  build tree is now in `.git/info/exclude`.
+- Verification before publishing: `makepkg -C -f` from a wiped `src/`/`pkg/` succeeds;
+  the packaged library exports the same 78 symbols (incl. `rofd_document_get_page_size_mm`);
+  the patched tree contains `saturating_mul(3)` at both sites; the papers-ofd suite is
+  12/12 against the packaged library (`LD_LIBRARY_PATH` to an extracted copy, confirmed
+  with `ldd`). AUR `master` is `f97ed5d`; the RPC index lags as usual.
+- Documentation: `patches/README.md` gained the carried row, its retirement criterion and a
+  renamed section that now states which upstream proposals are carried and which are not;
+  `docs/plan.md` §9 item 7 says what ships and what the package needs.
