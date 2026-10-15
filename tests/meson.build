@@ -125,6 +125,11 @@ test_ofd_fd = executable('test-ofd-fd',
   include_directories: ofd_include,
   dependencies: [papers_dep, papers_view_dep, glib_dep, gio_dep])
 
+test_ofd_concurrency = executable('test-ofd-concurrency',
+  files('test-ofd-concurrency.c', 'ofd-test-utils.c'),
+  include_directories: ofd_include,
+  dependencies: [papers_dep, glib_dep, gio_dep, cairo_dep])
+
 test('ofd-units', test_ofd_units, timeout: 30)
 
 test('ofd-document',
@@ -186,6 +191,16 @@ test('ofd-fd',
   test_ofd_fd,
   args: [ofd_module, descriptor_in_build, files('../data/papers-ofd.xml'),
          text_fixture, metadata_fixture],
+  timeout: 120)
+
+# R7: reloading an instance while other threads use it. The suite runs the short
+# form (workers × requests × reloads, a couple of seconds); the long form belongs
+# in a sanitizer build, e.g.
+#   _build-asan/tests/test-ofd-concurrency ... text-2pages.ofd 8 2000 200
+test('ofd-concurrency',
+  test_ofd_concurrency,
+  args: [ofd_module, descriptor_in_build, files('../data/papers-ofd.xml'),
+         text_fixture, '4', '100', '25'],
   timeout: 120)
 
 # The previewer acceptance needs Sushi, which is where the space bar lives: its

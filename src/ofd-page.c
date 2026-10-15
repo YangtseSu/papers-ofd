@@ -35,11 +35,11 @@ ofd_page_ref_acquire (OfdDocument *self, PpsPage *page, OfdPageRef *ref)
 		return FALSE;
 
 	ref->document = self;
-	ref->rofd_page = ofd_document_borrow_page (self, page, &ref->free_page);
+	ref->rofd_page = ofd_document_borrow_page_locked (self, page, &ref->free_page);
 	if (ref->rofd_page == NULL)
 		return FALSE;
 
-	if (!ofd_document_page_box_mm (self, page->index, &ref->box_mm)) {
+	if (!ofd_document_page_box_mm_locked (self, page->index, &ref->box_mm)) {
 		ofd_page_ref_release (ref);
 		return FALSE;
 	}

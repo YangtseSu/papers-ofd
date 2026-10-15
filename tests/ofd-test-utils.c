@@ -15,15 +15,24 @@ static void
 remove_mime_staging (void)
 {
 	g_autofree gchar *mime_dir = NULL;
+	g_autofree gchar *packages = NULL;
+	g_autofree gchar *globs = NULL;
+	g_autofree gchar *globs2 = NULL;
+	g_autofree gchar *icons = NULL;
 
 	if (staged_mime_data_dir == NULL)
 		return;
 
 	mime_dir = g_build_filename (staged_mime_data_dir, "mime", NULL);
-	g_remove (g_build_filename (mime_dir, "packages", "papers-ofd.xml", NULL));
-	g_remove (g_build_filename (mime_dir, "globs", NULL));
-	g_remove (g_build_filename (mime_dir, "globs2", NULL));
-	g_rmdir (g_build_filename (mime_dir, "icons", NULL));
+	packages = g_build_filename (mime_dir, "packages", "papers-ofd.xml", NULL);
+	globs = g_build_filename (mime_dir, "globs", NULL);
+	globs2 = g_build_filename (mime_dir, "globs2", NULL);
+	icons = g_build_filename (mime_dir, "icons", NULL);
+
+	g_remove (packages);
+	g_remove (globs);
+	g_remove (globs2);
+	g_rmdir (icons);
 	g_rmdir (mime_dir);
 	g_rmdir (staged_mime_data_dir);
 	g_clear_pointer (&staged_mime_data_dir, g_free);
@@ -32,12 +41,18 @@ remove_mime_staging (void)
 static void
 remove_backend_staging (void)
 {
+	g_autofree gchar *module_link = NULL;
+	g_autofree gchar *descriptor = NULL;
+
 	if (staged_backend_dir == NULL)
 		return;
 
-	g_remove (g_build_filename (staged_backend_dir, "libofddocument.so", NULL));
-	g_remove (g_build_filename (staged_backend_dir,
-	                            "org.gnome.Papers.OfdDocument.papers-backend", NULL));
+	module_link = g_build_filename (staged_backend_dir, "libofddocument.so", NULL);
+	descriptor = g_build_filename (staged_backend_dir,
+	                               "org.gnome.Papers.OfdDocument.papers-backend", NULL);
+
+	g_remove (module_link);
+	g_remove (descriptor);
 	g_rmdir (staged_backend_dir);
 	g_clear_pointer (&staged_backend_dir, g_free);
 }
@@ -91,6 +106,7 @@ ofd_test_stage_backend_dir (const gchar *module_path,
                             const gchar *descriptor_path)
 {
 	g_autofree gchar *canonical_module = NULL;
+	g_autofree gchar *module_link = NULL;
 	g_autofree gchar *descriptor_copy = NULL;
 	g_autofree gchar *contents = NULL;
 	GError *error = NULL;
@@ -103,10 +119,9 @@ ofd_test_stage_backend_dir (const gchar *module_path,
 
 	/* The descriptor says Module=ofddocument; GModule resolves that to
 	 * libofddocument.so inside PPS_BACKENDS_DIR. */
+	module_link = g_build_filename (staged_backend_dir, "libofddocument.so", NULL);
 	canonical_module = g_canonicalize_filename (module_path, NULL);
-	g_assert_cmpint (symlink (canonical_module,
-	                          g_build_filename (staged_backend_dir, "libofddocument.so", NULL)),
-	                 ==, 0);
+	g_assert_cmpint (symlink (canonical_module, module_link), ==, 0);
 
 	descriptor_copy = g_build_filename (staged_backend_dir,
 	                                    "org.gnome.Papers.OfdDocument.papers-backend", NULL);

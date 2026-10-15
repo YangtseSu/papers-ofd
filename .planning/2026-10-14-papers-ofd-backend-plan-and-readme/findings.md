@@ -426,3 +426,23 @@ run-by-run evidence is in `progress.md`.
 Still open: R3 (render budget, needs decision Q7), R4 (font dependency, Q8), R7
 (concurrency, Q9), R10 (CI parity), R14, R15, R17, R18 and the documentation
 items of R19.
+
+### Closed by phases 22–23 (2026-10-15, session B)
+
+| Item | Fix | Test that failed before |
+| --- | --- | --- |
+| R3 | `ofd_render_options_from_context` derives `max_raster_bytes` from the request (rofd's worst case, mirrored in `ofd_render_required_bytes`) under a 450 MiB cap, never below rofd's own default (decoded source images share the field), and lowers the scale beyond the cap; the texture and the overlays take the same fitted options | `test_high_zoom_still_renders` (scale 8 → `'surface' should not be NULL`) |
+| R14 | the rotation is snapped to the nearest quarter turn before rofd sees it | `test_oblique_rotation_snaps` (the 45° render returned NULL) |
+| R15 | a failed page surface and a failed `rofd_renderer_render_page_cairo` report at `g_warning`; diagnostics stay at `g_debug` | `test_failed_render_is_a_warning` (`render_warning_count == 1`, was 0) |
+| R7 | one `GRWLock`: writer in `load`/`load_fd`, reader around every vfunc, renderer created at load, geometry cache filled only under the writer | `ofd-concurrency` under `_build-asan`: `heap-use-after-free` with `rofd_document_get_page` reading what `rofd_document_free` (from `load`) had freed; 5/5 runs before, 5/5 clean after |
+
+R7 turned out to be more than the code-evidence reading it was filed as: the
+use-after-free reproduces deterministically under ASAN, and the same test window
+surfaced an **upstream** leak — `pps_document_load` assigns `priv->uri =
+g_strdup (uri)` (`libdocument/pps-document.c:365`) and frees the previous value
+only in dispose (`:95`), so reloading one instance leaks one URI per reload
+(99 × 86 bytes after 200 reloads). It is A29 in `docs/plan.md` and another
+upstream report candidate next to A23.
+
+Still open: R4 (font dependency, Q8), R10 (CI parity), R17, R18 and the
+documentation items of R19.

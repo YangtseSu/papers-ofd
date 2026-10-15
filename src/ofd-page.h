@@ -15,7 +15,12 @@ rofd_page_t *ofd_page_get_rofd_page (PpsPage *page);
 /* A page plus what every page-scoped query needs: the rofd handle (D1) and the
  * physical box that rectangles crossing the boundary are re-based on (D3).
  * ofd_page_ref_acquire fetches the handle when the caller built its own
- * PpsPage; release frees only a handle acquired that way. */
+ * PpsPage; release frees only a handle acquired that way.
+ *
+ * Locking (R7): acquire reads the document's handle and geometry, so the caller
+ * holds the document's read lock — every user is a vfunc that took it. release
+ * only drops the page handle, which rofd owns independently of its document (A2),
+ * so it may run after the lock is dropped. */
 typedef struct {
 	OfdDocument *document;
 	rofd_page_t *rofd_page;

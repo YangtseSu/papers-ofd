@@ -77,7 +77,7 @@ ofd_outline_clear_error (rofd_error_t **rerror)
 static gboolean
 ofd_outline_node_count (OfdDocument *self, size_t *count)
 {
-	rofd_document_t *document = ofd_document_borrow_handle (self);
+	rofd_document_t *document = ofd_document_borrow_handle_locked (self);
 	rofd_outline_t *outline = NULL;
 	rofd_error_t *rerror = NULL;
 	gboolean ok = FALSE;
@@ -126,7 +126,7 @@ ofd_outline_has_document_links (OfdDocument *self)
 GListModel *
 ofd_outline_get_links_model (OfdDocument *self)
 {
-	rofd_document_t *document = ofd_document_borrow_handle (self);
+	rofd_document_t *document = ofd_document_borrow_handle_locked (self);
 	rofd_outline_t *outline = NULL;
 	rofd_error_t *rerror = NULL;
 	GListStore *root = NULL;

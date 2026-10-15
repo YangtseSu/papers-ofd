@@ -98,7 +98,7 @@ ofd_link_action_from_rofd (OfdDocument *self,
 		 * so that page's box origin is what re-bases them (D3). */
 		if (destination == NULL ||
 		    !(destination->flags & ROFD_DESTINATION_HAS_PAGE_INDEX) ||
-		    !ofd_document_page_box_mm (self, (gint) destination->page_index, &origin))
+		    !ofd_document_page_box_mm_locked (self, (gint) destination->page_index, &origin))
 			return NULL;
 
 		dest = ofd_link_dest_from_rofd (destination, &origin);

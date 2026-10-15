@@ -1782,3 +1782,102 @@ the 90° render and has the upright render's swapped dimensions.
 `tests/test-ofd-render.c` (three new checks), `tests/meson.build` +
 `tests/generate_fixture.py` (the `strip` fixture), `docs/plan.md` (§4 render math,
 §8 risk rows, A16 corrected), `README.md` (suite description, limitation table).
+
+## 2026-10-15 (session B): phase 23 — concurrency hardening (R7)
+
+### Test first: the failure the review predicted
+
+`tests/test-ofd-concurrency.c` (new, registered in `tests/meson.build` as
+`ofd-concurrency`): worker threads issue page requests — `get_text`,
+`get_text_layout`, `find_text`, `render`, `get_info` in rotation, plus
+`get_links_model` every 16th turn, i.e. every path the review found borrowing the
+document handle or the geometry array — while the main thread reloads the *same*
+instance, alternating `pps_document_load` (URI) and `pps_document_load_fd`
+(descriptor). Bounded on purpose (fixed per-worker request budget and a fixed
+reload count) and with a 500 µs pause between reloads: the lock is
+reader-preferring, so a spinning worker set would let the writer starve and the
+run turn into a scheduling experiment (observed: a spin-loop form took anywhere
+between 0.4 s and 16 s).
+
+`_build-asan` (`meson setup _build-asan -Db_sanitize=address -Db_lundef=false ...`),
+long form `8 workers × 2000 requests × 200 reloads`, **before** the fix — 5 of 5
+runs failed:
+
+```
+==502971==ERROR: AddressSanitizer: heap-use-after-free on address 0x7c1756242e90
+    #10 ... in rofd_document_get_page
+    #11 ... in ofd_document_get_page (/tmp/.../libofddocument.so)
+freed by thread T0 here:
+    #2 ... in rofd_document_free
+    #3 ... in ofd_document_load_path (/tmp/.../libofddocument.so)
+    #4 ... in ofd_document_load
+```
+
+runs 3–5 aborted as `AddressSanitizer: SEGV` inside `librofd_ffi.so.0` (the freed
+handle's fields read as an address like `0x2667`); runs 1–2 produced the clean
+use-after-free report above. So R7, which the review recorded as *code evidence*,
+is reproduced: `load` freed the handle a concurrent `get_page` was inside.
+
+### The fix: one `GRWLock`, poppler's model
+
+`GRWLock lock` replaces `GMutex mutex` in `OfdDocument`:
+
+- **writer** in `ofd_document_load`/`load_fd` (`load_path` is documented as
+  writer-held); it replaces the handle, resets the geometry array, drops a
+  previous fd/temp copy;
+- **reader** around every vfunc: `get_n_pages`, `get_page`, `render`,
+  `print_page`, `get_info`, `has_document_links`, `get_links_model`,
+  `get_links`, and — through `ofd_document_reader_lock`/`_unlock`, since the
+  struct is opaque there — every `PpsDocumentText`/`PpsDocumentFind`/`PpsSelection`
+  vfunc in `ofd-text.c`. `ofd_document_borrow_handle_locked`,
+  `_borrow_page_locked`, `_borrow_renderer_locked`, `ofd_page_ref_acquire` and
+  `ofd_link_action_from_rofd` all document that the read lock is held by the
+  caller; the lock is not recursive and no helper takes it twice.
+- the **renderer is created in `load`** instead of lazily on the first render,
+  because a creator would be a writer inside a reader section. Consequence for
+  the numbers: the 300-page latency run now spends ~26 ms in `load` (rofd's font
+  stack) and ~20 ms on the first render instead of ~2 ms + ~48 ms; the total is
+  unchanged (~130 ms), and the README's latency row was updated with the new
+  split.
+- the **geometry cache** is only written under the writer: `page_box_mm` answers
+  from the cache under the read lock and, on a miss, re-checks and fills under
+  the write lock; `page_box_mm_locked` (used inside reader sections) reads the
+  cache and queries rofd directly on a miss, so two readers cannot race on a slot.
+- `get_info` collects the page boxes outside the read section and, if a reload
+  changed the page count in between, drops the array (R16's rule applied to a
+  concurrent reload).
+- `rofd.h`'s rule is quoted where it matters: "no handle is freed while another
+  call is using it" (rofd-ffi/include/rofd.h, document-lifetime contract), and D2,
+  the plan's architecture diagram, §8 and `AGENTS.md` were reworded to this
+  single-lock discipline.
+
+### Observed
+
+- Post-fix ASAN, long form `8 2000 200`, with `ASAN_OPTIONS=detect_leaks=0`:
+  **5 of 5 runs exit 0, no AddressSanitizer report at all** (`200 reloads with 8
+  workers x 2000 requests: 16000 concurrent requests, no crash`, ~20–23 s each).
+- With leak detection on, the only report is Papers' own: 99 × 86 bytes
+  `g_strdup` in `pps_document_load` (`libdocument/pps-document.c:365` assigns
+  `priv->uri` without freeing the previous value; `:95` frees it only in dispose)
+  — one URI per reload of the same instance. Recorded as A29; it is an upstream
+  leak, not ours, and it is why those runs are judged on memory errors.
+  The test harness' own leaks (staged-directory paths in `ofd-test-utils.c`) were
+  fixed in this phase so that LeakSanitizer's output is about the module.
+- `meson test -C _build`: **14/14** (the concurrency case 1.6 s with
+  `4 workers × 100 requests × 25 reloads`); `meson test -C _build-slow`: **14/14**.
+- `reuse lint`: compliant, 57/57 files.
+- `tests/ofd-latency` re-measured in both builds after moving the renderer
+  creation into `load` (see above): fast build load 25.6–26.2 ms, info walk
+  18.1–19.5 ms, `setup_cache` 65.6–66.5 ms, first render 19.1–23.3 ms, best total
+  129.3 ms; slow build load 27.5 ms, info walk 69.5–70.5 ms, `setup_cache` 0.1 ms,
+  first render 20.0–24.4 ms, best total 117.1 ms.
+- Not verified: no live GUI session (the interactive reload path in Papers itself
+  — a failed-load retry — is not reproducible headlessly).
+
+### Files
+
+`src/ofd-document.[ch]`, `src/ofd-page.[ch]`, `src/ofd-text.c`, `src/ofd-links.[ch]`,
+`src/ofd-outline.c` (the lock and the `_locked` accessors),
+`tests/test-ofd-concurrency.c` + `tests/meson.build` +
+`tests/ofd-test-utils.c` (harness-leak fix), `docs/plan.md` (D2, diagram, §8,
+A28/A29), `README.md` (concurrency paragraph, latency split), `AGENTS.md`.

@@ -7,22 +7,27 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
-**Phase 22 is complete (2026-10-15, session B): R3 (budget derived from the
-request under a 450 MiB cap, never below rofd's default, degrade by lowering the
-scale), R14 (oblique rotation snaps to the nearest quarter turn) and R15 (a failed
-page surface or render reports at `g_warning`) are in, each with a test that was
-observed failing first; evidence in `progress.md` §"Phase 22".** `meson test` is
-13/13 in `_build` and `_build-slow`, `reuse lint` is compliant, and plan §4/§8,
-A16 and the README limitation table carry the new rule.
+**Phases 22 and 23 are complete (2026-10-15, session B).** Phase 22: R3 (the
+raster budget is derived from the request under a 450 MiB cap, never below rofd's
+default, and the scale is lowered beyond it), R14 (oblique rotations snap to the
+nearest quarter turn), R15 (a failed page surface or render reports at
+`g_warning`). Phase 23: R7 — one `GRWLock`, writer in `load`/`load_fd`, reader
+around every vfunc, with the concurrency stress test that reproduced the
+predicted use-after-free under ASAN before the fix and is clean after. `meson
+test` is 14/14 in `_build` and `_build-slow`, `reuse lint` is compliant, and
+plan §2/§4/§8, D2, A16/A28/A29, `AGENTS.md` and the README carry the changes.
+Evidence: `progress.md` §"Phase 22" and §"Phase 23".
 
-The next work is phase 23 (R7 concurrency, decision Q9): start with the stress test
-in `tests/` — worker threads rendering pages while the main thread reloads the same
-document instance over the URI and the fd path — watch it fail under
-`meson setup _build-asan -Db_sanitize=address` against the current `GMutex`, then
-replace the lock with a `GRWLock` (writer in `load`/`load_fd`, reader around every
-vfunc, including the outline and links paths that borrow the handle) and keep a
-short deterministic version of the test in the suite. Phase 24 (CI and packaging
-parity, Q8: R4/R10) follows; phases 25 and 26 stay out of this session.
+The next work is phase 24 (CI and packaging parity, decision Q8): the in-repo half
+of R4 (make `tests/test-ofd-text.c` name the missing font/package instead of
+failing an opaque assertion, and prepare the AUR recipe's `check()` dependency
+change as a diff/checklist — the AUR push is the user's step), R10 (distinguish
+"rofd-ffi.pc too old" from "not found" in `meson.build` and settle whether the
+documented floor moves to 0.4.3), CI (a configure/build/test for
+`-Drofd_page_size=disabled`, and a configure pass over the installed
+`rofd-ffi.pc` path or the reason it stays out) and the `ofd-latency` status
+(registered check with an assertion, or an explicitly documented tool). Phase 25
+(documentation corrections) and phase 26 (the release) stay out of this session.
 
 Session split agreed 2026-10-15: phase 20 + 21 are one session (blockers plus the
 mechanical fixes), phases 22–24 a second (render budget, concurrency, CI/packaging
@@ -115,9 +120,10 @@ and #12 when convenient.
 
 ## Current Phase
 
-Phase 23 (concurrency hardening: R7) — phase 22 (R3/R14/R15) is complete
-(2026-10-15) with `meson test` 13/13 in both builds. `docs/plan.md` phases 0–3 stay
-shipped and accepted, phase 4 (upstream MR) remains the last planned module work.
+Phase 24 (CI and packaging parity: R4, R10) — phases 22 and 23 are complete
+(2026-10-15) with `meson test` 14/14 in both page-size builds. `docs/plan.md`
+phases 0–3 stay shipped and accepted, phase 4 (upstream MR) remains the last
+planned module work.
 
 ## Phases
 
@@ -322,10 +328,11 @@ and watching them fail.*
 
 *Session B. Decision made: `GRWLock`, poppler's model.*
 
-- [ ] Replace the single `GMutex` with a `GRWLock`: writer in `load`/`load_fd`, reader around every vfunc (including the outline and links paths that borrow the handle)
-- [ ] Stress test: worker threads rendering pages while the main thread reloads the same instance over the URI and the fd path; run it under `-Db_sanitize=address` once and keep a short deterministic version in the suite
-- [ ] rofd.h's handle-lifetime contract stated in the code comment; D2 and plan §2 reworded to match the implementation
-- **Status:** pending
+- [x] Replace the single `GMutex` with a `GRWLock`: writer in `load`/`load_fd`, reader around every vfunc (including the outline and links paths that borrow the handle); the renderer is created at load and the geometry cache is filled only under the writer
+- [x] Stress test `ofd-concurrency` (workers rendering/text/find/info/outline while the main thread reloads the same instance over URI and fd; bounded, 1.6 s in the suite); the long form `8 2000 200` under `_build-asan -Db_sanitize=address`: **5/5 runs `heap-use-after-free`** (`rofd_document_get_page` reading a handle `rofd_document_free` had freed in `load`) before the fix, **5/5 clean** after
+- [x] rofd.h's handle-lifetime rule quoted in the code; D2, the §2 diagram, §8 and `AGENTS.md` reworded to the single-lock discipline; A28/A29 added
+- [x] `meson test` 14/14 in `_build` and `_build-slow`; `reuse lint` compliant; latency re-measured (the renderer moved into `load`: ~26 ms + ~20 ms instead of ~2 ms + ~48 ms, README updated)
+- **Status:** complete (2026-10-15)
 
 ### Phase 24: CI and packaging parity (R4, R10)
 

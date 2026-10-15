@@ -179,7 +179,7 @@ ofd_text_pixel_scales (const OfdPageRef *page_ref,
                        double *scale_x,
                        double *scale_y)
 {
-	rofd_renderer_t *renderer = ofd_document_borrow_renderer (page_ref->document);
+	rofd_renderer_t *renderer = ofd_document_borrow_renderer_locked (page_ref->document);
 	double width_pt = ofd_page_ref_width_pt (page_ref);
 	double height_pt = ofd_page_ref_height_pt (page_ref);
 
@@ -213,14 +213,20 @@ ofd_text_context_unrotated (PpsRenderContext *rc)
 gchar *
 ofd_text_get_text (PpsDocumentText *document_text, PpsPage *page)
 {
+	OfdDocument *self = OFD_DOCUMENT (PPS_DOCUMENT (document_text));
 	OfdPageRef page_ref;
 	gchar *text;
 
-	if (!ofd_page_ref_acquire (OFD_DOCUMENT (PPS_DOCUMENT (document_text)), page, &page_ref))
+	ofd_document_reader_lock (self);
+
+	if (!ofd_page_ref_acquire (self, page, &page_ref)) {
+		ofd_document_reader_unlock (self);
 		return NULL;
+	}
 
 	text = ofd_text_page_text (page_ref.rofd_page);
 	ofd_page_ref_release (&page_ref);
+	ofd_document_reader_unlock (self);
 
 	return text;
 }
@@ -235,6 +241,7 @@ ofd_text_get_text_layout (PpsDocumentText *document_text,
                           PpsRectangle **areas,
                           guint *n_areas)
 {
+	OfdDocument *self = OFD_DOCUMENT (PPS_DOCUMENT (document_text));
 	OfdPageRef page_ref;
 	rofd_text_layout_t *layout = NULL;
 	rofd_error_t *rerror = NULL;
@@ -251,8 +258,12 @@ ofd_text_get_text_layout (PpsDocumentText *document_text,
 	*areas = NULL;
 	*n_areas = 0;
 
-	if (!ofd_page_ref_acquire (OFD_DOCUMENT (PPS_DOCUMENT (document_text)), page, &page_ref))
+	ofd_document_reader_lock (self);
+
+	if (!ofd_page_ref_acquire (self, page, &page_ref)) {
+		ofd_document_reader_unlock (self);
 		return FALSE;
+	}
 
 	text = ofd_text_page_text (page_ref.rofd_page);
 	if (text == NULL)
@@ -307,6 +318,7 @@ out:
 	if (layout != NULL)
 		rofd_text_layout_free (layout);
 	ofd_page_ref_release (&page_ref);
+	ofd_document_reader_unlock (self);
 
 	return ok;
 }
@@ -316,6 +328,7 @@ ofd_text_get_text_in_area (PpsDocumentText *document_text,
                            PpsPage *page,
                            PpsRectangle *area)
 {
+	OfdDocument *self = OFD_DOCUMENT (PPS_DOCUMENT (document_text));
 	OfdPageRef page_ref;
 	rofd_string_t *string = NULL;
 	rofd_error_t *rerror = NULL;
@@ -325,8 +338,12 @@ ofd_text_get_text_in_area (PpsDocumentText *document_text,
 	if (area == NULL)
 		return NULL;
 
-	if (!ofd_page_ref_acquire (OFD_DOCUMENT (PPS_DOCUMENT (document_text)), page, &page_ref))
+	ofd_document_reader_lock (self);
+
+	if (!ofd_page_ref_acquire (self, page, &page_ref)) {
+		ofd_document_reader_unlock (self);
 		return NULL;
+	}
 
 	ofd_rect_to_mm (area, &page_ref.box_mm, &area_mm);
 
@@ -345,6 +362,7 @@ ofd_text_get_text_in_area (PpsDocumentText *document_text,
 	if (string != NULL)
 		rofd_string_free (string);
 	ofd_page_ref_release (&page_ref);
+	ofd_document_reader_unlock (self);
 
 	return text;
 }
@@ -352,12 +370,17 @@ ofd_text_get_text_in_area (PpsDocumentText *document_text,
 cairo_region_t *
 ofd_text_get_text_mapping (PpsDocumentText *document_text, PpsPage *page)
 {
+	OfdDocument *self = OFD_DOCUMENT (PPS_DOCUMENT (document_text));
 	OfdPageRef page_ref;
 	rofd_text_selection_t *selection;
 	cairo_region_t *region = NULL;
 
-	if (!ofd_page_ref_acquire (OFD_DOCUMENT (PPS_DOCUMENT (document_text)), page, &page_ref))
+	ofd_document_reader_lock (self);
+
+	if (!ofd_page_ref_acquire (self, page, &page_ref)) {
+		ofd_document_reader_unlock (self);
 		return NULL;
+	}
 
 	/* Glyph selection over the whole box: the region Papers hit-tests for the
 	 * I-beam cursor, the page-scroll-by-line step and the debug borders. */
@@ -370,6 +393,7 @@ ofd_text_get_text_mapping (PpsDocumentText *document_text, PpsPage *page)
 	}
 
 	ofd_page_ref_release (&page_ref);
+	ofd_document_reader_unlock (self);
 
 	return region;
 }
@@ -409,6 +433,7 @@ ofd_selection_render_selection (PpsSelection *selection,
                                 GdkRGBA *text,
                                 GdkRGBA *base)
 {
+	OfdDocument *self = OFD_DOCUMENT (PPS_DOCUMENT (selection));
 	OfdPageRef page_ref;
 	rofd_text_selection_t *rofd_selection;
 	cairo_region_t *region;
@@ -439,7 +464,13 @@ ofd_selection_render_selection (PpsSelection *selection,
 		return;
 	}
 
-	if (!ofd_page_ref_acquire (OFD_DOCUMENT (PPS_DOCUMENT (selection)), rc->page, &page_ref)) {
+	/* The rofd queries borrow the document handle and the geometry, so they run
+	 * under the read lock (R7); the surface allocation and fill below need only
+	 * the canvas size and the region that came out of them. */
+	ofd_document_reader_lock (self);
+
+	if (!ofd_page_ref_acquire (self, rc->page, &page_ref)) {
+		ofd_document_reader_unlock (self);
 		ofd_selection_drop_surface (surface);
 		return;
 	}
@@ -447,6 +478,7 @@ ofd_selection_render_selection (PpsSelection *selection,
 	if (!ofd_text_pixel_scales (&page_ref, rc, &canvas_width, &canvas_height,
 	                           &scale_x, &scale_y)) {
 		ofd_page_ref_release (&page_ref);
+		ofd_document_reader_unlock (self);
 		ofd_selection_drop_surface (surface);
 		return;
 	}
@@ -454,6 +486,7 @@ ofd_selection_render_selection (PpsSelection *selection,
 	rofd_selection = ofd_text_select (&page_ref, style, points);
 	if (rofd_selection == NULL) {
 		ofd_page_ref_release (&page_ref);
+		ofd_document_reader_unlock (self);
 		ofd_selection_drop_surface (surface);
 		return;
 	}
@@ -461,6 +494,7 @@ ofd_selection_render_selection (PpsSelection *selection,
 	region = ofd_text_selection_region (&page_ref, rofd_selection, scale_x, scale_y);
 	rofd_text_selection_free (rofd_selection);
 	ofd_page_ref_release (&page_ref);
+	ofd_document_reader_unlock (self);
 
 	if (*surface == NULL) {
 		*surface = cairo_image_surface_create (CAIRO_FORMAT_ARGB32,
@@ -508,6 +542,7 @@ ofd_selection_get_selected_text (PpsSelection *selection,
                                  PpsSelectionStyle style,
                                  PpsRectangle *points)
 {
+	OfdDocument *self = OFD_DOCUMENT (PPS_DOCUMENT (selection));
 	OfdPageRef page_ref;
 	rofd_text_selection_t *rofd_selection;
 	const gchar *data;
@@ -518,8 +553,12 @@ ofd_selection_get_selected_text (PpsSelection *selection,
 	if (points == NULL)
 		return g_strdup ("");
 
-	if (!ofd_page_ref_acquire (OFD_DOCUMENT (PPS_DOCUMENT (selection)), page, &page_ref))
+	ofd_document_reader_lock (self);
+
+	if (!ofd_page_ref_acquire (self, page, &page_ref)) {
+		ofd_document_reader_unlock (self);
 		return g_strdup ("");
+	}
 
 	rofd_selection = ofd_text_select (&page_ref, style, points);
 	if (rofd_selection != NULL) {
@@ -529,6 +568,7 @@ ofd_selection_get_selected_text (PpsSelection *selection,
 	}
 
 	ofd_page_ref_release (&page_ref);
+	ofd_document_reader_unlock (self);
 
 	return text != NULL ? text : g_strdup ("");
 }
@@ -539,6 +579,7 @@ ofd_selection_get_selection_region (PpsSelection *selection,
                                     PpsSelectionStyle style,
                                     PpsRectangle *points)
 {
+	OfdDocument *self = OFD_DOCUMENT (PPS_DOCUMENT (selection));
 	OfdPageRef page_ref;
 	rofd_text_selection_t *rofd_selection;
 	cairo_region_t *region;
@@ -556,24 +597,31 @@ ofd_selection_get_selection_region (PpsSelection *selection,
 	if (points == NULL || !ofd_text_context_unrotated (rc) || rc->page == NULL)
 		return cairo_region_create ();
 
-	if (!ofd_page_ref_acquire (OFD_DOCUMENT (PPS_DOCUMENT (selection)), rc->page, &page_ref))
+	ofd_document_reader_lock (self);
+
+	if (!ofd_page_ref_acquire (self, rc->page, &page_ref)) {
+		ofd_document_reader_unlock (self);
 		return cairo_region_create ();
+	}
 
 	if (!ofd_text_pixel_scales (&page_ref, rc, &canvas_width, &canvas_height,
 	                           &scale_x, &scale_y)) {
 		ofd_page_ref_release (&page_ref);
+		ofd_document_reader_unlock (self);
 		return cairo_region_create ();
 	}
 
 	rofd_selection = ofd_text_select (&page_ref, style, points);
 	if (rofd_selection == NULL) {
 		ofd_page_ref_release (&page_ref);
+		ofd_document_reader_unlock (self);
 		return cairo_region_create ();
 	}
 
 	region = ofd_text_selection_region (&page_ref, rofd_selection, scale_x, scale_y);
 	rofd_text_selection_free (rofd_selection);
 	ofd_page_ref_release (&page_ref);
+	ofd_document_reader_unlock (self);
 
 	return region;
 }
@@ -592,6 +640,7 @@ ofd_find_text (PpsDocumentFind *document_find,
                const gchar *text,
                PpsFindOptions options)
 {
+	OfdDocument *self = OFD_DOCUMENT (PPS_DOCUMENT (document_find));
 	OfdPageRef page_ref;
 	rofd_text_search_t *search = NULL;
 	rofd_error_t *rerror = NULL;
@@ -605,8 +654,12 @@ ofd_find_text (PpsDocumentFind *document_find,
 	if (text == NULL || text[0] == '\0')
 		return NULL;
 
-	if (!ofd_page_ref_acquire (OFD_DOCUMENT (PPS_DOCUMENT (document_find)), page, &page_ref))
+	ofd_document_reader_lock (self);
+
+	if (!ofd_page_ref_acquire (self, page, &page_ref)) {
+		ofd_document_reader_unlock (self);
 		return NULL;
+	}
 
 	rofd_find_options_init (&find_options, sizeof (find_options));
 	if (options & PPS_FIND_CASE_SENSITIVE)
@@ -666,6 +719,7 @@ out:
 	if (search != NULL)
 		rofd_text_search_free (search);
 	ofd_page_ref_release (&page_ref);
+	ofd_document_reader_unlock (self);
 
 	return g_list_reverse (matches);
 }

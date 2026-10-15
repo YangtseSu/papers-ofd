@@ -72,9 +72,13 @@ It loads `libofddocument.so`, calls the exported `pps_backend_query_type()` and
 gets an `OfdDocument` — a `PpsDocument` subclass that also implements
 `PpsDocumentText`, `PpsDocumentFind`, `PpsDocumentLinks`, `PpsSelection` and
 `PpsDocumentPrint`. Each `PpsPage` carries its own `rofd_page_t`, and every call is
-a thin translation into rofd's C ABI (units, coordinates, options, errors). No
-document-wide render lock: the ABI is safe for the concurrent read-only calls that
-Papers' worker pool issues.
+a thin translation into rofd's C ABI (units, coordinates, options, errors). One
+reader/writer lock guards the state the document owns — the rofd handle, the
+renderer and the page-geometry cache — with `load`/`load_fd` as the writer and
+every vfunc as a reader, the model of Papers' PDF backend
+(`libview/pps-poppler.c`). Renders therefore run concurrently, as the ABI's
+concurrent read-only contract allows; only a reload excludes them, which is what
+keeps a handle from being freed under a call that is using it.
 
 ## Requirements
 
@@ -205,13 +209,15 @@ patch-free vs patch-the-desktop tradeoff:
 ## Limitations
 
 - **Open latency** on a 300-page generated fixture (content on every page,
-  5 runs, best of): load 2 ms, then ~70 ms for the page walk (`setup_cache`,
-  which fetches every page object) and ~48 ms for the first rendered page —
-  ~120 ms from `pps_document_load` to the first page being visible. The
+  5 runs, best of): load ~26 ms — the renderer and rofd's font stack are created
+  when the document loads, which is also why the first render is ~20 ms rather
+  than ~48 ms — then ~66 ms for the page walk (`setup_cache`, which fetches every
+  page object) and ~20 ms for the first rendered page: ~130 ms from
+  `pps_document_load` to the first page being visible. The
   metadata-only page-size query (`rofd_document_get_page_size_mm`, shipped in
-  the fork's release) makes the size walk itself 20 ms instead of 71 ms, but the
+  the fork's release) makes the size walk itself ~18 ms instead of ~70 ms, but the
   end-to-end time is
-  the same in the shell's flow because `setup_cache` fetches the page objects
+  about the same in the shell's flow because `setup_cache` fetches the page objects
   either way; the fast path pays off for callers that only need sizes
   (`tests/ofd-latency.c`, both builds).
 - **Render budget.** rofd charges the worst case of a page raster

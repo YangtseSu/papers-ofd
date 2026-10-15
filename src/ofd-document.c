@@ -31,22 +31,26 @@ struct _OfdDocument {
 	PpsDocument parent_instance;
 
 	rofd_document_t *rofd_document;
-	/* Created on first render with NULL options: rofd's CJK-capable defaults
-	 * (D8). Guarded by `mutex`. */
+	/* Created at load, with NULL options: rofd's CJK-capable defaults (D8).
+	 * Guarded by `lock`, like everything else the document owns. */
 	rofd_renderer_t *renderer;
 	gint n_pages;
 
 	/* load_fd bookkeeping (plan §3): the descriptor the previewer handed over and
 	 * the temp copy rofd reads when the descriptor cannot be re-entered through
-	 * /proc. -1/NULL when the document came from a URI. Guarded by `mutex`. */
+	 * /proc. -1/NULL when the document came from a URI. Guarded by `lock`. */
 	gint source_fd;
 	gchar *source_temp_path;
 
-	/* Decision D2: one mutex for our own mutable state only; the rofd ABI is
-	 * safe for the concurrent read-only calls Papers' worker pool issues. */
-	GMutex mutex;
+	/* Decision D2/R7: one writer lock for our own mutable state (the handle, the
+	 * renderer and the geometry cache), readers around every vfunc — the model of
+	 * Papers' PDF backend (libview/pps-poppler.c). The rofd ABI is safe for the
+	 * concurrent read-only calls Papers' worker pool issues, so this is not a
+	 * render lock: renders run concurrently under the read side. */
+	GRWLock lock;
 	/* Per-page geometry cache: the physical box in millimetres, origin included,
-	 * filled by get_page_size and reused by the rectangle conversion (D3). */
+	 * filled by get_page_size and reused by the rectangle conversion (D3). Only
+	 * the writer fills it, so readers cannot race on a slot. */
 	OfdPageGeometry *geometry;
 	gint geometry_len;
 };
@@ -110,7 +114,8 @@ ofd_document_set_error_from_rofd (GError **error,
 }
 
 /* One metadata-only or per-page size query, returning the physical box in
- * millimetres. The fast path does not parse page content (A17/A18). */
+ * millimetres. The fast path does not parse page content (A17/A18). The caller
+ * holds a lock covering the handle (read or write). */
 static gboolean
 ofd_document_query_page_box (OfdDocument *self, gint index, rofd_rect_t *box_mm)
 {
@@ -139,35 +144,72 @@ ofd_document_query_page_box (OfdDocument *self, gint index, rofd_rect_t *box_mm)
 	return ok;
 }
 
-/* Cached physical box (millimetres, origin included) for one page; the single
- * lookup used by get_page_size and render (plan §4/D3). */
+/* Physical box for one page, filling the cache (D3, R3). This is the entry point
+ * for the vfuncs that do not hold a lock yet; it takes the read lock to answer
+ * from the cache, and the write lock to fill it, because a cache slot is shared
+ * state two readers could otherwise race on. It is not recursive: callers that
+ * already hold the read lock use ofd_document_page_box_mm_locked instead. */
 gboolean
 ofd_document_page_box_mm (OfdDocument *self, gint index, rofd_rect_t *box_mm)
 {
-	if (index < 0 || index >= self->n_pages)
-		return FALSE;
+	gboolean cached;
 
-	g_mutex_lock (&self->mutex);
-	if (self->geometry[index].set) {
+	g_return_val_if_fail (OFD_IS_DOCUMENT (self), FALSE);
+
+	g_rw_lock_reader_lock (&self->lock);
+	cached = index >= 0 && index < self->n_pages && self->geometry[index].set;
+	if (cached) {
 		*box_mm = self->geometry[index].box_mm;
-		g_mutex_unlock (&self->mutex);
+		g_rw_lock_reader_unlock (&self->lock);
 		return TRUE;
 	}
-	g_mutex_unlock (&self->mutex);
+	g_rw_lock_reader_unlock (&self->lock);
 
-	if (!ofd_document_query_page_box (self, index, box_mm))
+	/* Cold: the box has to be queried, which needs the handle to stay put and
+	 * ends in a write to the cache. The reload that the write lock excludes may
+	 * have run while the read lock was dropped, so the bounds are re-checked. */
+	g_rw_lock_writer_lock (&self->lock);
+
+	if (index < 0 || index >= self->n_pages) {
+		g_rw_lock_writer_unlock (&self->lock);
 		return FALSE;
+	}
+	if (self->geometry[index].set) {
+		*box_mm = self->geometry[index].box_mm;
+		g_rw_lock_writer_unlock (&self->lock);
+		return TRUE;
+	}
 
-	g_mutex_lock (&self->mutex);
+	if (!ofd_document_query_page_box (self, index, box_mm)) {
+		g_rw_lock_writer_unlock (&self->lock);
+		return FALSE;
+	}
 	self->geometry[index].box_mm = *box_mm;
 	self->geometry[index].set = TRUE;
-	g_mutex_unlock (&self->mutex);
+	g_rw_lock_writer_unlock (&self->lock);
 
 	return TRUE;
 }
 
+/* The same box for a caller that already holds the read lock: the cache is read,
+ * never written (a reader may not), and a miss is answered by querying rofd
+ * directly — the handle is stable while the read lock is held. */
+gboolean
+ofd_document_page_box_mm_locked (OfdDocument *self, gint index, rofd_rect_t *box_mm)
+{
+	if (index < 0 || index >= self->n_pages)
+		return FALSE;
+
+	if (self->geometry[index].set) {
+		*box_mm = self->geometry[index].box_mm;
+		return TRUE;
+	}
+
+	return ofd_document_query_page_box (self, index, box_mm);
+}
+
 /* Drops the fd and the temp copy of a previous load_fd; the caller holds the
- * mutex. rofd reads the whole file during rofd_document_open, but the ABI only
+ * write lock. rofd reads the whole file during rofd_document_open, but the ABI only
  * promises that call, so the descriptor and the copy stay alive for as long as
  * the document does (plan §3). */
 static void
@@ -187,7 +229,8 @@ ofd_document_drop_source (OfdDocument *self)
 }
 
 /* Opens one path and makes it the current document, whatever the caller had
- * loaded before. */
+ * loaded before. The caller holds the write lock (R7): replacing the handle and
+ * the geometry array is what a concurrent reader must not see half-done. */
 static gboolean
 ofd_document_load_path (OfdDocument *self, const gchar *path, GError **error)
 {
@@ -220,7 +263,6 @@ ofd_document_load_path (OfdDocument *self, const gchar *path, GError **error)
 	}
 	ofd_rofd_error_free (&rerror);
 
-	g_mutex_lock (&self->mutex);
 	if (self->rofd_document != NULL)
 		rofd_document_free (self->rofd_document);
 	self->rofd_document = handle;
@@ -229,7 +271,13 @@ ofd_document_load_path (OfdDocument *self, const gchar *path, GError **error)
 	self->geometry_len = (gint) count;
 	self->geometry = count > 0 ? g_new0 (OfdPageGeometry, count) : NULL;
 	ofd_document_drop_source (self);
-	g_mutex_unlock (&self->mutex);
+
+	/* The renderer belongs to the loaded document, not to the first render:
+	 * creating it here keeps the render paths read-only, so two of them cannot
+	 * race on the pointer (R7). */
+	if (self->renderer != NULL)
+		rofd_renderer_free (self->renderer);
+	self->renderer = ofd_renderer_new ();
 
 	return TRUE;
 }
@@ -239,6 +287,7 @@ ofd_document_load (PpsDocument *document, const char *uri, GError **error)
 {
 	OfdDocument *self = OFD_DOCUMENT (document);
 	g_autofree gchar *path = NULL;
+	gboolean ok;
 
 	g_return_val_if_fail (uri != NULL, FALSE);
 
@@ -250,7 +299,11 @@ ofd_document_load (PpsDocument *document, const char *uri, GError **error)
 		return FALSE;
 	}
 
-	return ofd_document_load_path (self, path, error);
+	g_rw_lock_writer_lock (&self->lock);
+	ok = ofd_document_load_path (self, path, error);
+	g_rw_lock_writer_unlock (&self->lock);
+
+	return ok;
 }
 
 #define OFD_FD_COPY_CHUNK 65536
@@ -338,7 +391,10 @@ out:
 
 /* PpsDocument::load_fd — the previewer path (plan §3). The wrapper has already
  * checked that @fd is a readable regular file and hands its ownership over,
- * including when this vfunc fails. */
+ * including when this vfunc fails. The whole body holds the write lock: it
+ * installs a handle like `load` does, and the temp-copy fallback copies the file
+ * — a reload that is already committed to its path must not be interleaved with
+ * readers of the previous document. */
 static gboolean
 ofd_document_load_fd (PpsDocument *document, int fd, GError **error)
 {
@@ -347,6 +403,7 @@ ofd_document_load_fd (PpsDocument *document, int fd, GError **error)
 	g_autofree gchar *temp_path = NULL;
 	gint dup_fd;
 	gint errsv;
+	gboolean ok = FALSE;
 
 	/* Keep a descriptor of our own for the fallback below, and for the document's
 	 * lifetime: rofd opens by path, so the file must stay reachable. F_DUPFD_CLOEXEC
@@ -363,14 +420,15 @@ ofd_document_load_fd (PpsDocument *document, int fd, GError **error)
 	}
 	close (fd);
 
+	g_rw_lock_writer_lock (&self->lock);
+
 	/* /proc/self/fd re-enters the same file, including one the caller has already
 	 * unlinked — which is what the previewer's temporary copies are. */
 	proc_path = g_strdup_printf ("/proc/self/fd/%d", dup_fd);
 	if (ofd_document_load_path (self, proc_path, NULL)) {
-		g_mutex_lock (&self->mutex);
 		self->source_fd = dup_fd;
-		g_mutex_unlock (&self->mutex);
-		return TRUE;
+		ok = TRUE;
+		goto out;
 	}
 
 	/* No usable /proc (a chroot, a sandbox) or no permission to re-enter the
@@ -378,20 +436,22 @@ ofd_document_load_fd (PpsDocument *document, int fd, GError **error)
 	 * because it describes the document the caller wanted to open. */
 	if (!ofd_document_write_fd_copy (dup_fd, &temp_path, error)) {
 		close (dup_fd);
-		return FALSE;
+		goto out;
 	}
 	close (dup_fd);
 
 	if (!ofd_document_load_path (self, temp_path, error)) {
 		g_unlink (temp_path);
-		return FALSE;
+		goto out;
 	}
 
-	g_mutex_lock (&self->mutex);
 	self->source_temp_path = g_steal_pointer (&temp_path);
-	g_mutex_unlock (&self->mutex);
+	ok = TRUE;
 
-	return TRUE;
+out:
+	g_rw_lock_writer_unlock (&self->lock);
+
+	return ok;
 }
 
 static gboolean
@@ -410,8 +470,13 @@ static gint
 ofd_document_get_n_pages (PpsDocument *document)
 {
 	OfdDocument *self = OFD_DOCUMENT (document);
+	gint n_pages;
 
-	return self->n_pages;
+	g_rw_lock_reader_lock (&self->lock);
+	n_pages = self->n_pages;
+	g_rw_lock_reader_unlock (&self->lock);
+
+	return n_pages;
 }
 
 static PpsPage *
@@ -420,22 +485,29 @@ ofd_document_get_page (PpsDocument *document, gint index)
 	OfdDocument *self = OFD_DOCUMENT (document);
 	rofd_page_t *rpage = NULL;
 	rofd_error_t *rerror = NULL;
-	PpsPage *page;
+	PpsPage *page = NULL;
 
-	if (index < 0 || index >= self->n_pages)
+	g_rw_lock_reader_lock (&self->lock);
+
+	if (index < 0 || index >= self->n_pages || self->rofd_document == NULL) {
+		g_rw_lock_reader_unlock (&self->lock);
 		return NULL;
+	}
 
 	if (rofd_document_get_page (self->rofd_document, (size_t) index,
 	                            &rpage, &rerror) != ROFD_STATUS_OK) {
 		g_debug ("rofd page %d could not be opened: %s", index,
 		         rerror ? rofd_error_get_message (rerror) : "unknown error");
 		ofd_rofd_error_free (&rerror);
+		g_rw_lock_reader_unlock (&self->lock);
 		return NULL;
 	}
 	ofd_rofd_error_free (&rerror);
 
 	page = pps_page_new (index);
 	ofd_page_attach (page, rpage);
+
+	g_rw_lock_reader_unlock (&self->lock);
 
 	return page;
 }
@@ -457,35 +529,53 @@ ofd_document_get_page_size (PpsDocument *document, PpsPage *page,
 	*height = ofd_mm_to_pt (box_mm.height_mm);
 }
 
-/* The rofd document handle, borrowed; NULL before a successful load. */
+/* The read side of the document lock, for the interface implementations whose
+ * translation unit cannot see the struct (R7). */
+void
+ofd_document_reader_lock (OfdDocument *self)
+{
+	g_return_if_fail (OFD_IS_DOCUMENT (self));
+
+	g_rw_lock_reader_lock (&self->lock);
+}
+
+void
+ofd_document_reader_unlock (OfdDocument *self)
+{
+	g_return_if_fail (OFD_IS_DOCUMENT (self));
+
+	g_rw_lock_reader_unlock (&self->lock);
+}
+
+/* The rofd document handle, borrowed; NULL before a successful load. The read
+ * lock is held by the caller (R7), which is what keeps the handle alive for as
+ * long as the caller uses it — rofd.h requires that no handle is freed while
+ * another call is using it. */
 rofd_document_t *
-ofd_document_borrow_handle (OfdDocument *self)
+ofd_document_borrow_handle_locked (OfdDocument *self)
 {
 	g_return_val_if_fail (OFD_IS_DOCUMENT (self), NULL);
 
 	return self->rofd_document;
 }
 
-/* Lazily create the renderer; the caller must not hold the mutex. */
+/* The renderer created at load; NULL when rofd refused to create one. Read-only,
+ * so the read lock suffices (R7). */
 rofd_renderer_t *
-ofd_document_borrow_renderer (OfdDocument *self)
+ofd_document_borrow_renderer_locked (OfdDocument *self)
 {
-	rofd_renderer_t *renderer = NULL;
+	g_return_val_if_fail (OFD_IS_DOCUMENT (self), NULL);
 
-	g_mutex_lock (&self->mutex);
-	if (self->renderer == NULL)
-		self->renderer = ofd_renderer_new ();
-	renderer = self->renderer;
-	g_mutex_unlock (&self->mutex);
-
-	return renderer;
+	return self->renderer;
 }
 
 /* The rofd page handle a page vfunc renders from: the one attached at get_page
  * (D1), or a handle fetched for this call when the caller built its own
- * PpsPage. Sets *borrowed when the caller must free the result. */
+ * PpsPage. Sets *borrowed when the caller must free the result. The read lock is
+ * held by the caller; the handle it returns is independently owned (A2), so the
+ * caller may free it after dropping the lock. */
 rofd_page_t *
-ofd_document_borrow_page (OfdDocument *self, PpsPage *page, gboolean *borrowed)
+ofd_document_borrow_page_locked (OfdDocument *self, PpsPage *page, gboolean *borrowed)
 {
 	rofd_page_t *rpage;
 	rofd_error_t *rerror = NULL;
@@ -526,30 +616,35 @@ ofd_document_render (PpsDocument *document, PpsRenderContext *rc)
 	cairo_surface_t *surface = NULL;
 	double width_pt = 0.0;
 	double height_pt = 0.0;
+	rofd_rect_t box_mm = { 0, };
 
-	if (page == NULL || self->rofd_document == NULL)
+	if (page == NULL)
 		return NULL;
 
-	/* Do not go through pps_document_get_page_size_uncached here: it asserts
-	 * that the cache is not loaded, and render runs once it is. */
-	{
-		rofd_rect_t box_mm = { 0, };
-
-		if (!ofd_document_page_box_mm (self, page->index, &box_mm))
-			return NULL;
-		width_pt = ofd_mm_to_pt (box_mm.width_mm);
-		height_pt = ofd_mm_to_pt (box_mm.height_mm);
-	}
+	/* The geometry cache is filled before the read section, because filling it
+	 * writes (see ofd_document_page_box_mm). Do not go through
+	 * pps_document_get_page_size_uncached here: it asserts that the cache is not
+	 * loaded, and render runs once it is. */
+	if (!ofd_document_page_box_mm (self, page->index, &box_mm))
+		return NULL;
+	width_pt = ofd_mm_to_pt (box_mm.width_mm);
+	height_pt = ofd_mm_to_pt (box_mm.height_mm);
 	if (width_pt <= 0.0 || height_pt <= 0.0)
 		return NULL;
 
-	rpage = ofd_document_borrow_page (self, page, &borrowed_page);
-	if (rpage == NULL)
-		return NULL;
+	g_rw_lock_reader_lock (&self->lock);
 
-	renderer = ofd_document_borrow_renderer (self);
-	if (renderer != NULL)
-		surface = ofd_render_page_surface (renderer, rpage, rc, width_pt, height_pt);
+	if (self->rofd_document != NULL) {
+		rpage = ofd_document_borrow_page_locked (self, page, &borrowed_page);
+		if (rpage != NULL) {
+			renderer = ofd_document_borrow_renderer_locked (self);
+			if (renderer != NULL)
+				surface = ofd_render_page_surface (renderer, rpage, rc,
+				                                   width_pt, height_pt);
+		}
+	}
+
+	g_rw_lock_reader_unlock (&self->lock);
 
 	if (borrowed_page)
 		rofd_page_free (rpage);
@@ -566,23 +661,28 @@ ofd_document_print_page (PpsDocumentPrint *document_print,
                          cairo_t *cr)
 {
 	OfdDocument *self = OFD_DOCUMENT (document_print);
-	rofd_page_t *rpage;
+	rofd_page_t *rpage = NULL;
 	rofd_renderer_t *renderer;
 	rofd_render_options_t options;
 	gboolean borrowed_page = FALSE;
 
-	if (page == NULL || cr == NULL || self->rofd_document == NULL)
+	if (page == NULL || cr == NULL)
 		return;
 
-	rpage = ofd_document_borrow_page (self, page, &borrowed_page);
-	if (rpage == NULL)
-		return;
+	g_rw_lock_reader_lock (&self->lock);
 
-	renderer = ofd_document_borrow_renderer (self);
-	if (renderer != NULL) {
-		ofd_render_options_init_print (&options);
-		ofd_render_page_onto (renderer, rpage, cr, &options);
+	if (self->rofd_document != NULL) {
+		rpage = ofd_document_borrow_page_locked (self, page, &borrowed_page);
+		if (rpage != NULL) {
+			renderer = ofd_document_borrow_renderer_locked (self);
+			if (renderer != NULL) {
+				ofd_render_options_init_print (&options);
+				ofd_render_page_onto (renderer, rpage, cr, &options);
+			}
+		}
 	}
+
+	g_rw_lock_reader_unlock (&self->lock);
 
 	if (borrowed_page)
 		rofd_page_free (rpage);
@@ -593,16 +693,24 @@ ofd_document_get_info (PpsDocument *document)
 {
 	OfdDocument *self = OFD_DOCUMENT (document);
 	g_autofree PpsDocumentPageSize *sizes = NULL;
+	PpsDocumentInfo *info;
+	gint n_pages;
 	gint resolved = 0;
 	gint i;
 
 	/* The shell always sizes every page during the load job (setup_cache), so
 	 * this normally reads the geometry cache only; querying is the fallback for
-	 * callers that never populated it. */
-	if (self->n_pages > 0) {
-		sizes = g_new0 (PpsDocumentPageSize, self->n_pages);
+	 * callers that never populated it. Each box takes the locks it needs, so this
+	 * loop runs outside the read section (a concurrent reload would otherwise be
+	 * waiting on us). */
+	g_rw_lock_reader_lock (&self->lock);
+	n_pages = self->n_pages;
+	g_rw_lock_reader_unlock (&self->lock);
 
-		for (i = 0; i < self->n_pages; i++) {
+	if (n_pages > 0) {
+		sizes = g_new0 (PpsDocumentPageSize, n_pages);
+
+		for (i = 0; i < n_pages; i++) {
 			rofd_rect_t box_mm = { 0, };
 
 			if (!ofd_document_page_box_mm (self, i, &box_mm))
@@ -616,13 +724,21 @@ ofd_document_get_info (PpsDocument *document)
 		}
 	}
 
-	/* Publish the paper sizes only when every page resolved: a partial array
-	 * announces 0×0 pages to the properties dialog, which reads the field the bit
-	 * gates (R16). */
-	return ofd_metadata_new (self->rofd_document, self->n_pages,
-	                         (self->n_pages > 0 && resolved == self->n_pages)
+	/* The metadata query has to hold the read lock: it borrows the handle. A
+	 * reload that ran while the sizes were collected would make the array refer to
+	 * other pages, so it is dropped in that case (R16 keeps the partial-array rule
+	 * as well: only a fully resolved array is published). */
+	g_rw_lock_reader_lock (&self->lock);
+
+	info = ofd_metadata_new (self->rofd_document, self->n_pages,
+	                         (n_pages > 0 && self->n_pages == n_pages &&
+	                          resolved == n_pages)
 	                             ? sizes
 	                             : NULL);
+
+	g_rw_lock_reader_unlock (&self->lock);
+
+	return info;
 }
 
 static gboolean
@@ -642,40 +758,63 @@ ofd_document_finalize (GObject *object)
 {
 	OfdDocument *self = OFD_DOCUMENT (object);
 
+	/* No reader can be inside the vfuncs while the last reference is dropped, so
+	 * the frees need no lock — the same shape as the PDF backend's finalize
+	 * (pps-poppler.c:185). */
 	if (self->rofd_document != NULL)
 		rofd_document_free (self->rofd_document);
 	ofd_document_drop_source (self);
 	if (self->renderer != NULL)
 		rofd_renderer_free (self->renderer);
 	g_clear_pointer (&self->geometry, g_free);
-	g_mutex_clear (&self->mutex);
+	g_rw_lock_clear (&self->lock);
 
 	G_OBJECT_CLASS (ofd_document_parent_class)->finalize (object);
 }
 
 /* PpsDocumentLinks is dispatched without a NULL check upstream (A9), so every
- * vfunc exists: the two that have no ABI counterpart are stubs. */
+ * vfunc exists: the two that have no ABI counterpart are stubs. All of them hold
+ * the read lock while the outline snapshot borrows the handle (R7). */
 static gboolean
 ofd_document_has_document_links (PpsDocumentLinks *document_links)
 {
-	return ofd_outline_has_document_links (OFD_DOCUMENT (document_links));
+	OfdDocument *self = OFD_DOCUMENT (document_links);
+	gboolean has_links;
+
+	g_rw_lock_reader_lock (&self->lock);
+	has_links = ofd_outline_has_document_links (self);
+	g_rw_lock_reader_unlock (&self->lock);
+
+	return has_links;
 }
 
 static GListModel *
 ofd_document_get_links_model (PpsDocumentLinks *document_links)
 {
-	return ofd_outline_get_links_model (OFD_DOCUMENT (document_links));
+	OfdDocument *self = OFD_DOCUMENT (document_links);
+	GListModel *model;
+
+	g_rw_lock_reader_lock (&self->lock);
+	model = ofd_outline_get_links_model (self);
+	g_rw_lock_reader_unlock (&self->lock);
+
+	return model;
 }
 
 static PpsMappingList *
 ofd_document_get_links (PpsDocumentLinks *document_links, PpsPage *page)
 {
 	OfdDocument *self = OFD_DOCUMENT (document_links);
+	PpsMappingList *links;
 
 	if (!PPS_IS_PAGE (page))
 		return NULL;
 
-	return ofd_links_get_links (self, page);
+	g_rw_lock_reader_lock (&self->lock);
+	links = ofd_links_get_links (self, page);
+	g_rw_lock_reader_unlock (&self->lock);
+
+	return links;
 }
 
 static PpsLinkDest *
@@ -762,5 +901,5 @@ static void
 ofd_document_init (OfdDocument *self)
 {
 	self->source_fd = -1;
-	g_mutex_init (&self->mutex);
+	g_rw_lock_init (&self->lock);
 }

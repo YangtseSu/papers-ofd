@@ -65,8 +65,11 @@ the authoritative plan; read it before changing code.
   never open-code millimetre/point conversions.
 - Call `rofd_render_options_init` before setting render options and never leave
   `max_raster_bytes` zero (plan §4).
-- Do not add a document-wide render lock: the ABI permits concurrent read-only
-  calls; guard only our own mutable state (plan D2).
+- Never add a document-wide render lock: the ABI permits concurrent read-only
+  calls. Exactly one lock discipline guards our own mutable state (plan D2): the
+  `GRWLock` with the writer in `load`/`load_fd` and a reader around every vfunc,
+  including the outline and links paths that borrow the handle. No helper may take
+  that lock twice (it is not recursive).
 
 ## Build and verify
 
