@@ -243,6 +243,15 @@ and #12 when convenient.
 - [x] Verified: `reuse lint` compliant, `meson test -C _build` 12/12, no dangling `packaging/` or patch-payload references outside `.planning` history
 - **Status:** complete
 
+### Phase 19: release 51.1.1, the version scheme and CI
+
+- [x] Version scheme decided with the user: `<Papers line>.<verified baseline>.<our release>` → `51.1.1` (plan D13; README, AGENTS.md)
+- [x] Release: commit `8a4c99a`, annotated tag `v51.1.1`, GitHub release with the source pin; AUR `papers-ofd 51.1.1-1`, `source=` = the tag archive (sha256 `d9c94f4e…29618d08`)
+- [x] CI: `.github/workflows/checks.yml` (Arch container, the fork ABI tag read from `patches/README.md`, the suite as an unprivileged user) + `.github/workflows/release.yml` (a `v*` tag runs the checks and pins the archive sha256 into the release notes); plan §7
+- [x] The first runs found the gaps the CI exists for: jbig2dec missing in the container, the units test lacking the ABI include path under `-Drofd_includedir`, and ofd-fd's fallback case needing a non-root user
+- [x] Green on current versions: `ubuntu-26.04`, `actions/checkout@v7`, run [38744389444](https://github.com/YangtseSu/papers-ofd/actions/runs/38744389444)
+- **Status:** complete
+
 ## Key Questions
 
 1. Does rofd's ABI allow concurrent read-only calls? → **Yes** (`rofd.h` header, `rofd-ffi/README.md:329-335`, internal locks in rofd-core/rofd-render).

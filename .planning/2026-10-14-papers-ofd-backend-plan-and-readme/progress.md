@@ -1362,3 +1362,48 @@ exist; `51.1.1` states the compatibility line instead.
   user's step, for both `librofd-ffi-0.4.3.fork.2-1` and `papers-ofd-51.1.1-1`.
 - Still open from the phase-3 acceptance list: `pacman -Rns papers-ofd` as the
   uninstall regression.
+
+## 2026-10-15 (later): CI — the AUR build in an Arch container
+
+The user asked whether the project needs CI and a release workflow; decision:
+both, with the AUR push left manual (it needs the maintainer's key, the AUR hook
+rejects a stale `.SRCINFO`, and the AUR repository is the recipe's only home).
+
+- `.github/workflows/checks.yml`: an `archlinux:latest` container, `pacman -Syu`
+  with the build and test dependencies (cairo, freetype2 and jbig2dec explicit —
+  they are what the rofd build probes with pkg-config), the ABI built from the
+  fork release tag that `patches/README.md` names (read out of its
+  current-release table, so the inventory stays the one home), then
+  `meson setup/compile/test` and `reuse lint`. Runs on `main`, on pull requests,
+  on demand, and as a reusable workflow.
+- `.github/workflows/release.yml`: on a `v*` tag it calls `checks.yml` and then
+  appends the tag archive's sha256 — the value the AUR recipe's `source=` pins —
+  to the release notes, creating the release when the tag has none; the job
+  summary carries the same number, and the manual repackaging step has nothing
+  left to compute. `workflow_dispatch` re-runs it for a ref.
+- The container runs the suite as a `builder` user, the constraint makepkg works
+  under: ofd-fd withdraws read permission from a descriptor and expects the
+  `/proc/self/fd` re-open to answer `EACCES`, which root never sees.
+- Environment: `runs-on: ubuntu-26.04`, `actions/checkout@v7`,
+  `archlinux:latest` — current versions of everything the workflows name.
+- What stays manual: the GUI acceptance items (§5 phase 3), the uninstall
+  regression and the AUR push. Two tests skip in the container because it has no
+  display, which is what they are built to do: `ofd-print-file` and the
+  live-load half of `ofd-sushi-plugin`.
+- The runs found three real gaps, which is what the CI is for:
+  1. `jbig2dec` was missing from the container — `crates/rofd-render/build.rs`
+     probes it with pkg-config, and the module build had never been tried on a
+     machine without the package installed.
+  2. `tests/test-ofd-units` compiles `../src/ofd-units.c` (whose header includes
+     `<rofd.h>`) without declaring `rofd_dep`, so under `-Drofd_includedir` the
+     ABI include path never reached that compile line; locally
+     `/usr/include/rofd.h` from the installed package hid the gap.
+  3. The suite cannot run as root (see above): the first container run that got
+     past the build failed `ofd-fd` alone, with zero cache files found.
+- Observed: run 38743654737 (unprivileged) green in 1m55s, then 38744389444 on
+  `ubuntu-26.04` with `actions/checkout@v7` green in 1m45s; the failures on the
+  way were 38741809680 (jbig2dec) and 38742980443 (ofd-fd as root).
+- The `v51.1.1` release notes now carry the pin block the workflow produces; it
+  was backfilled with the same commands, which is also how they were verified.
+  The AUR RPC frontend reports `papers-ofd 51.1.1-1`, so the earlier index lag
+  has cleared.
