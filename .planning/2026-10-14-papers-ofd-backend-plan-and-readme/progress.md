@@ -2220,3 +2220,20 @@ bottom > top`; otherwise it logs the reason at `g_debug` and returns
   headless test pins the mapping-identity contract both consume, not their pixels.
   The live window was left open for a hover check on the fixture's two-region bar
   (left half vs right half of the 40–100 mm / 220–240 mm rectangle, page 1).
+
+### Pushed (2026-10-16)
+
+The user approved the push; `main` went to `origin` (GitHub, the public
+repository) as `17c5769..e65bb01` — a fast-forward carrying phase 25 and phase 27.
+Privacy review of the outgoing content before pushing: both commit messages and
+the full diff (8 files) scanned for secrets, tokens, keys, `.env` values, private
+keys, machine paths and personal data — nothing found; the only user-identifying
+strings are the repository's own URLs.
+
+CI (`.github/workflows/checks.yml`, the Arch container) ran on the push and is
+**green**: [run 38816196820](https://github.com/YangtseSu/papers-ofd/actions/runs/38816196820),
+157.8 s, all steps — dependencies, the pinned fork ABI build, the module
+configure/build/test, the page-size fallback build, the installed-`rofd-ffi.pc`
+build, `reuse lint`. This also closes phase 24's open user step 2 ("a branch push,
+if CI should run the new steps"): the two extra CI steps are now verified in the
+real container on a commit that carries them, not only mirrored locally.

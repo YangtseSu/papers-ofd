@@ -38,7 +38,10 @@ Also still the user's, from phase 24:
 1. the AUR `papers-ofd` revision — the prepared `checkdepends` diff and the
    regenerated `.SRCINFO` (the working copy is
    `~/projects/ofd-reader/papers-ofd-aur`, left uncommitted on purpose);
-2. a branch push, if CI should run the new steps.
+2. ~~a branch push, if CI should run the new steps~~ — **done 2026-10-16**:
+   `main` was pushed as `17c5769..e65bb01` and CI is green
+   ([run 38816196820](https://github.com/YangtseSu/papers-ofd/actions/runs/38816196820)),
+   which covers the new fallback and installed-`.pc` steps in the real container.
 
 Session split agreed 2026-10-15: phase 20 + 21 are one session (blockers plus the
 mechanical fixes), phases 22–24 a second (render budget, concurrency, CI/packaging
@@ -134,10 +137,12 @@ and #12 when convenient.
 Session C is complete (phases 25 and 27, 2026-10-16): the R19 documentation
 corrections and the R17/R18 link defects are committed and verified — plan
 §2/§3/§5/§6/§7, README, A30/A31, with `reuse lint` clean and `meson test` 14/14 in
-`_build` and `_build-slow` (the links test also clean under `_build-asan`). Next:
-phase 26 (the `51.1.2` release, AUR repackage and the `pacman -Rns` uninstall
-regression), which is user-gated; `docs/plan.md` phases 0–3 stay shipped and
-accepted and phase 4 (upstream MR) remains the last planned module
+`_build` and `_build-slow` (the links test also clean under `_build-asan`). `main`
+is pushed (`17c5769..e65bb01`) and CI is green in the Arch container (run
+38816196820: module, page-size fallback and installed-`.pc` builds plus `reuse
+lint`). Next: phase 26 (the `51.1.2` release, AUR repackage and the `pacman -Rns`
+uninstall regression), which is user-gated; `docs/plan.md` phases 0–3 stay shipped
+and accepted and phase 4 (upstream MR) remains the last planned module
 work.
 
 ## Phases
@@ -385,6 +390,7 @@ executed before phase 26 so both fixes ship in `51.1.2`.*
 - [x] R18 test first: the fixture gained a page-level `FitR` without `Right`/`Bottom` (rofd reports the coordinate as absent and zero); `test_page_links` asserts the ABI's own rule — a complete, non-empty box stays `FITR` with its four coordinates, anything else becomes a plain `FIT` — observed red (`FITR` 5 instead of `FIT` 2)
 - [x] R18 fix: `ofd_link_dest_from_rofd` requires all four `HAS_*` bits and a positive box for `FitR`, otherwise it fits the page, observed green
 - [x] Docs: plan §3 (`get_links`, destinations), §6's `links` fixture row, A30/A31; `meson test` 14/14 in `_build` and `_build-slow` (also clean under `_build-asan`), `reuse lint`
+- [x] Pushed (`17c5769..e65bb01` on `main`) and CI green in the Arch container ([run 38816196820](https://github.com/YangtseSu/papers-ofd/actions/runs/38816196820), 157.8 s)
 - **Status:** complete (2026-10-16)
 
 ## Key Questions
