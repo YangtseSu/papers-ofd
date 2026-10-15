@@ -827,6 +827,38 @@ in-tree move that also lets our association entry and the Sushi plugin retire.
     all report region y 43.89..50.94 mm for ink 44.71..50.01 (top 0.82 mm above the ink,
     bottom 0.93 mm below), and the title band 27.90..39.27 for ink 29.19..36.69.
 
+## Publications: librofd-ffi 0.4.3-6 and papers-ofd 0.1.0-4 (2026-10-15)
+
+- The user asked for the deferred AUR push after the highlight-band work, so the
+  earlier "keep it local until PR #13 is reviewed" decision is overridden.
+- `librofd-ffi 0.4.3-6` (the metrics band + eighth-height selection margin):
+  - `git push origin master` in `~/projects/ofd-reader/librofd-ffi`:
+    `afab2b7..1b11bd5  master -> master`; the authoritative git protocol returns
+    `1b11bd5df6d4cbf48c2a5e88578692958211ad22` for `refs/heads/master`, and
+    `git show origin/master:{PKGBUILD,.SRCINFO}` on the fetched ref shows `pkgrel=6`
+    with the new patch hash `0c7fe14c4659ec56292475964adbf748d02f80318dc332db7314424e4a5b4bcb`.
+  - The cgit/RPC frontends still reported `0.4.3-4` right after the push (the same
+    index lag every earlier publication showed); the manifest at
+    `https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=librofd-ffi` is what
+    catches up.
+  - The user installed the package on this machine: `pacman -Q librofd-ffi` reports
+    `0.4.3-6`, and `/usr/lib/librofd_ffi.so.0` is byte-identical to the `.so` inside
+    `librofd-ffi-0.4.3-6-x86_64.pkg.tar.zst` (sha256
+    `614da176539fb8ed97a2db079ff6a23db8f97129279e1016b5538cb0b377e1bd`), i.e. the live
+    session now runs the verified library.
+- `papers-ofd 0.1.0-4` (module package, pin `ffca9aa`, this repository's HEAD):
+  - Why a release: the published `0.1.0-3` pinned `c1f0565`, whose
+    `test_origin_normalisation` bounds the box top by the font size; against
+    `librofd-ffi 0.4.3-6` that assertion fails (a face may declare a larger ascent —
+    the fixture's Noto fallback rises 1.16 em), so a rebuild of the older pin would
+    fail `check()`. The module binary is unaffected; the package now also declares
+    `makedepends=('librofd-ffi>=0.4.3-6')`.
+  - `makepkg -f` in a scratch directory (`/tmp/po-build`) with the repository tarball
+    of `ffca9aaaeea0c7401982a61a36ad1c074d03c410`
+    (sha256 `41ada59a41d864925a3819092375d2e14ffc46e1da948cacfe8305590edd1556`) built
+    `papers-ofd-0.1.0-4-x86_64.pkg.tar.zst` and ran `check()`: 12/12 against the
+    installed 0.4.3-6.
+
 ## Sushi test hermeticity (2026-10-15)
 
 Rebuilding the package (`makepkg -f` in the AUR tree) failed in
