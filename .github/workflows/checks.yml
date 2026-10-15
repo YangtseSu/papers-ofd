@@ -36,7 +36,7 @@ permissions:
 jobs:
   tests:
     name: meson test + reuse lint
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container: archlinux:latest
     steps:
       # git is not in the container image, and the checkout below needs it.
@@ -58,7 +58,7 @@ jobs:
             papers gtk4 poppler-glib gjs sushi \
             noto-fonts noto-fonts-cjk
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Resolve the pinned rofd ABI tag
         id: abi
