@@ -721,5 +721,10 @@ Verification:
   `ofd-sushi-plugin` and the package is built — the path that failed.
 - `reuse lint`: 57/57.
 
-Open: the publication. The AUR entry still pins `30e1fc6`, so a rebuild by a user
-fails the same way until `_commit` moves to this fix (pkgrel 3) — not pushed yet.
+Published as `papers-ofd 0.1.0-3`: the pin in `packaging/PKGBUILD` moved to
+`c1f0565` (the test fix) with the repository tarball's sha256, AUR commit `9e0e4ab`
+(`git ls-remote` confirms it on the server, and `makepkg -f` in the AUR clone
+built 0.1.0-3 with 12/12 tests). The installed file list is unchanged, so a
+rebuild is a no-op for the module, the plugin and the MIME xml; the AUR RPC still
+reported 0.1.0-2 a minute after the push, the same frontend lag the earlier
+publications showed.
