@@ -760,9 +760,72 @@ in-tree move that also lets our association entry and the Sushi plugin retire.
   the packaged one behave identically on `_build`. Pushed to
   `YangtseSu/rofd feat/aur-carried` (forced update, it is a regenerated convenience
   branch).
-- Open: the local package `librofd-ffi-0.4.3-5-x86_64.pkg.tar.zst` is built in
-  `~/projects/ofd-reader/librofd-ffi`; installing it needs root
+- Open: the local package `librofd-ffi-0.4.3-6-x86_64.pkg.tar.zst` is built in
+  `~/projects/ofd-reader/librofd-ffi` (**supersedes 0.4.3-5**); installing it needs root
   (`pacman -U`), and the AUR push stays deferred with PR #13 as before.
+
+## Phase 17 follow-up: the highlight band is the font's metrics, like the PDF backend (2026-10-15)
+
+- **Status:** supersedes the "painted control box" model of the phase-17 entry above;
+  built and verified as `librofd-ffi 0.4.3-6` (local package, AUR push still deferred).
+- Reported by the user after 0.4.3-5: in Papers' PDF backend a selection highlight is
+  one band per line that sticks out above and below the text and lines up across Latin,
+  CJK and punctuation, while the OFD highlight "only covers the character's height" —
+  per-glyph ink boxes make the band ragged and flush with the glyphs. Their reading of
+  the earlier state was right too: the font-size footprint was uniform, it just stopped
+  at the baseline.
+- Ground truth from poppler, which Papers' PDF backend consumes
+  (`libdocument/backend/pdf/pps-poppler.c:1889,2010`: `poppler_page_render_transparent_selection`
+  and `poppler_page_get_selected_region`), fetched from poppler master on 2026-10-15:
+  - `poppler/TextOutputDev.cc` `TextWord::setInitialBounds` (lines ~501-505):
+    `yMin = y - ascent; yMax = y - descent`, where ascent/descent are the *font's*
+    (`TextFontInfo::getAscent/Descent` → `GfxFont`, lines 403-410), so every glyph of one
+    font at one size shares the band, regardless of its own ink.
+  - `TextSelectionSizer::visitLine` (lines ~4387-4400): the region rect is
+    `y1 = line->yMin - margin; y2 = line->yMax + margin` with
+    `margin = (line->yMax - line->yMin) / 8` — the visible "sticks out" of a PDF
+    highlight. Character boxes and find rectangles keep the plain band (find rects have
+    no margin).
+  - Measured on the user's PDF `a real-world PDF`:
+    a body CJK word box 15.87 pt tall for a 15.95 pt em (0.995 em = the font metrics),
+    its line's selection region 20 pt (528..548, i.e. ±2 pt ≈ height/8), its find
+    rectangle for the same text 15.87 pt.
+- Fix (fork-first, D11, third commit of `feat/font-text-advances` amended,
+  <https://github.com/linuxdeepin/rofd/pull/13>):
+  - `rofd-render`: `ResolvedFont` reads `ascender`/`descender` from FreeType while it
+    validates the face and `typographic_extents_mm` scales them; every glyph of a face
+    reports the same `ascent`/`descent` through `GlyphMetrics` (the per-glyph control box
+    of 0.4.3-5 is gone). A face with no usable metrics keeps the font-size footprint.
+  - `rofd-core`: the builder is unchanged in shape (it already spanned the baseline with
+    the resolved extents); `selection_region` now grows each per-line union by an eighth
+    of its height above and below, with the poppler citation in the doc comment. Match
+    rectangles and character boxes keep the plain band.
+- Module side (this repository):
+  - `tests/test-ofd-text.c::test_selection_region_covers_rendered_ink` now asserts the
+    full model on the fixture at 4× zoom: the region covers the ink's bottom row, sticks
+    out above and below it, and a paragraph selection returns one region per line with
+    *one* height (3 regions, 62 px each). Both new assertions fail against 0.4.3-5 and
+    0.4.3-4 ("selection region rows 420..461 do not clear the ink rows 426..461 … Install
+    librofd-ffi >= 0.4.3-6").
+  - `test_origin_normalisation` no longer bounds the box top by the font size (a face may
+    declare a larger ascent: the fixture's fallback, Noto Sans CJK SC, rises 1.16 em) and
+    asserts the band straddles the baseline instead.
+  - Docs: A27 rewritten with the poppler citations and the measurements, the §2 geometry
+    paragraph and the §6 playbook note, `README.md` (ABI row → `0.4.3-6`).
+- Verification:
+  - rofd: `cargo fmt --all -- --check`, `cargo clippy -p rofd-core -p rofd-render
+    -p rofd-ffi --all-targets -- -D warnings`, `cargo test` for the three crates (the two
+    pixel-level tests and the core selection tests encode the new model and fail against
+    the old one), `crates/rofd-ffi/tests/run_c_tests.sh` (rc=0, 77 symbols).
+  - Patch series replayed onto a clean `140b936` checkout with `patch -Np1`; the result is
+    byte-identical to the branch tree (`diff -r`).
+  - Module suite 12/12 in `_build` against the packaged 0.4.3-6 (`LD_LIBRARY_PATH` on the
+    extracted package), `reuse lint` 57/57.
+  - Visual: the throwaway cairo overlay on page 1 of the user's real document (0.4.3-5
+    above, 0.4.3-6 below) shows tight per-glyph bands becoming one band per line that
+    clears the glyphs. Numerically on that page: the four objects of the second body line
+    all report region y 43.89..50.94 mm for ink 44.71..50.01 (top 0.82 mm above the ink,
+    bottom 0.93 mm below), and the title band 27.90..39.27 for ink 29.19..36.69.
 
 ## Sushi test hermeticity (2026-10-15)
 

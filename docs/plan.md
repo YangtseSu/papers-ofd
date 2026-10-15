@@ -136,18 +136,23 @@ Full mapping (Papers vfunc → rofd call → rule):
 | *Links* `find_link_dest` / `find_link_page` | — | stubs returning `NULL` / `-1` (no ABI counterpart) |
 
 All rectangles the text, find and selection vfuncs publish follow rofd's page-space
-geometry. A scalar whose metrics the ABI resolves gets exactly the advance of its
-glyph as the box width and that glyph's painted ascent and descent as the box's
-vertical extents, so glyph boxes tile a run, a match rectangle hugs the matched text
-and a selection region covers the glyphs it belongs to. A run that declares no
-`DeltaX` is placed by its font's advance, which stock rofd resolves only for the
-renderer, and its box spanned one font size above the baseline and stopped there: the
-semantic layer disagreed with the drawn glyphs, so highlights, caret positions and
-selection regions drifted off their text (A24) and cut the bottom off it (A27). Our
-fork carries the fix (`patches/rofd-ffi-font-advances.patch`, upstream PR #13); with a
-stock library the module still publishes rofd's model unchanged, and
-`tests/test-ofd-text.c` classifies the linked ABI against the rendered ink and only
-asserts alignment and coverage when the library resolves font metrics.
+geometry, in the model a PDF reader uses: a scalar whose metrics the ABI resolves gets
+exactly the advance of its glyph as the box width and the *face's* typographic ascent
+and descent as the box's vertical extents (poppler's text box,
+`TextWord::setInitialBounds`: `yMin = y - ascent`, `yMax = y - descent`), so glyph boxes
+tile a run, a match rectangle hugs the matched text, and the boxes of Latin, CJK and
+punctuation share one band instead of each hugging its own ink. A selection region then
+grows that band by an eighth of its height above and below, which is the margin
+`TextSelectionSizer::visitLine` gives a PDF selection region, so a selected line reads
+as one band that clears the glyphs (A27). A run that declares no `DeltaX` is placed by
+its font's advance, which stock rofd resolves only for the renderer, and its box spanned
+one font size above the baseline and stopped there: the semantic layer disagreed with
+the drawn glyphs, so highlights, caret positions and selection regions drifted off their
+text (A24) and cut the bottom off it (A27). Our fork carries the fix
+(`patches/rofd-ffi-font-advances.patch`, upstream PR #13); with a stock library the
+module still publishes rofd's model unchanged, and `tests/test-ofd-text.c` classifies
+the linked ABI against the rendered ink and only asserts alignment and coverage when the
+library resolves font metrics.
 
 Interface discipline (from the upstream NULL-check survey, Appendix A9/A10):
 
@@ -563,11 +568,12 @@ meson compile -C _build && meson test -C _build
 # runs 11). ofd-search runs Papers' own search context over the text fixture,
 # i.e. the snippets the Ctrl+F sidebar shows; it leaks that context on purpose
 # (A23). ofd-text compares find rectangles with the ink rofd renders and asserts
-# alignment and tiling when the linked library resolves font metrics (A24), and
-# after the fix that the selection region covers the ink of its own line (A27): that
-# needs librofd-ffi >= 0.4.3-5 (or a build of the fork branch); an older library is
-# reported instead of failing silently, and a stock one is classified as size-based
-# footprint geometry. ofd-fd drives the previewer's path (MIME sniffing from the
+# alignment and tiling when the linked library resolves font metrics (A24), and, with
+# the same fix, that the selection region is the face's band grown by the eighth-height
+# highlight margin: it must cover the ink of its own line, stick out above and below it,
+# and keep one height per paragraph (A27). That needs librofd-ffi >= 0.4.3-6 (or a build
+# of the fork branch); an older library is reported instead of failing silently, and a
+# stock one is classified as size-based footprint geometry. ofd-fd drives the previewer's path (MIME sniffing from the
 # descriptor, pps_document_factory_get_document_for_fd, pps_document_load_fd) and
 # compares the result with the URI document pixel by pixel; it sets XDG_CACHE_HOME
 # to a scratch directory to watch the temp-copy fallback (A25) come and go.
@@ -842,10 +848,12 @@ item blocks a phase; an upstream merge only deletes the matching entry in
    is the request; the delivery is `patches/rofd-ffi-font-advances.patch`, which the
    AUR `librofd-ffi` package applies on top of the page-size patch. Three commits:
    the provider seam, a resolved box sized by its glyph's advance instead of floored
-   at the font size, and the box spanning that glyph's painted ascent and descent
-   around the baseline (measured on a 3 mm line: the `on` match box went from
-   4.82 mm to 3.65 mm; on the user's real invoice 86% of 2464 glyphs reach below
-   their baseline, mean 0.50 mm and up to 1.46 mm, which the box now covers).
+   at the font size, and the box spanning that *face's* typographic ascent and descent
+   with a selection region grown by an eighth of its height on both sides, the model
+   poppler gives a PDF text box and selection region (measured on a 3 mm line: the `on`
+   match box went from 4.82 mm to 3.65 mm; on the user's real invoice 86% of 2464
+   glyphs reach below their baseline, mean 0.50 mm and up to 1.46 mm, which the band
+   now covers and clears).
    Verified before shipping: `cargo fmt --all -- --check`,
    `cargo clippy -p rofd-core -p rofd-render -p rofd-ffi --all-targets -- -D warnings`,
    `cargo test` for the three crates (including two pixel-level tests that fail with
@@ -888,7 +896,7 @@ Evidence paths are repository-relative: Papers paths are files in tag `51.1` of
 | A22 | MIME detection from bytes alone (no file name) answers `application/zip` for OFD files when the nested `application/ofd` magic rule is below `application/zip`'s priority 60: the nested rule only wins at 70, which is what the shared-mime-info container formats use. Measured with `g_content_type_guess (NULL, first 1024 bytes, n)` after `update-mime-database` for a generated fixture, the real invoice and a malformed zip (all `application/ofd` at 70, all `application/zip` at 50); a plain zip and a zip whose first entry is `hello.txt` stay `application/zip` at 70. The previewer and `load_fd` only have bytes (`libdocument/pps-file-helpers.c:337-378`, `previewer/pps-previewer.c`) | `data/papers-ofd.xml` (priority), `tests/test-ofd-errors.c` (`test_detection_from_bytes`), `/usr/share/mime/packages/freedesktop.org.xml` (`application/zip` at priority 60, `application/epub+zip` nested at 70) |
 | A23 | `PpsSearchContext` cannot be finalized: its dispose calls `g_clear_object ()` on the `GHashTable *per_page_store` instead of `g_clear_pointer (..., g_hash_table_unref)`, and `g_object_unref` then reads the hash table as a `GTypeInstance` and segfaults. Any process that drops the last reference to a search context crashes; the headless search test therefore leaks the context and the model on purpose | `libview/context/pps-search-context.c:421` (dispose) vs `:433` (the field is a `GHashTable *` created in `init`); observed: `tests/test-ofd-search` segfaults in `g_type_check_instance_is_fundamentally_a` under `g_object_unref` from that dispose, with the installed `libppsview-4.0.so.5`; the same code is in tag `51.1` (the only `libview` difference between the checkout and the tag is `pps-print-operation.c`) |
 | A24 | rofd's page text geometry positioned a scalar without an explicit `DeltaX` by the font size, while the renderer positions it by the resolved font's advance ("only a genuinely absent axis uses the selected glyph advance"), so layout, search and selection rectangles drifted from the drawn glyphs. Measured on the phase-2 text fixture (21-character line, size 3 mm, no `DeltaX`): boxes spanned 63.0 mm and the ink 28.2 mm, and the `42` match rectangle sat at 60.0–66.0 mm while the drawn line ends at 43.4 mm. Fixed on the fork by resolving advances through an injected provider and sizing a resolved box by that advance (`patches/rofd-ffi-font-advances.patch`, upstream PR #13): the same line then spans 29.8 mm and the `42` match rectangle sits at 33.9–38.6 mm inside the ink, while a two-scalar match like `on` narrows from 4.82 mm to 3.65 mm — the sum of the two glyph advances | `crates/rofd-core/src/semantic.rs` (`text_object`: `dx = … else size`) vs `crates/rofd-render/src/fonts.rs` (`position_glyph_runs`, advance from the selected face); measured with a throwaway renderer + ink scan against the installed `librofd_ffi.so.0` and the fork build; guarded by `tests/test-ofd-text.c::test_find_rectangles_cover_rendered_ink` |
-| A27 | rofd's character box spanned exactly one font size above the baseline and stopped at it, while a renderer paints the glyph's own extent — so a selection or search highlight cut the bottom off the text it belonged to (CJK overshoot, Latin descenders) and carried unused space above it. Measured on the user's real invoice (`the invoice`, 56 entries, six embedded fonts, sizes 4.9–7.8 mm): of 2464 glyphs with ink, 2117 (86%) reach below the baseline — CJK 0.10–0.13 em, Latin descenders 0.19 em — mean 0.50 mm and up to 1.46 mm below the box, while the box top sat 1.45 mm above the painted top on average. The same defect is visible in the phase-2 fixture at 4× zoom: the second line's glyphs paint down to row 461 while the old region ended at 453. Fixed on the fork by giving the box the glyph's painted ascent and descent (`patches/rofd-ffi-font-advances.patch`, third commit, upstream PR #13) | `crates/rofd-core/src/semantic.rs` (`text_object`: `top = … - size`, `bottom = y.max (next_y)`) vs `crates/rofd-render/src/fonts.rs` (`unscaled_metrics`, the glyph's FreeType control box); measured with a throwaway Python/FreeType analysis of the real document and a throwaway cairo overlay harness, guarded by `crates/rofd-render/tests/cairo_text.rs::semantic_character_boxes_cover_the_rendered_ink`, `crates/rofd-ffi/tests/semantic.rs::text_layout_rectangles_cover_the_rendered_ink_below_the_baseline` and `tests/test-ofd-text.c::test_selection_region_covers_rendered_ink` |
+| A27 | rofd's character box spanned exactly one font size above the baseline and stopped at it, while a renderer paints the glyph below it and a PDF text box is built from the font's metrics — so a highlight cut the bottom off its text (CJK overshoot, Latin descenders) and its vertical extent depended on the glyph inside it, leaving punctuation and Latin unaligned with CJK. Measured on the user's real invoice (`the invoice`, six embedded subset fonts, sizes 4.9–7.8 mm): of 2464 glyphs with ink, 2117 (86%) reach below the baseline — CJK 0.098–0.129 em, Latin descenders 0.188 em — mean 0.50 mm and up to 1.46 mm below the old box, while the box top sat 1.45 mm above the painted top on average. Fixed on the fork by taking the box's extents from the face's FreeType metrics and growing a selection region by an eighth of its height on both sides, both as poppler does (`patches/rofd-ffi-font-advances.patch`, third commit, upstream PR #13) | `crates/rofd-core/src/semantic.rs` (`text_object`: `top = … - size`, `bottom = y.max (next_y)`; `selection_region`) vs `crates/rofd-render/src/fonts.rs` (`typographic_extents_mm`, FreeType `ascender`/`descender`); the model is poppler's: `TextWord::setInitialBounds` `yMin = y - ascent`, `yMax = y - descent` and `TextSelectionSizer::visitLine` `margin = (yMax - yMin) / 8` (poppler `poppler/TextOutputDev.cc`, master 2026-10-15, lines ~501 and ~4395), which Papers' PDF backend consumes through `poppler_page_get_selected_region` (`libdocument/backend/pdf/pps-poppler.c:2010-2035`); measured on the user's PDF (`a real-world PDF`: body band 15.87 pt for a 15.95 pt em, its selection region 20 pt, its find rectangle 15.87 pt) and on the OFD with a throwaway cairo overlay harness (page 1: body regions y 43.89..50.94 mm for ink 44.71..50.01, identical across the four objects of the line); guarded by `crates/rofd-render/tests/cairo_text.rs::semantic_character_boxes_cover_the_rendered_ink`, `crates/rofd-ffi/tests/semantic.rs::text_layout_rectangles_cover_the_rendered_ink_below_the_baseline` and `tests/test-ofd-text.c::test_selection_region_covers_rendered_ink` |
 | A25 | `/proc/self/fd/<n>` re-enters the file a descriptor points at, which is what lets `rofd_document_open` (a path-based API) read a document the caller has already unlinked; the re-open starts at offset 0 no matter where the descriptor itself sits, and it fails with `EACCES` once read permission has been withdrawn after the `open` (the descriptor keeps reading, because permissions are checked at `open` time). The first half is why `load_fd` hands `dup(fd)` to rofd through that path; the second is why a temp copy exists for environments without a usable `/proc`, and it is also the test's deterministic trigger for that fallback | Measured on this machine (Linux 7.2.10-1-cachyos): a deleted file, a `memfd` and a descriptor seeked to offset 7 all return the whole file when reopened through `/proc/self/fd/<n>`; after `chmod 000`, `open` on that path fails with `EACCES` while `pread` on the open descriptor still returns the bytes. `tests/test-ofd-fd.c` covers the deleted-file case (loads, and no temp copy is created) and the `chmod 000` case (the copy appears in `$XDG_CACHE_HOME/papers-ofd` and is gone after a reload or at finalize) |
 | A26 | The space bar in GNOME Files is **Sushi**, and Sushi renders documents in-process through Papers' `libdocument`/`libview` (its `js/viewers/pdf.js` imports `gi://PapersDocument`/`PapersView` and loads with `PapersView.JobLoad.set_uri`, i.e. by URI — no file descriptor, so `load_fd` is not on that path). Which renderer a file gets is decided by content type: the selector matches `Gio.content_type_is_a` against every renderer's `contentTypes`, and the document renderer derives its list from the MimeType line of `org.gnome.Papers.desktop`; `application/ofd` is not in it out of tree, so the type falls through to the file-information renderer. Sushi loads plugins from its built-in resources, then `SYSTEM_PLUGIN_DIRECTORY` (`/usr/lib/sushi/plugins-1`), then `$XDG_DATA_HOME/sushi/plugins-1`, importing them before it builds the map, so a plugin can add the type (the renderer's `contentTypes` array is mutable and is the same array its own load gate reads). Nautilus' "Open With" chooser lists `g_app_info_get_all()` on top of default/recommended/fallback, which is why both desktop entries that run `papers` appear there while `gio mime application/ofd` reports exactly one registered entry | Sushi 51.2 sources (`src/core/rendererSelector.js`, `src/viewers/pdf.js:46,122-129`, `src/config.js.in`) and the installed resource (`gresource list /usr/share/sushi/org.gnome.NautilusPreviewer.src.gresource`); measured with gjs against the installed 51.2: without the plugin `selectRenderer ("application/ofd")` is `FallbackRenderer`, with it the Papers-backed `PdfRenderer` and the fixture loads with 2 pages; `xdg-mime query filetype`, `gio mime application/ofd` (default and recommended: `org.gnome.Papers.Ofd.desktop`), `nautilus-app-chooser-widget.c:301-330`; `tests/test-sushi-plugin.js` is the regression net |
 

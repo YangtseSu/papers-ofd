@@ -748,13 +748,13 @@ test_origin_normalisation (const gchar *module_path,
 	g_assert_cmpint (n_areas, ==, g_utf8_strlen (text, -1));
 
 	/* 15 mm and 22 mm absolute, 10 mm and 20 mm of origin: 5 mm and 2 mm. The box
-	 * starts at the glyph's painted top and ends at or below its baseline, both
-	 * inside the font-size footprint the OFD data alone describes: the fixture
-	 * declares no font file, so the painter picks a system fallback. */
+	 * spans the run's baseline (at 6 mm: 22 mm minus the origin, plus the run's Y of
+	 * 6 mm minus the object's Y of 20 mm), its top from the resolved face's ascent
+	 * and its bottom from that face's descent. The fixture declares no font file, so
+	 * the painter picks a system fallback and only the straddle is fixed. */
 	g_assert_cmpfloat_with_epsilon (areas[0].x1, MM (5.0), 1.0);
-	g_assert_cmpfloat (areas[0].y1, >=, MM (2.0));
 	g_assert_cmpfloat (areas[0].y1, <, MM (6.0));
-	g_assert_cmpfloat (areas[0].y2, >=, MM (6.0));
+	g_assert_cmpfloat (areas[0].y2, >, MM (6.0));
 
 	region = pps_document_text_get_text_mapping (PPS_DOCUMENT_TEXT (document), page);
 	g_assert_nonnull (region);
@@ -771,9 +771,8 @@ test_origin_normalisation (const gchar *module_path,
 		PpsFindRectangle *match = matches->data;
 
 		g_assert_cmpfloat_with_epsilon (match->x1, MM (5.0), 1.0);
-		g_assert_cmpfloat (match->y1, >=, MM (2.0));
 		g_assert_cmpfloat (match->y1, <, MM (6.0));
-		g_assert_cmpfloat (match->y2, >=, MM (6.0));
+		g_assert_cmpfloat (match->y2, >, MM (6.0));
 	}
 	g_list_free_full (matches, (GDestroyNotify) pps_find_rectangle_free);
 
@@ -1173,9 +1172,62 @@ test_selection_region_covers_rendered_ink (const gchar *module_path,
 	if (!cairo_region_contains_point (region, column, y_last)) {
 		g_error ("selection region ends at row %d while the glyphs paint down to "
 		         "%d: the linked rofd reports a character box that stops at the "
-		         "baseline. Install librofd-ffi >= 0.4.3-5 (patches/"
+		         "baseline. Install librofd-ffi >= 0.4.3-6 (patches/"
 		         "rofd-ffi-font-advances.patch, upstream PR #13).",
 		         extents.y + extents.height - 1, y_last);
+	}
+
+	/* And it sticks out above and below the ink, the way the PDF backend's
+	 * highlight does: the band comes from the face's metrics and then grows by an
+	 * eighth of its height on both sides. */
+	if (extents.y >= y_first || extents.y + extents.height <= y_last + 1) {
+		g_error ("selection region rows %d..%d do not clear the ink rows %d..%d: "
+		         "the linked rofd sizes a box by the font size, or by each glyph's "
+		         "own ink, instead of the face's metrics plus the eighth-height "
+		         "highlight margin. Install librofd-ffi >= 0.4.3-6 (patches/"
+		         "rofd-ffi-font-advances.patch, upstream PR #13).",
+		         extents.y, extents.y + extents.height - 1, y_first, y_last);
+	}
+
+	/* A paragraph over several text objects gives one region per line, and every
+	 * region has the same height: Latin, CJK and punctuation line up instead of
+	 * each hugging its own glyph. The fixture's left column is one size, so the
+	 * bands have to match to the pixel. */
+	{
+		PpsRectangle paragraph = { .x1 = MM (LEFT_COLUMN_X1_MM),
+		                           .y1 = MM (COLUMN_Y1_MM),
+		                           .x2 = MM (LEFT_COLUMN_X2_MM),
+		                           .y2 = MM (COLUMN_Y2_MM) };
+		cairo_region_t *bands;
+		gint count, i, first_height = 0;
+
+		bands = pps_selection_get_selection_region (PPS_SELECTION (document), rc,
+		                                            PPS_SELECTION_STYLE_LINE,
+		                                            &paragraph);
+		g_assert_nonnull (bands);
+		count = cairo_region_num_rectangles (bands);
+		g_assert_cmpint (count, >, 1);
+
+		for (i = 0; i < count; i++) {
+			cairo_rectangle_int_t box;
+
+			cairo_region_get_rectangle (bands, i, &box);
+			g_assert_cmpint (box.height, >, 0);
+			if (i == 0) {
+				first_height = box.height;
+			} else if (box.height != first_height) {
+				g_error ("paragraph regions differ in height (%d vs %d px at "
+				         "%.0fx): the linked rofd sizes a character box by each "
+				         "glyph's own ink instead of the face's metrics. Install "
+				         "librofd-ffi >= 0.4.3-6 (patches/"
+				         "rofd-ffi-font-advances.patch, upstream PR #13).",
+				         box.height, first_height, scale);
+			}
+		}
+
+		g_test_message ("paragraph: %d regions, each %d px tall at %.0fx",
+		                count, first_height, scale);
+		cairo_region_destroy (bands);
 	}
 
 	cairo_region_destroy (region);
