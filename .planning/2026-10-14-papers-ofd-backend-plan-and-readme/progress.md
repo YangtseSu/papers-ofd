@@ -1215,3 +1215,32 @@ releases its own tarballs and the AUR package builds them directly.
 - Still true: upstream PRs #11–#15 remain open as the exit path; the fork's
   `main` keeps mirroring upstream, so the release branch alone carries our work
   and a future rebase against upstream is a plain cherry-pick replay.
+
+## 2026-10-15 (later): fork CI fixed, branch model documented
+
+The workflow merged onto the release branch still had `on.push.branches:
+[ci/fork-checks]`, so the branch that ships had **zero** CI runs
+(`gh run list --branch release/0.4.3-fork.1` was empty) and its ref collector
+only knew `feat|fix`. Fixed in `71cb816` on `release/0.4.3-fork.1`:
+
+- `push` → `release/*`, and a release ref is **strict**: no `--skip`, both
+  upstream-red tests gate like everything else (a release carries the fixes, so
+  this is what must be true of what ships).
+- `workflow_dispatch` (now actually reachable from a `release/*` ref) covers
+  `feat/*` / `fix/*` in **loose** mode: the two upstream-red tests run as
+  visible, non-gating steps. The matrix entry carries `{ref, strict}` computed
+  with `startswith("release/")`, so one workflow serves both.
+- Observed: run 38719087584 (push) success with `crate tests` gating and both
+  upstream-red steps skipped; run 38719477550 (dispatch of
+  `refs/heads/feat/ffi-page-size-query`) success with the two failing tests
+  surfaced as annotations only — the loose mode works as intended.
+- Deleted `ci/fork-checks` (local + remote) and its worktree: the file now lives
+  on `release/*` only, so nothing else needs to carry it.
+- Deleted `feat/aur-carried` (local + remote): it existed to replay the AUR
+  patch files, which no longer exist. `release/0.4.3-fork.1` is the delivery
+  branch and its history already contains the replayed commits.
+- Branch model (user-decided, now in `patches/README.md`): one branch per
+  change (`feat/*` / `fix/*` from `main` + upstream PR), one branch per release
+  (`release/<next>` branched from the previous release branch and cherry-picking
+  the new changes; version `<upstream>-fork.<n>`). A published tag is never
+  moved — the AUR `source=` URL and its `sha256sums` pin it.
