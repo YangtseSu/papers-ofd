@@ -15,7 +15,7 @@ stay open as the exit path; they are not on the critical path.
 | Patch | Change | Retired when |
 | --- | --- | --- |
 | `rofd-ffi-page-size.patch` | `rofd_document_get_page_size_mm` (metadata-only page sizes) | upstream exposes the query in the C ABI ([#11](https://github.com/linuxdeepin/rofd/pull/11)) |
-| `rofd-ffi-font-advances.patch` | runs without an explicit `DeltaX` take their scalar advances from the resolved font, so page geometry and search/selection rectangles match the drawn glyphs | upstream loads documents with a font-resolved advance provider ([PR](https://github.com/YangtseSu/rofd) on `feat/font-text-advances`) |
+| `rofd-ffi-font-advances.patch` | runs without an explicit `DeltaX` take their scalar advance from the resolved font, and every character box spans that glyph's painted ascent and descent, so page geometry, search rectangles and selection regions match the drawn glyphs | upstream loads documents with a font-resolved metrics provider ([PR](https://github.com/YangtseSu/rofd) on `feat/font-text-advances`) |
 
 ## The fork
 

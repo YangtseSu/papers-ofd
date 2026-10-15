@@ -747,9 +747,14 @@ test_origin_normalisation (const gchar *module_path,
 	                                                  page, &areas, &n_areas));
 	g_assert_cmpint (n_areas, ==, g_utf8_strlen (text, -1));
 
-	/* 15 mm and 22 mm absolute, 10 mm and 20 mm of origin: 5 mm and 2 mm. */
+	/* 15 mm and 22 mm absolute, 10 mm and 20 mm of origin: 5 mm and 2 mm. The box
+	 * starts at the glyph's painted top and ends at or below its baseline, both
+	 * inside the font-size footprint the OFD data alone describes: the fixture
+	 * declares no font file, so the painter picks a system fallback. */
 	g_assert_cmpfloat_with_epsilon (areas[0].x1, MM (5.0), 1.0);
-	g_assert_cmpfloat_with_epsilon (areas[0].y1, MM (2.0), 1.0);
+	g_assert_cmpfloat (areas[0].y1, >=, MM (2.0));
+	g_assert_cmpfloat (areas[0].y1, <, MM (6.0));
+	g_assert_cmpfloat (areas[0].y2, >=, MM (6.0));
 
 	region = pps_document_text_get_text_mapping (PPS_DOCUMENT_TEXT (document), page);
 	g_assert_nonnull (region);
@@ -766,7 +771,9 @@ test_origin_normalisation (const gchar *module_path,
 		PpsFindRectangle *match = matches->data;
 
 		g_assert_cmpfloat_with_epsilon (match->x1, MM (5.0), 1.0);
-		g_assert_cmpfloat_with_epsilon (match->y1, MM (2.0), 1.0);
+		g_assert_cmpfloat (match->y1, >=, MM (2.0));
+		g_assert_cmpfloat (match->y1, <, MM (6.0));
+		g_assert_cmpfloat (match->y2, >=, MM (6.0));
 	}
 	g_list_free_full (matches, (GDestroyNotify) pps_find_rectangle_free);
 
@@ -791,7 +798,7 @@ test_origin_normalisation (const gchar *module_path,
 /* Renders a page through the ABI (same options the module maps onto) so the test
  * can compare the geometry it gets with the pixels the renderer produced. */
 static cairo_surface_t *
-render_with_rofd (rofd_document_t *document, gint index)
+render_with_rofd_scale (rofd_document_t *document, gint index, gdouble scale)
 {
 	rofd_page_t *page = NULL;
 	rofd_renderer_t *renderer = NULL;
@@ -808,8 +815,8 @@ render_with_rofd (rofd_document_t *document, gint index)
 	g_assert_cmpint (rofd_renderer_new (NULL, &renderer, &rerror), ==, ROFD_STATUS_OK);
 
 	rofd_render_options_init (&options, sizeof (options));
-	options.dpi = 72.0; /* one pixel per point, the space the geometry uses */
-	options.scale = 1.0;
+	options.dpi = 72.0; /* one pixel per point times the scale below */
+	options.scale = scale;
 	options.rotation_degrees = 0;
 	options.background_rgba = 0xFFFFFFFF;
 	g_assert_cmpint (rofd_renderer_get_pixel_canvas_size (renderer, page, &options,
@@ -831,6 +838,13 @@ render_with_rofd (rofd_document_t *document, gint index)
 	rofd_page_free (page);
 
 	return surface;
+}
+
+/* One pixel per point, the space the page-point geometry uses. */
+static cairo_surface_t *
+render_with_rofd (rofd_document_t *document, gint index)
+{
+	return render_with_rofd_scale (document, index, 1.0);
 }
 
 /* Ink extents in pixels of one band, limited to a column of the page. FALSE when
@@ -869,6 +883,94 @@ ink_span (cairo_surface_t *surface, gint x_from, gint x_to, gint y_from, gint y_
 	return found;
 }
 
+/* Ink rows in a column band of the page, the space the geometry uses. FALSE when
+ * the band is blank there. */
+static gboolean
+ink_rows (cairo_surface_t *surface, gint x_from, gint x_to, gint y_from, gint y_to,
+          gint *y_first, gint *y_last)
+{
+	guint32 *pixels;
+	gint stride;
+	gint x, y;
+	gboolean found = FALSE;
+
+	cairo_surface_flush (surface);
+	pixels = (guint32 *) cairo_image_surface_get_data (surface);
+	stride = cairo_image_surface_get_stride (surface) / 4;
+
+	*y_first = G_MAXINT;
+	*y_last = -1;
+
+	for (y = y_from; y <= y_to; y++) {
+		for (x = x_from; x <= x_to; x++) {
+			guint32 pixel = pixels[y * stride + x];
+			guint8 red = (pixel >> 16) & 0xff;
+			guint8 green = (pixel >> 8) & 0xff;
+			guint8 blue = pixel & 0xff;
+
+			if (red < 160 && green < 160 && blue < 160) {
+				*y_first = MIN (*y_first, y);
+				*y_last = MAX (*y_last, y);
+				found = TRUE;
+			}
+		}
+	}
+
+	return found;
+}
+
+/* Classifies the linked ABI by comparing the first line's layout span with the ink
+ * the same library draws for it: TRUE when character geometry follows the font, FALSE
+ * when it spreads the glyphs by the font size (a stock 0.4.x library). The measured
+ * spans come back through the optional outputs, for logging and for callers that
+ * have to relax their pixel checks. */
+static gboolean
+linked_abi_resolves_font_geometry (PpsDocument *document,
+                                   PpsPage *page,
+                                   rofd_document_t *oracle,
+                                   gdouble *layout_span_mm,
+                                   gdouble *ink_span_mm)
+{
+	g_autofree PpsRectangle *areas = NULL;
+	guint n_areas = 0;
+	guint line_end = 0;
+	gboolean font_aware;
+	cairo_surface_t *surface;
+	gint x_first = 0, x_last = 0;
+	gdouble layout_mm;
+	gdouble ink_mm;
+
+	g_assert_true (pps_document_text_get_text_layout (PPS_DOCUMENT_TEXT (document),
+	                                                  page, &areas, &n_areas));
+
+	/* The first line ends at the object separator, which has an empty box. */
+	g_assert_cmpuint (n_areas, >, 1);
+	while (line_end < n_areas && areas[line_end].x2 > areas[line_end].x1)
+		line_end++;
+	g_assert_cmpuint (line_end, >, 0);
+	layout_mm = (areas[line_end - 1].x2 - areas[0].x1) / 72.0 * 25.4;
+
+	surface = render_with_rofd (oracle, 0);
+	g_assert_nonnull (surface);
+	g_assert_true (ink_span (surface, (gint) MM (LEFT_COLUMN_X1_MM),
+	                         (gint) MM (LEFT_COLUMN_X2_MM),
+	                         (gint) MM (COLUMN_Y1_MM) + 1,
+	                         (gint) MM (COLUMN_Y1_MM + 8.0), &x_first, &x_last));
+	ink_mm = (x_last - x_first) / 72.0 * 25.4;
+	cairo_surface_destroy (surface);
+
+	font_aware = fabs (layout_mm - ink_mm) / ink_mm < 0.25;
+	g_test_message ("first line: layout %.1f mm, ink %.1f mm -> %s geometry",
+	                layout_mm, ink_mm,
+	                font_aware ? "font-resolved" : "font-size footprint");
+	if (layout_span_mm != NULL)
+		*layout_span_mm = layout_mm;
+	if (ink_span_mm != NULL)
+		*ink_span_mm = ink_mm;
+
+	return font_aware;
+}
+
 /* The rectangles the Ctrl+F sidebar highlights must sit on the glyphs the renderer
  * drew. rofd's text geometry is only font-aware for runs without an explicit
  * `DeltaX` when the linked ABI resolves font advances (the branch our AUR package
@@ -891,8 +993,8 @@ test_find_rectangles_cover_rendered_ink (const gchar *module_path,
 	PpsPage *page = pps_document_get_page (document, 0);
 	g_autofree PpsRectangle *areas = NULL;
 	guint n_areas = 0;
-	gdouble layout_span_mm;
-	gdouble ink_span_mm;
+	gdouble layout_span_mm = 0.0;
+	gdouble ink_span_mm = 0.0;
 	gint x_first = 0, x_last = 0;
 	gboolean font_aware;
 	guint i;
@@ -902,15 +1004,15 @@ test_find_rectangles_cover_rendered_ink (const gchar *module_path,
 	                 ==, ROFD_STATUS_OK);
 	g_assert_nonnull (oracle);
 
-	/* Classify the linked ABI by comparing the first line's layout span with the
-	 * ink the same library draws for it. */
-	g_assert_true (pps_document_text_get_text_layout (PPS_DOCUMENT_TEXT (document),
-	                                                  page, &areas, &n_areas));
+	font_aware = linked_abi_resolves_font_geometry (document, page, oracle,
+	                                                &layout_span_mm, &ink_span_mm);
 
 	/* Glyph boxes tile their run when the advance is resolved: a box that is
 	 * wider than its glyph widens every match rectangle by the overlap. A library
 	 * that resolves advances but still floors the box at the font size (our
 	 * librofd-ffi below 0.4.3-4) is reported instead of failing silently. */
+	g_assert_true (pps_document_text_get_text_layout (PPS_DOCUMENT_TEXT (document),
+	                                                  page, &areas, &n_areas));
 	{
 		guint i;
 
@@ -929,31 +1031,8 @@ test_find_rectangles_cover_rendered_ink (const gchar *module_path,
 		}
 	}
 
-	/* The first line ends at the object separator, which has an empty box. */
-	g_assert_cmpuint (n_areas, >, 1);
-	{
-		guint line_end = 0;
-
-		while (line_end < n_areas && areas[line_end].x2 > areas[line_end].x1)
-			line_end++;
-		g_assert_cmpuint (line_end, >, 0);
-		layout_span_mm = (areas[line_end - 1].x2 - areas[0].x1) / 72.0 * 25.4;
-	}
-
 	surface = render_with_rofd (oracle, 0);
 	g_assert_nonnull (surface);
-
-	g_assert_true (ink_span (surface, (gint) MM (LEFT_COLUMN_X1_MM),
-	                         (gint) MM (LEFT_COLUMN_X2_MM),
-	                         (gint) MM (COLUMN_Y1_MM) + 1,
-	                         (gint) MM (COLUMN_Y1_MM + 8.0),
-	                         &x_first, &x_last));
-	ink_span_mm = (x_last - x_first) / 72.0 * 25.4;
-
-	font_aware = fabs (layout_span_mm - ink_span_mm) / ink_span_mm < 0.25;
-	g_test_message ("first line: layout %.1f mm, ink %.1f mm -> %s geometry",
-	                layout_span_mm, ink_span_mm,
-	                font_aware ? "font-resolved" : "font-size footprint");
 
 	if (!font_aware) {
 		/* The linked ABI reports a conservative box per scalar instead of the
@@ -1007,6 +1086,99 @@ test_find_rectangles_cover_rendered_ink (const gchar *module_path,
 		g_list_free_full (matches, (GDestroyNotify) pps_find_rectangle_free);
 	}
 
+	cairo_surface_destroy (surface);
+	rofd_document_free (oracle);
+	g_object_unref (page);
+	g_object_unref (document);
+}
+
+/* A selection region is what the view paints over the selected text and what it
+ * hit-tests, so it has to cover the glyphs the renderer drew - including the part
+ * of a glyph that reaches below its baseline, which a box sized by the font size
+ * alone clips (CJK overshoot and Latin descenders). */
+static void
+test_selection_region_covers_rendered_ink (const gchar *module_path,
+                                           const gchar *descriptor_path,
+                                           const gchar *mime_xml_path,
+                                           const gchar *fixture_path)
+{
+	PpsDocument *document = ofd_test_load_fixture (module_path, descriptor_path,
+	                                               mime_xml_path, fixture_path);
+	rofd_document_t *oracle = NULL;
+	rofd_error_t *rerror = NULL;
+	cairo_surface_t *surface;
+	PpsPage *page = pps_document_get_page (document, 0);
+	g_autoptr (PpsRenderContext) rc = NULL;
+	/* The second line of the left column: "Payment received on Friday" carries a
+	 * descender, while the first and third lines sit on their baseline. The band
+	 * covers that line only (boundary 15 37 90 8, baseline at 40 mm). */
+	PpsRectangle line = { .x1 = MM (LEFT_COLUMN_X1_MM),
+	                      .y1 = MM (COLUMN_Y1_MM + 15.0),
+	                      .x2 = MM (LEFT_COLUMN_X2_MM),
+	                      .y2 = MM (COLUMN_Y1_MM + 26.0) };
+	cairo_region_t *region;
+	const gdouble scale = 4.0; /* zoom in, so a descender spans several pixels */
+	gint x_first = 0, x_last = 0;
+	gint y_first = 0, y_last = 0;
+	gint column;
+	gint x_from, x_to, y_from, y_to;
+	cairo_rectangle_int_t extents;
+
+	g_assert_nonnull (page);
+	g_assert_cmpint (rofd_document_open (fixture_path, NULL, &oracle, &rerror),
+	                 ==, ROFD_STATUS_OK);
+	g_assert_nonnull (oracle);
+
+	if (!linked_abi_resolves_font_geometry (document, page, oracle, NULL, NULL)) {
+		/* A stock 0.4.x library sizes every box by the font size, which stops at
+		 * the baseline, so its regions cannot cover the ink below it. */
+		g_test_message ("linked rofd reports size-based text geometry: vertical "
+		                "coverage is not checked (our AUR package carries the "
+		                "fix)");
+		rofd_document_free (oracle);
+		g_object_unref (page);
+		g_object_unref (document);
+		return;
+	}
+
+	/* The region and the pixels share one space: 72 dpi times the render context's
+	 * scale puts the same number of pixels on each page point. */
+	surface = render_with_rofd_scale (oracle, 0, scale);
+	g_assert_nonnull (surface);
+	x_from = (gint) (MM (LEFT_COLUMN_X1_MM) * scale);
+	x_to = (gint) (MM (LEFT_COLUMN_X2_MM) * scale);
+	y_from = (gint) (MM (COLUMN_Y1_MM + 15.0) * scale);
+	y_to = (gint) (MM (COLUMN_Y1_MM + 26.0) * scale);
+	g_assert_true (ink_rows (surface, x_from, x_to, y_from, y_to, &y_first, &y_last));
+	g_assert_true (ink_span (surface, x_from, x_to, y_first, y_last, &x_first, &x_last));
+	column = (x_first + x_last) / 2;
+
+	rc = pps_render_context_new (page, 0, scale, PPS_RENDER_ANNOTS_NONE);
+	region = pps_selection_get_selection_region (PPS_SELECTION (document), rc,
+	                                             PPS_SELECTION_STYLE_LINE, &line);
+	g_assert_nonnull (region);
+	g_assert_false (cairo_region_is_empty (region));
+
+	cairo_region_get_extents (region, &extents);
+	g_test_message ("second line: ink rows %d..%d, region rows %d..%d at column %d",
+	                y_first, y_last, extents.y, extents.y + extents.height - 1, column);
+
+	/* One band per selected logical line, covering the whole first line's width. */
+	g_assert_cmpint (extents.x, <=, x_first);
+	g_assert_cmpint (extents.x + extents.width, >=, x_last);
+	g_assert_true (cairo_region_contains_point (region, column, y_first));
+
+	/* The bottom of the ink is the regression: a box that stops at the baseline
+	 * leaves the rows below it unhighlighted. */
+	if (!cairo_region_contains_point (region, column, y_last)) {
+		g_error ("selection region ends at row %d while the glyphs paint down to "
+		         "%d: the linked rofd reports a character box that stops at the "
+		         "baseline. Install librofd-ffi >= 0.4.3-5 (patches/"
+		         "rofd-ffi-font-advances.patch, upstream PR #13).",
+		         extents.y + extents.height - 1, y_last);
+	}
+
+	cairo_region_destroy (region);
 	cairo_surface_destroy (surface);
 	rofd_document_free (oracle);
 	g_object_unref (page);
@@ -1178,6 +1350,8 @@ main (int argc, char **argv)
 	test_origin_normalisation (module_path, descriptor_path, mime_xml_path, origin_fixture);
 	test_find_rectangles_cover_rendered_ink (module_path, descriptor_path, mime_xml_path,
 	                                         text_fixture);
+	test_selection_region_covers_rendered_ink (module_path, descriptor_path,
+	                                           mime_xml_path, text_fixture);
 
 	rofd_renderer_free (renderer);
 	rofd_document_free (oracle);

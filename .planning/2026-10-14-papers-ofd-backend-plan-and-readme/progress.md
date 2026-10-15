@@ -460,6 +460,7 @@
 | AUR `librofd-ffi 0.4.3-3` | PKGBUILD with both patches, clean `src/`+`pkg/` | builds, packaged library carries both fixes | `makepkg -f --noconfirm` rc=0; the packaged `librofd_ffi.so.0` exports 78 symbols incl. `rofd_document_get_page_size_mm` and reproduces the font-aware geometry under `LD_LIBRARY_PATH` | pass |
 | AUR `librofd-ffi 0.4.3-4` | PKGBUILD with both patches (the font one carrying the box-width commit) | builds; the packaged library reproduces the tightened boxes | `makepkg -f --noconfirm` rc=0; the packaged `librofd_ffi.so.0` gives the `on` match a 3.65 mm box (4.82 mm before that commit) | pass |
 | Suites with the installed `0.4.3-4` | `meson test` on `_build` and `_build-slow` | 11/11 including ink alignment and box tiling | 11/11; the classifier reports `layout 28.7 mm, ink 28.2 mm -> font-resolved geometry` | pass |
+| Selection region vs rendered ink | phase-2 text fixture, second left-column line at 4× zoom, region from `pps_selection_get_selection_region` compared with the ink rows rofd renders | the region covers the ink's bottom row (426..461 inside 420..461); the same test fails against librofd-ffi 0.4.3-4 (region ends at 453) | pass |
 | Phase-2 GUI acceptance (live session) | `papers` on the text and links fixtures from the installed package | every acceptance item observable | user-confirmed 2026-10-15: selection/copy, Ctrl+F rows, caret, I-beam, links and outline are correct, and the Ctrl+F highlight sits on the searched text after the geometry fix | pass |
 | Papers session with the patched library | `LD_LIBRARY_PATH=$ROFD_SRC/target/release papers text-2pages.ofd` | loads, no criticals | ran 12 s, 0 CRITICAL/ERROR (only the expected font-fallback diagnostics) | pass |
 
@@ -671,6 +672,86 @@ Phase 3 is therefore accepted. Left in the plan, both optional: `pacman -Rns
 papers-ofd` as the uninstall regression (the five package paths plus the plugin
 are ours alone, so Papers and its other backends are unaffected) and phase 4, the
 in-tree move that also lets our association entry and the Sushi plugin retire.
+
+## Phase 17: the selection highlight missed the bottom of the text (2026-10-15)
+
+- **Status:** fixed on the fork, packaged as `librofd-ffi 0.4.3-5` (built and
+  installed locally, not pushed to the AUR per the earlier decision), verified
+  against rendered pixels and on the user's real document. The GUI confirmation is
+  the user's (the module suite and the pixel checks pass here).
+- Reported by the user: after the horizontal fix, the *vertical* geometry is still
+  wrong — "the highlight's top is complete, it does not cover the lower end of the
+  text". Reproduced before touching code:
+  - Static analysis of the user's real document
+    (`the user's invoice (kept outside the repository)`, 56 entries, six embedded subset
+    fonts, sizes 4.9–7.8 mm) with fontTools: of 2464 glyphs with ink, **2117
+    (86%) reach below the baseline** — CJK overshoot 0.098–0.129 em, Latin
+    descenders up to 0.188 em — mean **0.50 mm**, max **1.46 mm** below the box
+    bottom, while the box top sat 1.45 mm above the painted top on average.
+  - Root cause: `crates/rofd-core/src/semantic.rs` built every character box as
+    `top = y - size`, `bottom = y` (the font-size footprint), while the renderer
+    paints the *glyph's own* extent around the baseline. The horizontal half of the
+    same mismatch was fixed in phase 16; the vertical half was untouched.
+- Fix (fork-first, D11): third commit on `feat/font-text-advances`,
+  <https://github.com/linuxdeepin/rofd/pull/13>:
+  - `rofd-core`: the provider seam becomes `TextMetricsProvider::metrics_mm`,
+    answering `TextScalarMetrics { advance_mm, ascent_mm, descent_mm }` per scalar;
+    the builder spans the baseline sweep with those extents. Without a provider, and
+    for a scalar whose glyph no face owns or that paints nothing (a space), the
+    conservative font-size footprint stays (size above the baseline, nothing below).
+  - `rofd-render`: `ResolvedFont` caches the glyph's FreeType control box next to its
+    advance (one `FT_Load_Glyph`, no extra face loads);
+    `PositionedGlyph::metrics()` replaces `advance()` and exposes advance, ascent and
+    descent; `FontTextMetrics` (was `FontTextAdvances`) owns its resolver in an `Arc`
+    instead of borrowing it, which also removes the FFI's `Box::leak`.
+  - `rofd-ffi`: loads with the metrics provider built from the default font stack
+    (`LazyLock<Arc<SystemFontResolver>>`).
+  - Verified on the rofd side: `cargo fmt --all -- --check`,
+    `cargo clippy -p rofd-core -p rofd-render -p rofd-ffi --all-targets -- -D warnings`,
+    `cargo test` for the three crates, `crates/rofd-ffi/tests/run_c_tests.sh` (rc=0,
+    symbol list unchanged, 77 entries). Two new pixel-level tests fail with the
+    builder change reverted and pass with it:
+    `crates/rofd-render/tests/cairo_text.rs::semantic_character_boxes_cover_the_rendered_ink`
+    (box bottom 80 px vs ink bottom 83 px before) and
+    `crates/rofd-ffi/tests/semantic.rs::text_layout_rectangles_cover_the_rendered_ink_below_the_baseline`
+    (box bottom 40 px vs baseline 40/ink 43 px before). rofd-render's pre-existing
+    `decoded_limits_have_exact_and_one_over_boundaries` failure is unrelated (it
+    fails with these changes stashed too).
+- Module side:
+  - `patches/rofd-ffi-font-advances.patch` regenerated with the third commit
+    (`git format-patch 140b936..feat/font-text-advances`); `git apply --check` on a
+    clean 140b936 worktree passes and a real `patch -Np1` reproduces the branch tree
+    byte for byte (`diff -r` clean).
+  - `tests/test-ofd-text.c`: the ABI classifier moved into
+    `linked_abi_resolves_font_geometry` (used by the find test and the new one), and
+    `test_selection_region_covers_rendered_ink` selects the second left-column line
+    at 4× zoom and fails when the region does not cover the ink's bottom row:
+    "selection region ends at row 453 while the glyphs paint down to 461: … Install
+    librofd-ffi >= 0.4.3-5". `test_origin_normalisation` now asserts the box
+    *straddles* the baseline (the fixture has no embedded font, so its ink extent is
+    machine-dependent) instead of pinning the box top to the font-size footprint.
+  - Docs: `docs/plan.md` (§2 geometry paragraph, §8 item 6, new evidence row A27, §6
+    playbook note), `README.md` (ABI row → `0.4.3-5`, text-geometry caveat),
+    `patches/README.md` row.
+- Verification on this machine:
+  - `meson test` 12/12 in `_build` and `_build-slow` with the packaged 0.4.3-5
+    library (`LD_LIBRARY_PATH` on the extracted package), `reuse lint` clean.
+  - The new test fails against the installed pre-fix `0.4.3-4` and passes against
+    `0.4.3-5` — the same command, one environment variable apart.
+  - Visual: a throwaway cairo harness rendered page 1 of the user's real document
+    with the ABI's selection regions overlaid, before and after (see
+    `/tmp/real_page1_before.png`, `/tmp/real_page1_fixed.png`); before, the bottom
+    strokes of 填写说明 and the punctuation hung outside the band, after they are
+    inside it.
+  - Numerically on that page (title band 87.7–122.3 × 29.0–38.2 mm): the box went
+    from y 28.01..35.77 (font-size footprint) to 29.22..36.89 against ink
+    29.19..36.69 — the bottom now clears the ink by 0.20 mm instead of stopping
+    0.92 mm above it, and the top moved from 1.18 mm above the painted top to
+    0.03 mm. The body line's band went from y 43.80..49.45 to 44.68..50.13 against
+    ink 44.71..50.01 (the CJK overshoot below the baseline is what the old box cut).
+- Open: the local package `librofd-ffi-0.4.3-5-x86_64.pkg.tar.zst` is built in
+  `~/projects/ofd-reader/librofd-ffi`; installing it needs root
+  (`pacman -U`), and the AUR push stays deferred with PR #13 as before.
 
 ## Sushi test hermeticity (2026-10-15)
 
