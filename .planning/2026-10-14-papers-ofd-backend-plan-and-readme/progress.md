@@ -2031,7 +2031,12 @@ limitations row that quotes its numbers.
   `/usr` because it installs into `$pkgdir`), and re-verified locally with the
   system ABI bypassed: the compile line has `-I<prefix>/include`, the suite passes
   13/13, and `ldd` resolves `librofd_ffi.so.0` to `<prefix>/lib` (which is what
-  makes the probe meaningful). Chained as another commit on `main`.
+  makes the probe meaningful). Chained as another commit on `main`, and the
+  follow-up run is **green**: [38810165744](https://github.com/YangtseSu/papers-ofd/actions/runs/38810165744)
+  completed `success` in 2m29s, i.e. all three configure/build/test passes (the
+  module against `-Drofd_libdir`, the page-size fallback, the installed
+  `rofd-ffi.pc`) plus `reuse lint` now pass in the container — the CI half of R10
+  is verified, not just mirrored locally.
 - AUR publication (the user asked for the push and provided a proxy for the
   network): `f64a19c` was pushed to `ssh://aur@aur.archlinux.org/papers-ofd.git`
   (`c2f0387..f64a19c`, `master`), i.e. **`papers-ofd 51.1.1-2`** — a recipe-only
