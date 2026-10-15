@@ -869,7 +869,7 @@ the fork branch go.
    One caveat documented in `rofd.h`: a renderer created with fallback families
    other than the defaults may draw glyphs the semantic layer did not resolve.
 
-7. **Decoder allocation budget** — a bug fix, contributed rather than carried.
+7. **Decoder allocation budget** — a bug fix, proposed upstream and carried until it lands.
    `crates/rofd-render/tests/images.rs::decoded_limits_have_exact_and_one_over_boundaries`
    is red on upstream `main` (no CI job runs the suite): `images.rs` hands the caller's
    `max_decoded_image_bytes` to the image crate's `Limits::max_alloc`, which budgets
@@ -878,9 +878,16 @@ the fork branch go.
    rejected with "Memory limit exceeded". The `fix/decoded-image-alloc-budget` branch
    (<https://github.com/linuxdeepin/rofd/pull/14>) allows three times the finished size
    (decoder buffer ≤ 8 bytes per pixel for 16-bit channels plus the 4-byte-per-pixel
-   RGBA8 conversion). Deliberately **not** carried by `patches/`: the API-level limits
-   (`validate_dimensions`) and the ABI are unchanged, so the AUR package needs no third
-   patch file.
+   RGBA8 conversion), at both decode sites — `ImageDecoder::decode` and
+   `cairo_renderer::decode_seal_raster`, the stamp-annotation path, where the old budget
+   silently dropped seals whose decoded raster sits between roughly half and all of the
+   document byte limit (measured: a 6000×6000 16-bit seal, 137 MiB raster, fails at the
+   old budget and decodes now; 14336² still fails).
+   **Carried** by `librofd-ffi` `pkgrel` 7 as `rofd-ffi-image-decode-budget.patch` (the
+   regression test's fixture ships beside the patch, since binary diffs do not survive
+   `git format-patch` + `patch`), because it changes rendered output; the AUR package
+   needs the extra source `seal-16bit-boundary.png`. No limit is relaxed: the raster
+   checks stay the authority. `patches/README.md` has the retirement criterion.
 
 8. **Region pixel-diff tolerance** — the same class of upstream-side repair, proposed as
    <https://github.com/linuxdeepin/rofd/pull/15> (`fix/region-aa-tolerance`).
