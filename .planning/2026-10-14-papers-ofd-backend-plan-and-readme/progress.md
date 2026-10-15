@@ -2032,6 +2032,10 @@ limitations row that quotes its numbers.
   system ABI bypassed: the compile line has `-I<prefix>/include`, the suite passes
   13/13, and `ldd` resolves `librofd_ffi.so.0` to `<prefix>/lib` (which is what
   makes the probe meaningful). Chained as another commit on `main`.
-- User step left: the AUR `papers-ofd` push — `f64a19c` is committed in
-  `~/projects/ofd-reader/papers-ofd-aur` on `master`, one commit ahead of its
-  `origin/master` (`git -C ~/projects/ofd-reader/papers-ofd-aur push`).
+- AUR publication (the user asked for the push and provided a proxy for the
+  network): `f64a19c` was pushed to `ssh://aur@aur.archlinux.org/papers-ofd.git`
+  (`c2f0387..f64a19c`, `master`), i.e. **`papers-ofd 51.1.1-2`** — a recipe-only
+  revision (`pkgrel` 1 → 2 per D13), whose payload is unchanged and whose
+  `checkdepends` now name the fonts. As with the earlier releases, the RPC index
+  lags the git push; the authoritative evidence of the publication is the push ref
+  above (`git ls-remote` shows it).
