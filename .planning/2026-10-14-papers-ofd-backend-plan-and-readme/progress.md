@@ -2044,3 +2044,85 @@ limitations row that quotes its numbers.
   `checkdepends` now name the fonts. As with the earlier releases, the RPC index
   lags the git push; the authoritative evidence of the publication is the push ref
   above (`git ls-remote` shows it).
+
+## 2026-10-16 (session C): phase 25 — documentation corrections (R19)
+
+Docs-only phase; no module code changed. Every item was re-checked against the
+files first, because phases 20–24 had already corrected some of them in passing;
+what follows is the state per item and the new evidence.
+
+### Already correct before this session (re-verified, not re-edited)
+
+- **A16's budget claim** — corrected by phase 22: the row now states the disproved
+  direction ("request sizes do **not** stay under rofd's budget") and names the
+  fix. Re-checked against Papers: `MAX_IMAGE_SIZE 32767` (`libview/pps-view.c:5653`,
+  clamped at `:5671-5672`) and `page-cache-size` default 200 MiB
+  (`data/org.gnome.Papers.gschema.xml:25-29`) → ≈10.2× on A4 at 4 B/px ≈ 52.4 Mpx,
+  against rofd's 256 MiB at ≈9 B/px ≈ 29.8 Mpx (≈7.7×), so "more than that
+  default" holds.
+- **§3's rotation row** ("empty region, never NULL") — R2's wording landed in phase
+  20. The remaining looseness was `render_selection` ("draws nothing"): after R13
+  it *drops* the surface it is handed, which is what the row now says
+  (`src/ofd-text.c:416-424` sets `*surface = NULL`).
+- **README's budget paragraph and its test-count/install rows** — phase 22/24.
+
+### Corrections made (all in this phase's commit)
+
+- `docs/plan.md` §2 file tree: dropped the non-existent `debian/`; added
+  `scripts/dev-env.sh`, `patches/README.md`, `.github/workflows/`,
+  `COPYING`/`REUSE.toml`/`LICENSES/`, `README.md`, and the Sushi plugin in the
+  `data/` row.
+- §3 selection/rotation row: "nothing drawn / no region" →
+  "declined … `render_selection` drops the surface it is handed (R13)".
+- §5 phase 0 acceptance: the deliberate discovery failure is now stated as what it
+  is — `ofd-discovery-failure` calls `pps_init ()` and asserts
+  `Failed to load backend` (`tests/test-ofd-document.c:153`), i.e. part of
+  `meson test` since R6, not an observation.
+- §5 phase-1 evidence: added the phase-23 re-measurement after the renderer moved
+  into `load` (~130–140 ms shipping against ~115–120 ms fallback) and pointed at
+  the README row for the current split.
+- §6 fixture matrix: added the `strip` row (1000×25 mm page, 34016×851 at 12×,
+  the surface refusal `test_failed_render_is_a_warning` asserts; A28, R15).
+- §7: "exactly the five files" → **six** (the table lists six).
+- `README.md`: "four small data files … into Papers' existing backend directory" →
+  five data files, with only the module and the descriptor in the backend
+  directory; the descriptor snippet's `TypeDescription` now matches
+  `data/org.gnome.Papers.OfdDocument.papers-backend:3`
+  (`Fixed-layout Documents`); the open-latency limitation now gives the numbers
+  **per build**; the ABI-classifier note no longer implies `meson test` shows the
+  line by default.
+
+### Verified
+
+- The `meson test` claim, before writing it down: `meson test -C _build ofd-text
+  --print-errorlogs` printed no test stdout for the passing test; `meson test -C
+  _build ofd-text -v` printed `first line: ABI layout 28.7 mm, ink 28.2 mm ->
+  font-resolved geometry`, and the same line is in
+  `_build/meson-logs/testlog.txt`. The README now names `-v`.
+- Open latency re-measured twice (5 runs each, best of), which is the source of
+  the README bands: shipping build `_build` best **139.6 / 138.0 ms** (load
+  ~28 ms, size walk ~18–20 ms, `setup_cache` ~70 ms, first render ~20–21 ms);
+  fallback `_build-slow` best **118.5 / 118.9 ms** (load ~28 ms, size walk
+  ~70 ms, `setup_cache` 0.1 ms, first render ~20–21 ms) — the fallback matches
+  phase 23's run (117.1 ms) almost exactly, while the shipping build measures
+  ~8 % higher than phase 23's 129.3 ms in both of today's passes (the extra time
+  sits in `load`, the size walk and `setup_cache`), so the README row states
+  bands rather than a single number.
+- Structure and cross-references (the phase-4 rule): both files' fences balanced
+  (plan 18, README 8), no malformed table rows, all 13 relative markdown links
+  (including anchors into `docs/plan.md`) resolve, the repository-relative paths
+  named in both documents exist, and the edited citations were spot-checked
+  (`libview/pps-view.c:4512` and `:925-931`; `tests/test-ofd-document.c:153`;
+  `src/ofd-text.c:416-424`; the strip dimensions against
+  `tests/test-ofd-render.c:370-380`).
+- `reuse lint`: compliant, 57/57 files. `meson test -C _build`: **14/14** (docs
+  only, run as the smoke check).
+
+### Not done (next session)
+
+- Phase 26: `51.1.2` — version bump, tag, GitHub release, AUR `papers-ofd`
+  repackage, and the still-open `pacman -Rns papers-ofd` uninstall regression.
+  User-gated.
+- The two user steps from phase 24 stay open: the AUR `papers-ofd` revision
+  (`checkdepends`, prepared uncommitted in the AUR working copy) and, if CI should
+  run, a branch push.

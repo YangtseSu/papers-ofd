@@ -4,8 +4,10 @@ OFD (GB/T 33190-2016) backend for [GNOME Papers](https://gitlab.gnome.org/GNOME/
 built out-of-tree on the [`rofd-ffi`](https://github.com/linuxdeepin/rofd) C ABI
 (rofd's OFD parser and Cairo renderer).
 
-Ships one shared module and four small data files into Papers' existing backend
-directory. No Papers fork, no Papers rebuild, no patching of Papers sources.
+Ships one shared module and five small data files (the discovery descriptor, the
+MIME definition, the thumbnailer entry, the association entry and the Sushi
+plugin); only the module and the descriptor live in Papers' backend directory. No
+Papers fork, no Papers rebuild, no patching of Papers sources.
 
 ## Status
 
@@ -65,7 +67,7 @@ papers-document-4.0`, currently `/usr/lib/papers/6/backends`) for
 ```ini
 [Papers Backend]
 Module=ofddocument
-TypeDescription=Open Fixed-layout Documents
+TypeDescription=Fixed-layout Documents
 MimeType=application/ofd;
 ```
 
@@ -214,18 +216,21 @@ patch-free vs patch-the-desktop tradeoff:
 
 ## Limitations
 
-- **Open latency** on a 300-page generated fixture (content on every page,
-  5 runs, best of): load ~26 ms — the renderer and rofd's font stack are created
-  when the document loads, which is also why the first render is ~20 ms rather
-  than ~48 ms — then ~66 ms for the page walk (`setup_cache`, which fetches every
-  page object) and ~20 ms for the first rendered page: ~130 ms from
-  `pps_document_load` to the first page being visible. The
-  metadata-only page-size query (`rofd_document_get_page_size_mm`, shipped in
-  the fork's release) makes the size walk itself ~18 ms instead of ~70 ms, but the
-  end-to-end time is
-  about the same in the shell's flow because `setup_cache` fetches the page objects
-  either way; the fast path pays off for callers that only need sizes
-  (`tests/ofd-latency.c`, both builds).
+- **Open latency** on a 300-page generated fixture (content on every page; 5 runs,
+  best of, `tests/ofd-latency.c`): `pps_document_load` → metadata walk →
+  `setup_cache` → first rendered page is **~130–140 ms on the shipping build** (the
+  page-size query compiled in) against **~115–120 ms on the fallback**
+  (`-Drofd_page_size=disabled`). Both numbers move with the machine — the shipping
+  build measured 129 ms one day and 138–140 ms the next, the fallback 117–119 ms in
+  both — so the shape matters more than the last digit: the shipping build spends
+  ~26–28 ms in `load` (the renderer and rofd's font stack are created there, which
+  is also why the first render is ~20 ms rather than ~48 ms), ~18–20 ms on the size
+  walk (`rofd_document_get_page_size_mm`), ~66–71 ms parsing every page inside
+  `setup_cache` and ~20 ms on the first render; the fallback has no metadata-only
+  query, so it parses every page during the size walk (~70 ms) and rofd's page
+  cache then makes `setup_cache` almost free (~0.1 ms), with the same ~20 ms first
+  render. Both builds parse every page either way, so the fast path pays off for
+  callers that only need page sizes, not for the shell's own open path.
 - **Render budget.** rofd charges the worst case of a page raster
   (≈9 B/px: the finished ARGB32 target, its A8 clip mask and a clipped
   temporary) against `max_raster_bytes`, where Papers' own allowance is 4 B/px —
@@ -260,7 +265,8 @@ patch-free vs patch-the-desktop tradeoff:
   `first line: ABI layout … mm, ink … mm -> font-resolved|font-size footprint
   geometry` is printed to stdout by `ofd-text`, so it lands in
   `_build/meson-logs/testlog.txt` (or on screen with
-  `meson test -C _build --print-errorlogs`).
+  `meson test -C _build ofd-text -v`; `meson test --print-errorlogs` prints only a
+  failing test's output).
 - The space-bar preview needs the shipped Sushi plugin, which depends on Sushi
   internals (its plugin directory, the document renderer's content-type list).
   It is removed together with the plugin once Papers lists `application/ofd` in

@@ -446,3 +446,19 @@ upstream report candidate next to A23.
 
 Still open: R4 (font dependency, Q8), R10 (CI parity), R17, R18 and the
 documentation items of R19.
+
+### Closed by phases 24–25 (2026-10-15/16, sessions B and C)
+
+| Item | Fix | Evidence |
+| --- | --- | --- |
+| R4 | the text test counts `ROFD_DIAGNOSTIC_MISSING_GLYPH` on both fixture pages and names the missing font/package; the AUR recipe gains the fonts as `checkdepends` | reproduced with `/usr/share/fonts` emptied in a mount namespace (`143 missing glyphs` → `noto-fonts`; `noto-cjk` hidden → `17`); `progress.md` §"Phase 24" |
+| R10 | `meson.build` distinguishes an old `rofd-ffi.pc` from a missing one (module floor 0.4.2, packaging floor 0.4.3); CI builds and tests the page-size fallback and an installed-`.pc` build; `ofd-latency` is explicitly a tool outside `meson test` | the hand-written 0.4.1 `.pc` error message; the green CI run [38810165744](https://github.com/YangtseSu/papers-ofd/actions/runs/38810165744) |
+| R19 | every documentation claim the review disproved, corrected (plan §2/§3/§5/§6/§7, README); A16 and §3's "empty region" wording had already landed in phases 20–22 | `progress.md` §"session C": links/anchors/paths/fences/citations re-verified, `reuse lint` 57/57, `meson test` 14/14, latency bands re-measured |
+
+Still open after the campaign: **R17** (all regions of one action share a single
+`PpsLink`, so the tooltip and link popover anchor on the first region;
+`src/ofd-links.c:246-250`) and **R18** (`FitR` destinations with absent
+`HAS_RIGHT`/`HAS_BOTTOM` become a zero-size box, visible only with
+`allow-links-change-zoom`; `src/ofd-links.c:55-76`) — both low-severity code
+evidence, not assigned to a phase; a future session picks them up with a test
+each, the way this campaign did for R1–R16.

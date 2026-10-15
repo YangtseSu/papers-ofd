@@ -69,6 +69,7 @@ Files:
 ```
 papers-ofd/
 ├── meson.build, meson_options.txt
+├── COPYING, REUSE.toml, LICENSES/   GPL-2.0-or-later, REUSE-compliant
 ├── src/
 │   ├── ofd-backend.c        pps_backend_query_type() + ABI check
 │   ├── ofd-document.[ch]    OfdDocument: PpsDocument + the five interfaces
@@ -79,10 +80,13 @@ papers-ofd/
 │   ├── ofd-text.[ch]        PpsDocumentText, PpsSelection, PpsDocumentFind vfuncs
 │   ├── ofd-outline.[ch]     PpsOutlines tree + links model
 │   └── ofd-links.[ch]       PpsMappingList from the page link snapshot + PpsLink from a rofd action
-├── data/                    mime xml, backend descriptor, association entry, thumbnailer
+├── data/                    MIME xml, backend descriptor, association entry, thumbnailer, Sushi plugin
 ├── tests/                   C tests + fixture generator
-├── debian/                  packaging
-└── docs/plan.md
+├── scripts/dev-env.sh       resolve the dependency checkouts and the rofd ABI pair
+├── patches/README.md        rofd releases this backend targets (consumer inventory)
+├── .github/workflows/       CI in an Arch container + the release automation
+├── docs/plan.md             this plan
+└── README.md
 ```
 
 Decisions that constrain everything else:
@@ -131,7 +135,7 @@ Full mapping (Papers vfunc → rofd call → rule):
 | *Selection* `get_selected_text` | `rofd_page_get_selected_text` | selection style maps 1:1 (GLYPH/WORD/LINE) — **unguarded upstream**, returns an empty string rather than NULL for a page it cannot query. A query degenerate on either axis is a *point*, which is what a double/triple click and a scroll increment hand over (`libview/pps-view.c:4235-4249,920-931`); rofd's hit test is a strict positive-area overlap, so the module widens it to a 0.02 mm hair box centred on the point and the point then selects the glyph, word or line it sits on |
 | *Selection* `get_selection_region` | same call, region rects | mm→pt (origin-normalized), scaled by rofd's canvas size over the page size, rounded into a `cairo_region_t` in device pixels; **always a region** — empty when the selection is declined or unavailable — because Papers dereferences the answer without a check (`libview/pps-view.c:925-931`) and cairo's region accessors dereference unconditionally |
 | *Selection* `render_selection` | same call | fill the region rects with `base` into an ARGB32 surface sized by rofd (`ofd_render_page_canvas_size`), cleared first because the view reuses it; a refusal (rotated context, unusable page, failed query) drops that surface instead of leaving the previous selection's pixels for the view to rebuild its texture from. ABI has no text mask, so the glyph recolour pass cannot be reproduced |
-| *Selection* any | — | rotation ≠ 0 → nothing drawn / no region: Papers refuses to start a selection on a rotated page ("Selection in rotated documents has never worked", `libview/pps-view.c:4512`), and the mapping is unrotated page points → canvas. `render_selection` draws nothing and `get_selection_region` answers an empty region — never NULL, because `compute_scroll_increment` reads the region without a NULL check (`libview/pps-view.c:925-931`) |
+| *Selection* any | — | rotation ≠ 0 → declined: Papers refuses to start a selection on a rotated page ("Selection in rotated documents has never worked", `libview/pps-view.c:4512`), and the mapping is unrotated page points → canvas. `render_selection` drops the surface it is handed — the view reuses it, so leaving the previous selection's pixels there would let it rebuild a stale texture (R13) — and `get_selection_region` answers an empty region, never NULL, because `compute_scroll_increment` reads the region without a NULL check (`libview/pps-view.c:925-931`) |
 | *Links* `has_document_links` | `rofd_document_get_outline` | outline count > 0 |
 | *Links* `get_links_model` | outline snapshot | `GListStore` of `PpsOutlines`, rebuilt from `parent`/`first_child`/`next_sibling` (one children store per node that has children), `NULL` when there is no outline like the PDF backend; `set_expand(node.expanded)`; every node gets a `PpsLink` (the sidebar dereferences the selected row's link), whose action is the first usable GOTO/URI of its own, or — when it has none — the first reachable one in its subtree (reverse-preorder pass). An actionless row is never published: `pps_document_links_get_link_page` answers -1 for it, which the sidebar turns into "print from page 1" and a `usize::MAX` page-map key (`shell/src/sidebar_links.rs:686,548-551,748`); the PDF backend skips such entries outright (`pps-poppler.c:1292-1297`) |
 | *Links* `get_links` | `rofd_page_get_links` | one `PpsMapping` per region of the first `ROFD_ACTION_EVENT_CLICK` action, in rofd's source order; `GOTO`→`pps_link_dest_new_*` (skipped when the destination has no resolved page), `URI`→`pps_link_action_new_external_uri`; attachment/unknown kinds skipped; `NULL` when the page handle is unusable |
@@ -277,12 +281,15 @@ Acceptance:
 - `PPS_BACKENDS_DIR=<devdir> papers <fixture>.ofd` opens, scrolls, shows the right
   page count.
 - Same session still opens a PDF (dev dir contains the system descriptors).
-- A wrong `Module=` name in the descriptor makes Papers report a load failure
-  (proves the discovery path is really exercised).
+- A descriptor whose `Module=` names no loadable object makes Papers report
+  `Failed to load backend`: `ofd-discovery-failure` initialises `pps_init ()` and
+  asserts exactly that message, so the deliberate failure is part of
+  `meson test` (R6) instead of an observation.
 - `meson test -C _build` green.
 
 Evidence to record: the dev-dir recipe, `meson test` summary, the `papers` window
-screenshot/or description, the deliberate-failure message.
+screenshot/or description, the deliberate-failure message (the
+`ofd-discovery-failure` assertion).
 
 ### Phase 1 — rendering, metadata, printing
 
@@ -349,7 +356,10 @@ parses every page for its size; the end-to-end sequence load → metadata walk �
 `setup_cache` → first render is ~120–145 ms in both builds, because
 `setup_cache` fetches every page object either way. The fast path therefore pays
 off for callers that query sizes without fetching pages, not for the shell's own
-open path).
+open path. Phase 23 re-measured this after moving the renderer creation into
+`load` (R7): ~130–140 ms on the shipping build against ~115–120 ms on the
+fallback, with the renderer's cost shifted from the first render into `load`; the
+README limitation row carries the current per-build split).
 
 ### Phase 2 — text, selection, find, links, outline
 
@@ -701,6 +711,7 @@ glyph by about `0.96 × Size` millimetres, so a line of 27 ASCII characters at
 | `links` (`links-2pages.ofd`) | page links (page-root URI, object GOTO, object URI with `Base`), a 4-node outline with a nested entry, a URI entry and a named-bookmark GOTO |
 | `origin-text` (`origin-text.ofd`) | origin normalization for text, layout, find, selection *and* link regions/destinations (`PhysicalBox "10 20 210 297"`) |
 | `broken-page` (`broken-page-2pages.ofd`) | a page whose content XML is truncated: page 0 works, page 1 is unreachable and every vfunc tolerates NULL |
+| `strip` (`strip-1page.ofd`) | a 1000×25 mm page (40× wider than tall): at 12× the canvas is 34016×851, past cairo's 32767-pixel dimension limit, so the surface refusal `test_failed_render_is_a_warning` asserts is reported at `g_warning` (A28, R15) |
 | `malformed-zip` (`malformed-zip.ofd`) | zip magic with `OFD.xml` at byte 30 but no valid archive: detected as `application/ofd`, load fails with `G_IO_ERROR_INVALID_DATA` |
 | `$ROFD_SRC/learning/test.ofd` | real invoice with a stamp annotation; oracle image |
 | `$ROFD_SRC/tests/ofd_files/6.1.00x…6.2.00x` | spec conformance, embedded fonts, compression variants |
@@ -795,7 +806,7 @@ when a non-Arch consumer appears.
   `ofd-oracle` needs `-Drofd_src`; `ofd-print-file` skips itself when GTK has no
   display). The package was verified by a build with an empty `SRCDIR`, i.e. from
   the anonymous download, and by `namcap` (only the `gcc-libs` advisory).
-- Install layout is exactly the five files in the table above; none is owned by
+- Install layout is exactly the six files in the table above; none is owned by
   another package, so uninstall (`pacman -Rns papers-ofd`) removes only our files
   and cannot break Papers' own backends.
 

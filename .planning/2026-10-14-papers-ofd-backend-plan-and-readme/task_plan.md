@@ -7,35 +7,35 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
-**Session B (phases 22, 23, 24) is complete and stops here.** Phase 22: R3 (the
-raster budget is derived from the request under a 450 MiB cap, never below rofd's
-default, and the scale is lowered beyond it), R14 (oblique rotations snap to the
-nearest quarter turn), R15 (a failed page surface or render reports at
-`g_warning`). Phase 23: R7 — one `GRWLock`, writer in `load`/`load_fd`, reader
-around every vfunc, with the concurrency stress test that reproduced the predicted
-use-after-free under ASAN before the fix and is clean after (5/5 either way).
-Phase 24: R4 (the text test names the missing font/package; the AUR recipe's
-`checkdepends` change is prepared in the AUR working copy, uncommitted) and R10
-(`meson.build` tells an old `rofd-ffi.pc` from a missing one; the module floor
-stays 0.4.2 while the packaging floor is 0.4.3; CI builds and tests the
-page-size fallback and an installed-`.pc` build; `ofd-latency` is explicitly a
-tool, not a registered test). `meson test` is 14/14 in both page-size builds,
-`reuse lint` is compliant, and plan §2/§4/§6/§7/§8, D2, A16/A28/A29, `AGENTS.md`
-and the README carry everything. Evidence: `progress.md` §"Phase 22", §"Phase 23",
-§"Phase 24".
+**Session C (phase 25) is complete and stops here.** The R19 documentation
+corrections are in: plan §2's file tree (no `debian/`; scripts/patches/.github and
+the Sushi plugin listed), §3's selection/rotation row (a refusal drops the reused
+surface and answers an empty region), §5 phase-0's acceptance (the deliberate
+discovery failure is the `ofd-discovery-failure` assertion since R6), §5's
+phase-1 latency note (post-phase-23 re-measurement), §6's `strip` fixture row,
+§7's file count (six), and the README items (module + five data files, the
+descriptor's `TypeDescription`, the open-latency numbers per build, and the
+`-v`/testlog correction for the ABI-classifier line). A16 and §3's "empty region"
+wording were already correct from phases 20–22. Verified after the edits: both
+documents' fences balanced, all 13 relative links (anchors included) resolve,
+edited citations spot-checked, `reuse lint` 57/57, `meson test -C _build` 14/14,
+and the latency bands re-measured in both builds (shipping ~130–140 ms, fallback
+~115–120 ms). Evidence: `progress.md` §"session C".
 
-Two things belong to the user before the next phase:
+Phase 26 (`51.1.2`: version bump, tag, GitHub release, AUR repackage, and the
+still-open `pacman -Rns` uninstall regression) is user-gated and starts next.
+
+Two low-severity findings stay open and unscheduled (not part of phase 26): R17
+(one `PpsLink` shared by an action's regions, so the tooltip and popover anchor on
+the first one) and R18 (`FitR` with absent `HAS_RIGHT`/`HAS_BOTTOM` builds a
+zero-size box). They are recorded in `findings.md` with the current line numbers.
+
+Also still the user's, from phase 24:
 
 1. the AUR `papers-ofd` revision — the prepared `checkdepends` diff and the
    regenerated `.SRCINFO` (the working copy is
    `~/projects/ofd-reader/papers-ofd-aur`, left uncommitted on purpose);
-2. a branch push, if CI should run the new steps (`main` here is six commits ahead
-   of `origin/main`).
-
-Then phase 25 (the R19 documentation corrections: plan §3's selection/rotation
-row, §2's file tree, §5 phase-0's acceptance wording, §7's file count, and the
-README items the review listed) and phase 26 (`51.1.2`: version bump, tag, AUR
-repackage, the still-open `pacman -Rns` uninstall regression).
+2. a branch push, if CI should run the new steps.
 
 Session split agreed 2026-10-15: phase 20 + 21 are one session (blockers plus the
 mechanical fixes), phases 22–24 a second (render budget, concurrency, CI/packaging
@@ -128,11 +128,13 @@ and #12 when convenient.
 
 ## Current Phase
 
-Session B is complete (phases 22–24, 2026-10-15). `meson test` is 14/14 in
-`_build` and `_build-slow` and CI now also builds the page-size fallback and the
-installed-`rofd-ffi.pc` path. Next: phase 25 (documentation corrections, R19),
-then phase 26 (the `51.1.2` release, user-gated); `docs/plan.md` phases 0–3 stay
-shipped and accepted and phase 4 (upstream MR) remains the last planned module
+Session C is complete (phase 25, 2026-10-16): the R19 documentation corrections
+are committed (plan §2/§3/§5/§6/§7, README), re-verified (links, anchors, paths,
+fences, citations) and the latency bands re-measured in both builds; `reuse lint`
+is 57/57 and `meson test` is 14/14. Next: phase 26 (the `51.1.2` release, AUR
+repackage and the `pacman -Rns` uninstall regression), which is user-gated;
+`docs/plan.md` phases 0–3 stay shipped and accepted and phase 4 (upstream MR)
+remains the last planned module
 work.
 
 ## Phases
@@ -357,10 +359,11 @@ and watching them fail.*
 
 ### Phase 25: Documentation corrections the review proved wrong (R19)
 
-- [ ] `docs/plan.md` §3 selection/rotation row, A16's budget claim, §5 phase-0's acceptance wording for the deliberate discovery failure, §2's file tree, §7's file count
-- [ ] `README.md`: installed-file count, the descriptor `TypeDescription`, the open-latency numbers per build, the "meson test reports which model the linked library uses" claim
-- [ ] Re-verify anchors, paths and citations after the edits (the phase-4 rule)
-- **Status:** pending
+- [x] `docs/plan.md` §3 selection/rotation row, A16's budget claim, §5 phase-0's acceptance wording for the deliberate discovery failure, §2's file tree, §7's file count
+- [x] Also corrected: §6 gained the `strip` fixture row and §5's phase-1 evidence the post-phase-23 latency re-measurement
+- [x] `README.md`: installed-file count, the descriptor `TypeDescription`, the open-latency numbers per build, the "meson test reports which model the linked library uses" claim
+- [x] Re-verified anchors, paths and citations after the edits (the phase-4 rule): 13 links resolve, fences balanced, `reuse lint` 57/57, `meson test` 14/14
+- **Status:** complete (2026-10-16; A16 and the §3 "empty region" wording were already correct from phases 20–22, see `progress.md` §"session C")
 
 ### Phase 26: Release 51.1.2 and AUR repackage (user-gated)
 
