@@ -1044,5 +1044,6 @@ reports the same resolution table (the edit is inside the header comment); `reus
   - Fork audit (`YangtseSu/rofd`, the user's request): clean — no document names,
     home paths or machine paths in any of its six refs, in any commit message, or in
     the upstream PR text/comments of #11/#12/#13.
-- Local backup of the pre-rewrite history: a `git bundle` in `/tmp` (it still
-  contains the leaked names — delete it when no longer needed).
+- Pre-rewrite history: a `git bundle` was kept in `/tmp` while the rewrite was
+  verified and **deleted** afterwards, together with the replacement-pattern file and
+  the downloaded tarballs; the rewritten history is the only copy.
