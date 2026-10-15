@@ -98,7 +98,12 @@ explicit ref list) it collects the fork's `feat/*` and `fix/*` branches and runs
 command `debian/rules` uses (`… -p rofd --features rofd/qt-reader`) and
 `crates/rofd-ffi/tests/run_c_tests.sh` per branch. Actions are enabled on the fork
 and the ten inherited workflows are disabled — in a fork they would fire on push
-and fail on secrets that forks never inherit.
+and fail on secrets that forks never inherit. The dependency step installs the
+`debian/control` build deps plus Qt and the two font families the crate tests need:
+`rofd-render --test real_fixture` lowers the repository invoice fixture (its text
+names SimSun/KaiTi/Courier New) through a resolver whose fallbacks are
+`Noto Sans CJK SC`/`Noto Sans Mono`, so a runner without `fonts-noto-cjk` and
+`fonts-noto-core` fails it with `MissingGlyph` diagnostics.
 
 Two tests are red on upstream `main` today; they run as their own visible,
 non-gating steps (with the fixing PR inline) so that a branch's own regressions

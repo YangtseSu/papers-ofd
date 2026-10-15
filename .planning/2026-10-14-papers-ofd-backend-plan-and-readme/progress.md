@@ -1050,8 +1050,8 @@ reports the same resolution table (the edit is inside the header comment); `reus
 
 ### Phase 20: upstream CI — what fails, what we fixed, the fork's own checks (2026-10-15)
 
-- **Status:** complete — the record below is the whole picture; the one remaining fork
-  change (fonts for the runner, see the run-3 diagnosis) is deferred at the user's request
+- **Status:** complete — every fork-side check is green (run 4/5) and the record below is
+  the whole picture; the only remaining blockers are upstream's (CLA App, no test job)
 - What actually fails on the rofd PRs (`gh pr checks`, #11, #12, #13, #14, #15):
   - `clacheck / CLAssistant` fails on every one of them with
     `Could not update the JSON file: Error occured when creating a pull request comment: Resource not accessible by integration`
@@ -1113,7 +1113,12 @@ reports the same resolution table (the edit is inside the header comment); `reus
     glyphs resolve to nothing and the assertion fails. Locally both families resolve
     (`fc-match` → `NotoSansCJK-Regular.ttc` / `NotoSansMono-Regular.ttf`, 900 Noto faces)
     and the test passes, which is why this appears only in CI.
-    **Fix, deliberately not applied (user asked to hold):** add `fonts-noto-cjk` and
-    `fonts-noto-core` to the workflow's `apt-get install` line. Note that upstream's own
-    suite would fail the same way on any font-less environment — their Distribution
-    Builder never runs tests, so nobody has seen it there.
+    **Fix applied** (commit `ebb7118` on `ci/fork-checks`): `fonts-noto-cjk` and
+    `fonts-noto-core` joined the dependency step. Run 4 (38686177356) came back
+    **green for all six branch jobs** — gating rustfmt, clippy, the crate tests (minus the
+    two splits), the `debian/rules` release build (1m03s on the runner, the step's first
+    ever execution there) and the C ABI runner; the two upstream-red tests still run as
+    visible, non-gating steps. Run 5 re-confirms the same tree after the commit-message
+    fixup. Note that upstream's own suite would fail the `MissingGlyph` assertion the same
+    way on any font-less environment — their Distribution Builder never runs tests, so
+    nobody has seen it there.
