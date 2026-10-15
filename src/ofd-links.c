@@ -72,8 +72,22 @@ ofd_link_dest_from_rofd (const rofd_destination_t *destination,
 		return pps_link_dest_new_fith (page, top, change_top);
 	case ROFD_DESTINATION_FIT_V:
 		return pps_link_dest_new_fitv (page, left, change_left);
-	case ROFD_DESTINATION_FIT_R:
-		return pps_link_dest_new_fitr (page, left, bottom, right, top);
+	case ROFD_DESTINATION_FIT_R: {
+		/* The ABI zeroes an absent coordinate and clears its HAS_* bit, and the
+		 * view's FitR handling divides by the box (goto_fitr_dest →
+		 * zoom_for_size_fit_page), so an incomplete or degenerate rectangle
+		 * would jump to the maximum zoom. Only a complete, non-empty box
+		 * becomes a FitR destination; anything else fits the page (R18). */
+		const guint box_bits = ROFD_DESTINATION_HAS_LEFT | ROFD_DESTINATION_HAS_TOP |
+		                       ROFD_DESTINATION_HAS_RIGHT | ROFD_DESTINATION_HAS_BOTTOM;
+
+		if ((destination->flags & box_bits) == box_bits && right > left && bottom > top)
+			return pps_link_dest_new_fitr (page, left, bottom, right, top);
+
+		g_debug ("FitR destination without a complete box; fitting the page instead");
+
+		return pps_link_dest_new_fit (page);
+	}
 	default:
 		/* An unrecognised Type still names a page, so jump to it (rofd keeps
 		 * the source name in mode_name for diagnostics). */
@@ -167,7 +181,6 @@ ofd_links_get_links (OfdDocument *self, PpsPage *page)
 		rofd_action_t action = { 0, };
 		rofd_destination_t destination = { 0, };
 		PpsLinkAction *link_action;
-		PpsLink *link;
 		size_t action_count = 0;
 		size_t region_count = 0;
 		size_t j;
@@ -232,12 +245,10 @@ ofd_links_get_links (OfdDocument *self, PpsPage *page)
 		}
 		ofd_links_clear_error (&rerror);
 
-		link = pps_link_new (NULL, link_action);
-		g_object_unref (link_action);
-
 		for (j = 0; j < region_count; j++) {
 			rofd_rect_t region_mm = { 0, };
 			PpsMapping *mapping;
+			PpsLink *link;
 
 			if (rofd_link_list_get_region (links, i, j, &region_mm, &rerror) != ROFD_STATUS_OK) {
 				g_debug ("link %zu region %zu failed: %s", i, j,
@@ -247,14 +258,21 @@ ofd_links_get_links (OfdDocument *self, PpsPage *page)
 			}
 			ofd_links_clear_error (&rerror);
 
+			/* One link object per region: the view resolves the mapping behind
+			 * a link by pointer identity (pps_mapping_list_find), so a link
+			 * shared by several regions would anchor the tooltip and the link
+			 * popover on the first one (R17). The PDF backend builds one link
+			 * per mapping as well. The mapping owns the reference the list's
+			 * destroy notify drops. */
+			link = pps_link_new (NULL, link_action);
+
 			mapping = g_new0 (PpsMapping, 1);
 			ofd_rect_from_mm (&region_mm, &page_ref.box_mm, &mapping->area);
-			/* One reference per mapping: the list's destroy notify drops it. */
-			mapping->data = g_object_ref (link);
+			mapping->data = link;
 			mappings = g_list_prepend (mappings, mapping);
 		}
 
-		g_object_unref (link);
+		g_object_unref (link_action);
 	}
 
 out:

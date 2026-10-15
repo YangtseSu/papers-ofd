@@ -7,7 +7,8 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
-**Session C (phase 25) is complete and stops here.** The R19 documentation
+**Session C (phase 25 and, on the user's request, phase 27) is complete and stops
+here.** Phase 25: the R19 documentation
 corrections are in: plan §2's file tree (no `debian/`; scripts/patches/.github and
 the Sushi plugin listed), §3's selection/rotation row (a refusal drops the reused
 surface and answers an empty region), §5 phase-0's acceptance (the deliberate
@@ -22,13 +23,15 @@ edited citations spot-checked, `reuse lint` 57/57, `meson test -C _build` 14/14,
 and the latency bands re-measured in both builds (shipping ~130–140 ms, fallback
 ~115–120 ms). Evidence: `progress.md` §"session C".
 
-Phase 26 (`51.1.2`: version bump, tag, GitHub release, AUR repackage, and the
-still-open `pacman -Rns` uninstall regression) is user-gated and starts next.
+Phase 27 (R17/R18, requested by the user on 2026-10-16) is also complete: one
+`PpsLink` per hit region (the view resolves a link's area by pointer identity) and
+a `FitR` destination only for a complete, non-empty box (an incomplete one used to
+mean "jump to maximum zoom"); both were written test-first and observed red before
+the fix. Evidence: `progress.md` §"session C — phase 27" and A30/A31.
 
-Two low-severity findings stay open and unscheduled (not part of phase 26): R17
-(one `PpsLink` shared by an action's regions, so the tooltip and popover anchor on
-the first one) and R18 (`FitR` with absent `HAS_RIGHT`/`HAS_BOTTOM` builds a
-zero-size box). They are recorded in `findings.md` with the current line numbers.
+Phase 26 (`51.1.2`: version bump, tag, GitHub release, AUR repackage, and the
+still-open `pacman -Rns` uninstall regression) is user-gated and starts next — it
+now carries the phase-27 fixes as well.
 
 Also still the user's, from phase 24:
 
@@ -128,13 +131,13 @@ and #12 when convenient.
 
 ## Current Phase
 
-Session C is complete (phase 25, 2026-10-16): the R19 documentation corrections
-are committed (plan §2/§3/§5/§6/§7, README), re-verified (links, anchors, paths,
-fences, citations) and the latency bands re-measured in both builds; `reuse lint`
-is 57/57 and `meson test` is 14/14. Next: phase 26 (the `51.1.2` release, AUR
-repackage and the `pacman -Rns` uninstall regression), which is user-gated;
-`docs/plan.md` phases 0–3 stay shipped and accepted and phase 4 (upstream MR)
-remains the last planned module
+Session C is complete (phases 25 and 27, 2026-10-16): the R19 documentation
+corrections and the R17/R18 link defects are committed and verified — plan
+§2/§3/§5/§6/§7, README, A30/A31, with `reuse lint` clean and `meson test` 14/14 in
+`_build` and `_build-slow` (the links test also clean under `_build-asan`). Next:
+phase 26 (the `51.1.2` release, AUR repackage and the `pacman -Rns` uninstall
+regression), which is user-gated; `docs/plan.md` phases 0–3 stay shipped and
+accepted and phase 4 (upstream MR) remains the last planned module
 work.
 
 ## Phases
@@ -371,6 +374,18 @@ and watching them fail.*
 - [ ] AUR `papers-ofd`: `pkgver=51.1.2`, new `source=` and sha256, regenerated `.SRCINFO`, `makepkg -C -f`; the push is the user's step
 - [ ] Still open from phase 3: the `pacman -Rns papers-ofd` uninstall regression
 - **Status:** pending
+
+### Phase 27: Link-region and FitR defects (R17, R18)
+
+*Requested by the user 2026-10-16 ("if R17/R18 need doing, just do them"),
+executed before phase 26 so both fixes ship in `51.1.2`.*
+
+- [x] R17 test first: the `links` fixture gained an object action whose explicit `Region` carries two `Area` children (two hit regions), and `test_page_links` now walks the oracle region by region and asserts that each mapping's link resolves back to that very mapping through `pps_mapping_list_find` — observed red at the second region (`find (links, data) == region_mappings[r]`)
+- [x] R17 fix: `src/ofd-links.c` builds one `PpsLink` per region instead of one per action (the view resolves a link's area by pointer identity, poppler's model), observed green
+- [x] R18 test first: the fixture gained a page-level `FitR` without `Right`/`Bottom` (rofd reports the coordinate as absent and zero); `test_page_links` asserts the ABI's own rule — a complete, non-empty box stays `FITR` with its four coordinates, anything else becomes a plain `FIT` — observed red (`FITR` 5 instead of `FIT` 2)
+- [x] R18 fix: `ofd_link_dest_from_rofd` requires all four `HAS_*` bits and a positive box for `FitR`, otherwise it fits the page, observed green
+- [x] Docs: plan §3 (`get_links`, destinations), §6's `links` fixture row, A30/A31; `meson test` 14/14 in `_build` and `_build-slow` (also clean under `_build-asan`), `reuse lint`
+- **Status:** complete (2026-10-16)
 
 ## Key Questions
 

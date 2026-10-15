@@ -225,30 +225,27 @@ test_page_links (PpsDocument *document, rofd_document_t *oracle)
 	g_assert_cmpint (rofd_link_list_get_count (oracle_links, &oracle_count, &rerror),
 	                 ==, ROFD_STATUS_OK);
 
-	/* rofd publishes one link entry per action (every entry carries exactly one
-	 * action here): the page-root URI, the two object actions that resolve, the
-	 * unresolved GOTO and the sibling URI action that object carries. The
-	 * unresolved entry has no page to jump to, so it is dropped instead of
-	 * becoming a link to page zero (plan §3). */
-	g_assert_cmpint (oracle_count, ==, 5);
-	g_assert_cmpint (pps_mapping_list_length (links), ==, 4);
+	/* rofd publishes one link entry per action: the page-root URI, the two
+	 * page-level GOTO entries, the two object actions that resolve, the
+	 * unresolved GOTO and the sibling URI action that object carries, and the
+	 * object action with two hit regions. The unresolved entry has no page to
+	 * jump to, so it is dropped instead of becoming a link to page zero
+	 * (plan §3); every other region becomes one mapping. */
+	g_assert_cmpint (oracle_count, ==, 8);
+	g_assert_cmpint (pps_mapping_list_length (links), ==, 8);
 
 	for (i = 0, ours = 0; i < oracle_count; i++) {
-		PpsMapping *mapping;
-		PpsLink *link;
-		PpsLinkAction *action;
-		rofd_rect_t region_mm = { 0, };
-		size_t region_count = 0;
+		PpsMapping *region_mappings[8];
 		rofd_action_t oracle_action = { 0, };
 		rofd_destination_t oracle_destination = { 0, };
+		size_t region_count = 0;
+		size_t r;
 
 		g_assert_cmpint (rofd_link_list_get_region_count (oracle_links, i, &region_count,
 		                                                  &rerror),
 		                 ==, ROFD_STATUS_OK);
-		g_assert_cmpint (region_count, ==, 1);
-		g_assert_cmpint (rofd_link_list_get_region (oracle_links, i, 0, &region_mm,
-		                                            &rerror),
-		                 ==, ROFD_STATUS_OK);
+		g_assert_cmpint ((gint) region_count, >, 0);
+		g_assert_cmpint ((gint) region_count, <=, (gint) G_N_ELEMENTS (region_mappings));
 
 		oracle_action.struct_size = sizeof (oracle_action);
 		g_assert_cmpint (rofd_link_list_get_action (oracle_links, i, 0, &oracle_action,
@@ -267,56 +264,108 @@ test_page_links (PpsDocument *document, rofd_document_t *oracle)
 				continue; /* no reachable page: nothing for the module to publish */
 		}
 
-		mapping = pps_mapping_list_nth (links, ours++);
-		g_assert_nonnull (mapping);
+		for (r = 0; r < region_count; r++) {
+			PpsMapping *mapping;
+			PpsLink *link;
+			PpsLinkAction *action;
+			rofd_rect_t region_mm = { 0, };
 
-		/* D3: absolute millimetres become page points from the top-left. */
-		g_assert_cmpfloat_with_epsilon (mapping->area.x1, MM (region_mm.x_mm), EPSILON);
-		g_assert_cmpfloat_with_epsilon (mapping->area.y1, MM (region_mm.y_mm), EPSILON);
-		g_assert_cmpfloat_with_epsilon (mapping->area.x2,
-		                                MM (region_mm.x_mm + region_mm.width_mm), EPSILON);
-		g_assert_cmpfloat_with_epsilon (mapping->area.y2,
-		                                MM (region_mm.y_mm + region_mm.height_mm), EPSILON);
+			g_assert_cmpint (rofd_link_list_get_region (oracle_links, i, r, &region_mm,
+			                                            &rerror),
+			                 ==, ROFD_STATUS_OK);
 
-		link = PPS_LINK (pps_mapping_get_data (mapping));
-		g_assert_nonnull (link);
-		action = pps_link_get_action (link);
-		g_assert_nonnull (action);
+			mapping = pps_mapping_list_nth (links, ours++);
+			g_assert_nonnull (mapping);
+			region_mappings[r] = mapping;
 
-		if (oracle_action.kind == ROFD_ACTION_URI) {
-			g_autofree gchar *expected = g_strdup (oracle_action.uri);
-			g_autofree gchar *scheme = g_uri_parse_scheme (oracle_action.uri);
+			/* D3: absolute millimetres become page points from the top-left. */
+			g_assert_cmpfloat_with_epsilon (mapping->area.x1, MM (region_mm.x_mm), EPSILON);
+			g_assert_cmpfloat_with_epsilon (mapping->area.y1, MM (region_mm.y_mm), EPSILON);
+			g_assert_cmpfloat_with_epsilon (mapping->area.x2,
+			                                MM (region_mm.x_mm + region_mm.width_mm), EPSILON);
+			g_assert_cmpfloat_with_epsilon (mapping->area.y2,
+			                                MM (region_mm.y_mm + region_mm.height_mm), EPSILON);
 
-			g_assert_cmpint (pps_link_action_get_action_type (action),
-			                 ==, PPS_LINK_ACTION_TYPE_EXTERNAL_URI);
+			link = PPS_LINK (pps_mapping_get_data (mapping));
+			g_assert_nonnull (link);
+			action = pps_link_get_action (link);
+			g_assert_nonnull (action);
 
-			/* rofd preserves a relative URI and its Base; the module resolves
-			 * it against the base so the shell can hand it to the desktop. */
-			if (oracle_action.uri_base != NULL && scheme == NULL) {
-				g_free (expected);
-				expected = g_uri_resolve_relative (oracle_action.uri_base, oracle_action.uri,
-				                                   G_URI_FLAGS_NONE, NULL);
+			if (oracle_action.kind == ROFD_ACTION_URI) {
+				g_autofree gchar *expected = g_strdup (oracle_action.uri);
+				g_autofree gchar *scheme = g_uri_parse_scheme (oracle_action.uri);
+
+				g_assert_cmpint (pps_link_action_get_action_type (action),
+				                 ==, PPS_LINK_ACTION_TYPE_EXTERNAL_URI);
+
+				/* rofd preserves a relative URI and its Base; the module resolves
+				 * it against the base so the shell can hand it to the desktop. */
+				if (oracle_action.uri_base != NULL && scheme == NULL) {
+					g_free (expected);
+					expected = g_uri_resolve_relative (oracle_action.uri_base, oracle_action.uri,
+					                                   G_URI_FLAGS_NONE, NULL);
+				}
+
+				g_assert_nonnull (expected);
+				g_assert_cmpstr (pps_link_action_get_uri (action), ==, expected);
+			} else {
+				PpsLinkDest *dest;
+				gdouble zoom;
+				gboolean change_zoom = FALSE;
+				const guint box_bits = ROFD_DESTINATION_HAS_LEFT |
+				                       ROFD_DESTINATION_HAS_TOP |
+				                       ROFD_DESTINATION_HAS_RIGHT |
+				                       ROFD_DESTINATION_HAS_BOTTOM;
+
+				g_assert_cmpint (pps_link_action_get_action_type (action),
+				                 ==, PPS_LINK_ACTION_TYPE_GOTO_DEST);
+
+				dest = pps_link_action_get_dest (action);
+				g_assert_nonnull (dest);
+				g_assert_cmpint (pps_link_dest_get_page (dest), ==,
+				                 (gint) oracle_destination.page_index);
+
+				if (oracle_destination.kind == ROFD_DESTINATION_FIT_R) {
+					if ((oracle_destination.flags & box_bits) == box_bits &&
+					    oracle_destination.right_mm > oracle_destination.left_mm &&
+					    oracle_destination.bottom_mm > oracle_destination.top_mm) {
+						g_assert_cmpint (pps_link_dest_get_dest_type (dest),
+						                 ==, PPS_LINK_DEST_TYPE_FITR);
+						g_assert_cmpfloat_with_epsilon (pps_link_dest_get_left (dest, NULL),
+						                                MM (oracle_destination.left_mm), EPSILON);
+						g_assert_cmpfloat_with_epsilon (pps_link_dest_get_top (dest, NULL),
+						                                MM (oracle_destination.top_mm), EPSILON);
+						g_assert_cmpfloat_with_epsilon (pps_link_dest_get_right (dest),
+						                                MM (oracle_destination.right_mm), EPSILON);
+						g_assert_cmpfloat_with_epsilon (pps_link_dest_get_bottom (dest),
+						                                MM (oracle_destination.bottom_mm), EPSILON);
+					} else {
+						/* R18: the ABI zeroes an absent coordinate and clears its
+						 * HAS_* bit, and a zero-size box would make the view's
+						 * fit-page zoom divide by zero, so an incomplete FitR
+						 * becomes a plain page fit. */
+						g_assert_cmpint (pps_link_dest_get_dest_type (dest),
+						                 ==, PPS_LINK_DEST_TYPE_FIT);
+					}
+				}
+
+				zoom = pps_link_dest_get_zoom (dest, &change_zoom);
+				g_assert_cmpint (change_zoom, ==,
+				                 (oracle_destination.flags & ROFD_DESTINATION_HAS_ZOOM) != 0);
+				g_assert_cmpfloat_with_epsilon (zoom, oracle_destination.zoom, EPSILON);
 			}
+		}
 
-			g_assert_nonnull (expected);
-			g_assert_cmpstr (pps_link_action_get_uri (action), ==, expected);
-		} else {
-			PpsLinkDest *dest;
-			gdouble zoom;
-			gboolean change_zoom = FALSE;
+		/* R17: the view resolves the mapping behind a link by pointer identity
+		 * (pps_mapping_list_find), so every region needs a link object of its
+		 * own; a shared one would anchor the tooltip and the link popover on
+		 * the first region. The PDF backend builds one link per mapping too. */
+		for (r = 0; r < region_count; r++) {
+			gconstpointer data = pps_mapping_get_data (region_mappings[r]);
 
-			g_assert_cmpint (pps_link_action_get_action_type (action),
-			                 ==, PPS_LINK_ACTION_TYPE_GOTO_DEST);
-
-			dest = pps_link_action_get_dest (action);
-			g_assert_nonnull (dest);
-			g_assert_cmpint (pps_link_dest_get_page (dest), ==,
-			                 (gint) oracle_destination.page_index);
-
-			zoom = pps_link_dest_get_zoom (dest, &change_zoom);
-			g_assert_cmpint (change_zoom, ==,
-			                 (oracle_destination.flags & ROFD_DESTINATION_HAS_ZOOM) != 0);
-			g_assert_cmpfloat_with_epsilon (zoom, oracle_destination.zoom, EPSILON);
+			g_assert_true (pps_mapping_list_find (links, data) == region_mappings[r]);
+			if (r > 0)
+				g_assert_true (data != pps_mapping_get_data (region_mappings[0]));
 		}
 	}
 	g_assert_cmpint ((gint) ours, ==, pps_mapping_list_length (links));

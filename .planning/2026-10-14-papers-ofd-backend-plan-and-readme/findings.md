@@ -455,10 +455,13 @@ documentation items of R19.
 | R10 | `meson.build` distinguishes an old `rofd-ffi.pc` from a missing one (module floor 0.4.2, packaging floor 0.4.3); CI builds and tests the page-size fallback and an installed-`.pc` build; `ofd-latency` is explicitly a tool outside `meson test` | the hand-written 0.4.1 `.pc` error message; the green CI run [38810165744](https://github.com/YangtseSu/papers-ofd/actions/runs/38810165744) |
 | R19 | every documentation claim the review disproved, corrected (plan §2/§3/§5/§6/§7, README); A16 and §3's "empty region" wording had already landed in phases 20–22 | `progress.md` §"session C": links/anchors/paths/fences/citations re-verified, `reuse lint` 57/57, `meson test` 14/14, latency bands re-measured |
 
-Still open after the campaign: **R17** (all regions of one action share a single
-`PpsLink`, so the tooltip and link popover anchor on the first region;
-`src/ofd-links.c:246-250`) and **R18** (`FitR` destinations with absent
-`HAS_RIGHT`/`HAS_BOTTOM` become a zero-size box, visible only with
-`allow-links-change-zoom`; `src/ofd-links.c:55-76`) — both low-severity code
-evidence, not assigned to a phase; a future session picks them up with a test
-each, the way this campaign did for R1–R16.
+### Closed by phase 27 (2026-10-16, session C, requested by the user)
+
+| Item | Fix | Test that failed before |
+| --- | --- | --- |
+| R17 | `ofd_links_get_links` builds one `PpsLink` per region (poppler's model): the view resolves a link's area by pointer identity (`pps_mapping_list_find`), so a shared link anchored the tooltip and the link popover on the first region. The `links` fixture gained an action whose explicit `Region` carries two `Area` children | `test_page_links`: `pps_mapping_list_find (links, data) == region_mappings[r]` should be TRUE (the second region's link resolved to the first mapping) |
+| R18 | `ofd_link_dest_from_rofd` publishes a `FitR` destination only when all four `HAS_*` coordinate bits are set and the box is positive; otherwise it fits the page. The ABI zeroes an absent coordinate, and the view's `goto_fitr_dest` divides by the box (`zoom_for_size_fit_page` → `inf`, clamped to `max_scale`), so an incomplete `FitR` used to jump to maximum zoom (visible with `allow-links-change-zoom`). The fixture gained a page-level `FitR` without `Right`/`Bottom` and one complete box | `test_page_links`: `pps_link_dest_get_dest_type (dest) == PPS_LINK_DEST_TYPE_FIT` — got FITR (5) instead of FIT (2) |
+
+Nothing from the review remains open: R1–R18 are closed (R11 withdrawn with the
+probe recorded above), R19 is closed by phases 20–25, and the two upstream-report
+candidates (A23, A29) stay in the plan's §8 for phase 4.

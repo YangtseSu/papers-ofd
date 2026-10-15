@@ -2126,3 +2126,97 @@ what follows is the state per item and the new evidence.
 - The two user steps from phase 24 stay open: the AUR `papers-ofd` revision
   (`checkdepends`, prepared uncommitted in the AUR working copy) and, if CI should
   run, a branch push.
+
+## 2026-10-16 (session C): phase 27 — R17, R18 (user-requested)
+
+Asked for by the user right after phase 25 ("if R17/R18 need doing, just do
+them"), so they land before the 51.1.2 release. Both are latent defects the
+review had recorded from code evidence only; each got the campaign's test-first
+treatment.
+
+### R17 — one `PpsLink` per hit region
+
+`ofd_links_get_links` created one link object per *action* and gave every region
+mapping a reference to it. The view resolves the mapping behind a link by pointer
+identity — `pps_mapping_list_find` (`libdocument/pps-mapping-list.c:31-45`) is
+called from `pps_view_get_area_from_mapping` (`libview/pps-view.c:1743`), which
+feeds the tooltip tip area (`:3999`) and the link popover's pointing rect
+(`:2263`) — so every region of a multi-region action anchored on the first one.
+
+rofd can publish several regions for one action: each `Area` child of an explicit
+`Region` becomes one rect of that entry (`$ROFD_SRC/crates/rofd-core/src/links.rs:197-236`,
+`$ROFD_SRC/crates/rofd-core/src/navigation/region.rs:104-117`), and the PDF
+backend builds one link per mapping (`pps-poppler.c:1358-1371`), which is the
+model the module now follows.
+
+Reproduced first: the `links` fixture gained `PathObject ID=74`
+(`Boundary="40 220 60 20"`) whose action carries a `Region` with two `Area`
+children (40–70 mm and 75–100 mm, both 220–230 mm), and `test_page_links` now
+walks the oracle region by region, taking one mapping per region and asserting
+`pps_mapping_list_find (links, pps_mapping_get_data (mapping)) == mapping` plus
+distinct link pointers across the regions. Observed red with the fixture and the
+test in place and the old code:
+
+```
+Bail out! ERROR:../tests/test-ofd-links.c:366:test_page_links:
+  'pps_mapping_list_find (links, data) == region_mappings[r]' should be TRUE
+```
+
+(the second region's link resolved to the first mapping). Fix: `src/ofd-links.c`
+creates the link inside the region loop (`link = pps_link_new (NULL, link_action)`)
+and hands that reference to the mapping; the action reference is dropped once all
+regions are built. Green afterwards, `ofd-links` also clean under
+`_build-asan` (LeakSanitizer included), i.e. the per-mapping ownership is right.
+
+### R18 — a `FitR` without a box is a page fit
+
+`ofd_link_dest_from_rofd` forwarded any `FitR` to `pps_link_dest_new_fitr` with
+all four coordinates. The ABI zeroes an absent coordinate and clears its `HAS_*`
+bit (`$ROFD_SRC/crates/rofd-ffi/include/rofd.h:297-299`;
+`$ROFD_SRC/crates/rofd-ffi/src/navigation.rs:146-160`), and `pps_link_dest_new_fitr`
+hard-codes `change_left|change_top`, so a `FitR` without `Right`/`Bottom` reached
+the view as a 0×0 target: `goto_fitr_dest` (`libview/pps-view.c:1816-1846`) asks
+`zoom_for_size_fit_page` (`:6744-6756`) for `inf`, which
+`pps_document_model_set_scale` (`libview/context/pps-document-model.c:476-484`)
+clamps to `max_scale` — a jump to maximum zoom, reachable with
+`allow-links-change-zoom` (default false, `data/org.gnome.Papers.gschema.xml:30-31`).
+
+Reproduced first: the fixture's page-level actions gained a complete `FitR`
+(30/40/120/200) and one without `Right`/`Bottom` (30/40), and `test_page_links`
+asserts the ABI's own completeness rule — all four `HAS_*` bits and a positive
+box stay `PPS_LINK_DEST_TYPE_FITR` with the four coordinates compared (in
+millimetres and points), anything else becomes `PPS_LINK_DEST_TYPE_FIT`.
+Observed red with the fixture and the test in place and the old code:
+
+```
+Bail out! ERROR:../tests/test-ofd-links.c:347:test_page_links: assertion failed
+  (pps_link_dest_get_dest_type (dest) == PPS_LINK_DEST_TYPE_FIT): (5 == 2)
+```
+
+Fix: the `ROFD_DESTINATION_FIT_R` arm requires
+`(flags & (HAS_LEFT|HAS_TOP|HAS_RIGHT|HAS_BOTTOM)) == all` and `right > left &&
+bottom > top`; otherwise it logs the reason at `g_debug` and returns
+`pps_link_dest_new_fit (page)`.
+
+### Observed
+
+- `meson test -C _build`: **14/14**; `meson test -C _build-slow`: **14/14**.
+- `meson test -C _build-asan ofd-links`: OK (the new per-region allocation leaks
+  nothing).
+- `reuse lint`: compliant, 57/57 files.
+- Live `papers` run on the refreshed dev backend directory with
+  `G_MESSAGES_DEBUG=all` (`_build/tests/links-2pages.ofd`): the document opens,
+  the links job builds page 0's destinations once, the new line
+  `FitR destination without a complete box; fitting the page instead` appears
+  exactly once, and the log has no CRITICAL/ERROR/WARNING (the only noise is the
+  fixture's font-fallback diagnostics at `g_debug`).
+- Docs in the same commit: plan §3 (`get_links`, destinations), §6's `links`
+  fixture row (it had claimed a 4-node outline; the fixture has 6 nodes in 4
+  top-level entries), A30 and A31.
+
+### Not verified
+
+- The tooltip's tip area and the link popover's rect are GTK-internal; the
+  headless test pins the mapping-identity contract both consume, not their pixels.
+  The live window was left open for a hover check on the fixture's two-region bar
+  (left half vs right half of the 40–100 mm / 220–240 mm rectangle, page 1).

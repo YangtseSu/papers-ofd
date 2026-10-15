@@ -157,11 +157,53 @@ LINKS_PAGE_0_OBJECTS = """      <ofd:PathObject ID="71" Boundary="40 100 60 20" 
           </ofd:Action>
         </ofd:Actions>
       </ofd:PathObject>
+      <ofd:PathObject ID="74" Boundary="40 220 60 20" Fill="true">
+        <ofd:FillColor Value="0 0 0"/>
+        <ofd:AbbreviatedData>M 0 0 L 60 0 L 60 20 L 0 20 C</ofd:AbbreviatedData>
+        <ofd:Actions>
+          <ofd:Action Event="CLICK">
+            <!-- An explicit Region with two Areas: this action has two hit
+                 regions, so the module must publish one link object per region
+                 or the tooltip and the link popover anchor on the first one
+                 (R17). Areas are boundary-relative: the first covers
+                 40-70 mm, the second 75-100 mm, both 220-230 mm down. -->
+            <ofd:Region>
+              <ofd:Area Start="0 0">
+                <ofd:Line Point1="30 0"/>
+                <ofd:Line Point1="30 10"/>
+                <ofd:Line Point1="0 10"/>
+              </ofd:Area>
+              <ofd:Area Start="35 0">
+                <ofd:Line Point1="60 0"/>
+                <ofd:Line Point1="60 10"/>
+                <ofd:Line Point1="35 10"/>
+              </ofd:Area>
+            </ofd:Region>
+            <ofd:Goto>
+              <ofd:Dest Type="Fit" PageID="1"/>
+            </ofd:Goto>
+          </ofd:Action>
+        </ofd:Actions>
+      </ofd:PathObject>
 """
 
 LINKS_PAGE_0_ACTIONS = """  <ofd:Actions>
     <ofd:Action Event="CLICK">
       <ofd:URI URI="https://example.test/page-link"/>
+    </ofd:Action>
+    <ofd:Action Event="CLICK">
+      <!-- A complete FitR box: the module keeps the rectangle (plan §3). -->
+      <ofd:Goto>
+        <ofd:Dest Type="FitR" PageID="2" Left="30" Top="40" Right="120" Bottom="200"/>
+      </ofd:Goto>
+    </ofd:Action>
+    <ofd:Action Event="CLICK">
+      <!-- FitR without Right/Bottom: rofd reports them as absent, hence 0, and
+           a zero-size box makes the view's fit-page zoom divide by zero (R18),
+           so the module must fall back to a plain page fit. -->
+      <ofd:Goto>
+        <ofd:Dest Type="FitR" PageID="1" Left="30" Top="40"/>
+      </ofd:Goto>
     </ofd:Action>
   </ofd:Actions>
 """
