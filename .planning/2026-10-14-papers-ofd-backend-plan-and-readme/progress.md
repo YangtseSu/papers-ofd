@@ -739,10 +739,11 @@ in-tree move that also lets our association entry and the Sushi plugin retire.
   - The new test fails against the installed pre-fix `0.4.3-4` and passes against
     `0.4.3-5` — the same command, one environment variable apart.
   - Visual: a throwaway cairo harness rendered page 1 of the user's real document
-    with the ABI's selection regions overlaid, before and after (see
-    `/tmp/real_page1_before.png`, `/tmp/real_page1_fixed.png`); before, the bottom
-    strokes of 填写说明 and the punctuation hung outside the band, after they are
-    inside it.
+    with the ABI's selection regions overlaid, against the packaged 0.4.3-5 library
+    and the installed 0.4.3-4 one; before, the bottom strokes of 填写说明 and the
+    punctuation hung outside the band, after they are inside it. The harness, the
+    analysis script and the images stay in `/tmp` (the page is a user document, so
+    nothing of it is committed).
   - Numerically on that page (title band 87.7–122.3 × 29.0–38.2 mm): the box went
     from y 28.01..35.77 (font-size footprint) to 29.22..36.89 against ink
     29.19..36.69 — the bottom now clears the ink by 0.20 mm instead of stopping
