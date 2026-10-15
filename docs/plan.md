@@ -477,11 +477,14 @@ Phase-3 evidence as observed (2026-10-15, `meson test` 12/12 in `_build`,
   mirror living in `~/projects/papers-ofd-aur` like the `librofd-ffi` package.
 - Release `51.1.1` (2026-10-15): the first tag, `v51.1.1` (annotated) on the
   release commit, versions the module by the Papers line (D13). The AUR recipe's
-  `source=` moves from the commit pin to that tag's archive, so `papers-ofd
-  51.1.1-1` replaces the six `0.1.0-*` revisions; the tree the tag names differs
-  from the last pin only in tracked documentation. Verified on that tree, against
-  the fork's `v0.4.3-fork.2` ABI: `meson test -C _build` 13/13 (including
-  `ofd-oracle` and `ofd-sushi-plugin`) and `reuse lint` compliant.
+  `source=` moves from the commit pin to that tag's archive (`master` = `c2f0387`,
+  sha256 `d9c94f4e…29618d08`), so `papers-ofd 51.1.1-1` replaces the six
+  `0.1.0-*` revisions; the tree the tag names differs from the last pin only in
+  tracked documentation. Verified on that tree, against the fork's
+  `v0.4.3-fork.2` ABI: `meson test -C _build` 13/13 (including `ofd-oracle` and
+  `ofd-sushi-plugin`), `reuse lint` compliant, and `makepkg -C -f` green with
+  `check()` 12/12 (run against a fork pc, because this machine's installed
+  `librofd-ffi 0.4.3-4` predates the recipe's `>=0.4.3-6` floor).
 - Staged-tree checks (the package extracted to a prefix, `update-mime-database` /
   `update-desktop-database` run on it, `XDG_DATA_DIRS` pointing there):
   `desktop-file-validate` clean; `xdg-mime query filetype text-2pages.ofd` →

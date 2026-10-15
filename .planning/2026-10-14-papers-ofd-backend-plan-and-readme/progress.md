@@ -1310,3 +1310,55 @@ library is identical.
 End-to-end after repackaging: `papers-thumbnailer` renders the fixture to a
 256x170 PNG and `papers-previewer --fd 3` exits 0 through the staged backend
 tree with the installed `0.4.3.fork.2-1` ABI.
+
+## 2026-10-15 (later): release 51.1.1 — version by the Papers line, tag-based AUR source
+
+The user asked which number the first release should carry. Decision (user: "就
+这么干", recorded as plan D13): version by the Papers line rather than by our own
+feature count — `<Papers line>.<verified baseline>.<our release>`, so `51.1.1` is
+the Papers 51 line (the meson `papers-document-4.0 >= 51, < 52` bound), verified
+against Papers 51.1, our first release for that baseline. The `0.2.0` alternative
+was rejected: the tree differs from the shipped `0.1.0-6` only in tracked
+documentation, so a feature-style bump would announce a change that does not
+exist; `51.1.1` states the compatibility line instead.
+
+- Repository: `meson.build` `version: '51.1.1'` (scheme in the comment), README
+  (install section plus the scheme), `docs/plan.md` (new D13, phase-3 evidence
+  bullet, §6 install example and the pc-hiding trap, §7 current version and the
+  tag-source bullet) and `AGENTS.md` (version rule). Release commit `8a4c99a`;
+  annotated tag `v51.1.1` and `main` pushed to `origin`; GitHub release
+  <https://github.com/YangtseSu/papers-ofd/releases/tag/v51.1.1>.
+- Verified on the tagged tree before tagging, against the fork's
+  `v0.4.3-fork.2` ABI (rofd-ffi.pc hidden from pkg-config, `-Drofd_libdir` at the
+  fork build tree): `meson test -C _build` 13/13 — including `ofd-oracle` and
+  `ofd-sushi-plugin` — and `reuse lint` compliant (53/53 files).
+- Trap fixed while doing this: `PKG_CONFIG_LIBDIR=<copy>` replaces the *whole*
+  search path, so copying `/usr/lib/pkgconfig/*.pc` alone is not enough here —
+  `xproto`, `kbproto` and `shared-mime-info` live in `/usr/share/pkgconfig`, and
+  `papers-document-4.0` needs them. Plan §6's recipe now copies both directories.
+- AUR `papers-ofd 51.1.1-1` (`master` = `c2f0387`): `pkgver` 51.1.1, `pkgrel` 1,
+  `source=` is the tag archive
+  (`…/archive/refs/tags/v51.1.1.tar.gz`, sha256
+  `d9c94f4e3804210bce1ec2cb2acfaa0774e9a8b18e71f59ee438314c29618d08`, computed
+  from the same URL `makepkg` uses); the `_commit` pin and its comment are gone
+  and `.SRCINFO` was regenerated (the hook rejects a stale one). The first push
+  attempt died in a connection reset — `aur.archlinux.org` SSH was flaky today,
+  and the same happened to a fetch earlier in the session — the retry landed and
+  `git ls-remote origin master` confirms `c2f0387`. The RPC frontend still
+  reports `0.1.0-6`, the known index lag.
+- Package verification: this machine still has `librofd-ffi 0.4.3-4` installed,
+  which fails the recipe's `makedepends` floor (`>=0.4.3-6`, the metrics band
+  `check()` needs), so the local run pointed `PKG_CONFIG_PATH` at a fork pc
+  (`Version: 0.4.3-fork.2`, the fork build tree) and `LD_LIBRARY_PATH` at its
+  libdir, and used `--nodeps`: `makepkg -C -f` green, `check()` 12/12 (the
+  recipe's 11 plus `ofd-sushi-plugin`; `ofd-oracle` needs `-Drofd_src`), the file
+  list unchanged (six files), `readelf -d` on the module shows DT_NEEDED
+  `librofd_ffi.so.0` with no rpath, and namcap reports only the known `gcc-libs`
+  advisory.
+- Rebuilt the current AUR `librofd-ffi 0.4.3.fork.2-1` from its mirror
+  (`~/projects/librofd-ffi`, fast-forwarded to `704808a`) so the machine can be
+  brought to the ABI the docs assume: the package exports the 78 `rofd_*` symbols
+  including `rofd_document_get_page_size_mm`. The `pacman -U` installs are the
+  user's step, for both `librofd-ffi-0.4.3.fork.2-1` and `papers-ofd-51.1.1-1`.
+- Still open from the phase-3 acceptance list: `pacman -Rns papers-ofd` as the
+  uninstall regression.
