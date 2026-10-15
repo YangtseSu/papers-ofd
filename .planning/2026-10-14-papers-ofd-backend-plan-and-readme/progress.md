@@ -671,3 +671,55 @@ Phase 3 is therefore accepted. Left in the plan, both optional: `pacman -Rns
 papers-ofd` as the uninstall regression (the five package paths plus the plugin
 are ours alone, so Papers and its other backends are unaffected) and phase 4, the
 in-tree move that also lets our association entry and the Sushi plugin retire.
+
+## Sushi test hermeticity (2026-10-15)
+
+Rebuilding the package (`makepkg -f` in the AUR tree) failed in
+`ofd-sushi-plugin`: the selector assertions passed, then the renderer reported the
+factory's unsupported-type error — `File type Zip archive (application/zip) is not
+supported`, `libdocument/pps-document-factory.c:86`, rendered in zh_CN — and
+"-2 pages". The test was the only one that left its environment to the caller — it
+drives Sushi's renderer into Papers' *own* load path, without setting
+`PPS_BACKENDS_DIR` or a MIME rule for `application/ofd` — and a package build has
+neither: the module is not installed yet, and the type is known only where some
+package defines it.
+
+Papers reports the type its **second** pass guessed: `pps_document_factory_get_document`
+runs `fast=TRUE` and, after any failure, `fast=FALSE`
+(`libdocument/pps-document-factory.c:281-282`), the passes being filename-only and
+data-only (`libdocument/pps-file-helpers.c:401`, `:344`, the latter
+`g_content_type_guess (NULL, …)` at `:369`). Without `PPS_BACKENDS_DIR`
+(`pps-document-factory.c:230-231`) the first pass finds no backend for
+`application/ofd`, and the second, with only zip bytes to look at, ends at the
+unsupported-type error (`pps-document-factory.c:81-86`). Whether the MIME database
+knows the type at all is the other half: with no package defining it, GIO resolves
+the fixture to `application/zip` before Papers is involved, and Sushi's renderer
+does not even start the load.
+
+Reproduced before the fix: `env -u PPS_BACKENDS_DIR gjs -m tests/test-sushi-plugin.js …`
+in `_build` printed the same two FAIL lines as the build log.
+
+Fix (`97b89d7`): the test takes the module, the descriptor and
+`data/papers-ofd.xml` through Meson (`tests/meson.build:190-196`) and stages
+backend directory and MIME database itself (`tests/test-sushi-plugin.js:49-119`):
+a temporary `PPS_BACKENDS_DIR` holding `libofddocument.so` and the descriptor, and
+a temporary `XDG_DATA_DIRS` entry that `update-mime-database` indexes, both before
+Sushi's renderer initializes Papers in its constructor. The tree is removed on
+success. This is the staging the C tests always did (`tests/ofd-test-utils.c`),
+so the test no longer depends on an installed package, a prepared shell, or a
+MIME rule from another package.
+
+Verification:
+- `meson test` with `PPS_BACKENDS_DIR` unset: 12/12 in `_build` and `_build-slow`
+  (`-Drofd_page_size=disabled`), `ofd-sushi-plugin` printing both acceptance
+  lines.
+- Chroot-like environment (user namespace, a copy of the system MIME tree with no
+  `application/ofd` rule bind-mounted over `/usr/share/mime`, empty
+  `XDG_DATA_HOME`, no `PPS_BACKENDS_DIR`): the fixed test passes; the pre-fix test
+  fails there too.
+- `makepkg -f` on a tarball of this tree: `check()` runs 12/12 including
+  `ofd-sushi-plugin` and the package is built — the path that failed.
+- `reuse lint`: 57/57.
+
+Open: the publication. The AUR entry still pins `30e1fc6`, so a rebuild by a user
+fails the same way until `_commit` moves to this fix (pkgrel 3) — not pushed yet.
