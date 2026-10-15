@@ -181,13 +181,17 @@ test('ofd-fd',
 
 # The previewer acceptance needs Sushi, which is where the space bar lives: its
 # own selector and renderer are loaded with our plugin and made to load a
-# fixture. Runs only where Sushi is installed (and gjs from Sushi's closure).
+# fixture. Runs only where Sushi is installed (and gjs from Sushi's closure). The
+# test stages the module, its descriptor and our MIME xml itself, so it needs
+# neither an installed package nor PPS_BACKENDS_DIR in the invoking environment.
 gjs = find_program('gjs', required: false)
 sushi_resource = '/usr/share/sushi/org.gnome.NautilusPreviewer.src.gresource'
 if gjs.found() and fs.exists(sushi_resource)
   test('ofd-sushi-plugin',
     gjs,
-    args: ['-m', files('test-sushi-plugin.js'), files('../data/papers-ofd-sushi.js'),
+    args: ['-m', files('test-sushi-plugin.js'),
+           ofd_module, descriptor_in_build, files('../data/papers-ofd.xml'),
+           files('../data/papers-ofd-sushi.js'),
            text_fixture, sushi_resource],
     timeout: 120)
 else

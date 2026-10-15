@@ -11,14 +11,24 @@
  * This test loads Sushi's own selector and renderer with the plugin, then makes
  * the renderer load a fixture: exactly what the space bar does, with this
  * backend behind it. It needs gjs, the Sushi installation and a display for the
- * live load (exit 77 skips the load part, which Meson reports as skipped). */
+ * live load (exit 77 skips the load part, which Meson reports as skipped).
+ *
+ * The load runs through Papers' document factory, which takes the backend
+ * directory from PPS_BACKENDS_DIR and the type from the MIME database. A package
+ * build has neither our module installed nor, on a system without another
+ * application/ofd rule, the MIME database entry for the type, so the test stages
+ * both into a temporary directory first -- the same staging the C tests do
+ * (tests/ofd-test-utils.c). Without it the load fails with "File type Zip
+ * archive (application/zip) is not supported": the fixture is a zip, and only
+ * our MIME xml makes it an OFD document. */
 
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Gtk from 'gi://Gtk?version=4.0';
 import System from 'system';
 
-const [pluginPath, fixturePath, resourcePath] = ARGV;
+const [modulePath, descriptorPath, mimeXmlPath,
+       pluginPath, fixturePath, resourcePath] = ARGV;
 const SUSHI_SRC = 'resource:///org/gnome/NautilusPreviewer/js/';
 const OFD = 'application/ofd';
 
@@ -35,6 +45,78 @@ if (!GLib.file_test(resourcePath, GLib.FileTest.EXISTS)) {
     print(`no Sushi installation (${resourcePath}); skipping`);
     System.exit(77);
 }
+
+/* Both staged before anything can query a content type: GIO builds its MIME
+ * database once, on the first lookup, and Papers reads PPS_BACKENDS_DIR when the
+ * renderer initializes it below. */
+const stagingDir = GLib.dir_make_tmp('papers-ofd-sushi-XXXXXX');
+
+const copyFile = (source, target) => {
+    /* gjs raises on both calls instead of returning FALSE, so report them the
+     * same way as every other failure here. */
+    try {
+        const [, contents] = GLib.file_get_contents(source);
+        GLib.file_set_contents(target, contents);
+    } catch (error) {
+        fail(`cannot stage ${source} as ${target}: ${error.message}`);
+    }
+};
+
+const stageMimeDatabase = () => {
+    const dataDir = GLib.build_filenamev([stagingDir, 'xdg']);
+    const mimeDir = GLib.build_filenamev([dataDir, 'mime']);
+    const packagesDir = GLib.build_filenamev([mimeDir, 'packages']);
+
+    if (GLib.mkdir_with_parents(packagesDir, 0o755) != 0)
+        fail(`cannot create ${packagesDir}`);
+    copyFile(mimeXmlPath, GLib.build_filenamev([packagesDir, 'papers-ofd.xml']));
+
+    /* Keep the system directories: only application/ofd is ours to add here. Set
+     * before update-mime-database so it does not warn about a tree outside the
+     * search path. */
+    GLib.setenv('XDG_DATA_DIRS', `${dataDir}:/usr/share:/usr/local/share`, true);
+
+    try {
+        Gio.Subprocess.new(['update-mime-database', mimeDir],
+                           Gio.SubprocessFlags.STDOUT_SILENCE).wait_check(null);
+    } catch (error) {
+        fail(`update-mime-database ${mimeDir} failed: ${error.message}`);
+    }
+};
+
+const stageBackendDir = () => {
+    const dir = GLib.build_filenamev([stagingDir, 'backends']);
+
+    if (GLib.mkdir_with_parents(dir, 0o755) != 0)
+        fail(`cannot create ${dir}`);
+
+    /* The descriptor says Module=ofddocument; GModule resolves that to
+     * libofddocument.so inside PPS_BACKENDS_DIR. */
+    copyFile(modulePath, GLib.build_filenamev([dir, 'libofddocument.so']));
+    copyFile(descriptorPath,
+             GLib.build_filenamev([dir, GLib.path_get_basename(descriptorPath)]));
+
+    GLib.setenv('PPS_BACKENDS_DIR', dir, true);
+};
+
+const removeTree = path => {
+    const file = Gio.File.new_for_path(path);
+    const type = file.query_file_type(Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null);
+
+    if (type === Gio.FileType.DIRECTORY) {
+        const children = file.enumerate_children('standard::name',
+                                                 Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null);
+        for (let info = children.next_file(null); info !== null; info = children.next_file(null))
+            removeTree(GLib.build_filenamev([path, info.get_name()]));
+        children.close(null);
+    }
+
+    if (type !== Gio.FileType.UNKNOWN)
+        file.delete(null);
+};
+
+stageMimeDatabase();
+stageBackendDir();
 
 const resource = Gio.Resource.load(resourcePath);
 Gio.resources_register(resource);
@@ -99,5 +181,12 @@ if (pages != 2)
     fail(`the renderer reported ${pages} pages instead of the fixture's 2`);
 
 print('Sushi\'s document renderer loaded the OFD fixture: 2 pages');
+
+/* Leaving the staging tree behind is not worth failing the run for. */
+try {
+    removeTree(stagingDir);
+} catch (error) {
+    print(`note: could not remove ${stagingDir}: ${error.message}`);
+}
 
 System.exit(0);
