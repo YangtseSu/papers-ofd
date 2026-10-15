@@ -42,6 +42,11 @@ the authoritative plan; read it before changing code.
 - Keep every recipe and payload in exactly one place: the Arch recipes
   (`librofd-ffi`, `papers-ofd`) are maintained in their AUR repositories only —
   this repository carries no PKGBUILD and no packaging payload.
+- Version the module by the Papers line, not by our own feature count (plan D13):
+  `<Papers line>.<verified baseline>.<our release>`, so `51.1.1` is the Papers 51
+  line, verified against Papers 51.1, our first release for that baseline. Only the
+  last component moves with our releases; packaging-only changes stay in the AUR
+  `pkgrel`; a published tag is never moved.
 - Never commit anything that identifies the user or their machine: no names of
   real documents (they stay outside the repository), no absolute home paths (write
   `~`-relative at most), no build artifacts or caches (`__pycache__/`,

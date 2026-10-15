@@ -26,7 +26,7 @@ descriptor (the Nautilus previewer's path) and ships as an Arch package on the A
   lifetime), and (with `-Drofd_src=<rofd checkout>`) the invoice oracle against
   rofd's reference render.
 - Install: [`papers-ofd` on the AUR](https://aur.archlinux.org/packages/papers-ofd)
-  (`0.1.0-4`), built from the commit-pinned source archive by the AUR recipe, which
+  (`51.1.1-1`), built from the `v51.1.1` tag archive by the AUR recipe, which
   is maintained in the AUR repository — this repository carries no PKGBUILD.
   Remaining: the upstream MR (phase 4).
 
@@ -146,7 +146,7 @@ tests — is in [`docs/plan.md` §6](docs/plan.md#6-verification-playbook).
 ## Install
 
 Arch Linux: [`papers-ofd` on the AUR](https://aur.archlinux.org/packages/papers-ofd)
-(`0.1.0-4`) — `yay -S papers-ofd`, `paru -S papers-ofd`, or
+(`51.1.1-1`) — `yay -S papers-ofd`, `paru -S papers-ofd`, or
 
 ```bash
 git clone https://aur.archlinux.org/papers-ofd.git && cd papers-ofd
@@ -154,14 +154,19 @@ makepkg -si
 ```
 
 The recipe lives in that AUR repository (this repository carries no PKGBUILD, so
-there is no copy to keep in sync); its source is a
-commit-pinned archive of this repository, so `makepkg` verifies a checksum, and its
+there is no copy to keep in sync); its source is the `v51.1.1` tag archive of this
+repository, so `makepkg` verifies a checksum, and its
 `check()` runs the test suite (11 tests — the invoice oracle needs `-Drofd_src`;
 `ofd-print-file` skips itself when GTK has no display). Dependencies are
 `librofd-ffi>=0.4.3` (the ABI plus its `rofd-ffi.pc`), `papers>=51` and `papers<52`,
 `cairo`, `gcc-libs`, `glib2`, `glibc`. `shared-mime-info` and `desktop-file-utils`
 are not listed because their pacman hooks (which index the MIME xml and the desktop
 file) arrive through `papers` already.
+
+Versions track the Papers line rather than our own feature count (plan D13):
+`51.1.1` is the Papers 51 line that the dependency bound asserts, verified against
+Papers 51.1, our first release for that baseline; only the last component moves with
+our releases, and packaging-only changes stay in the AUR `pkgrel`.
 
 The package also installs the Sushi plugin below (into Sushi's system plugin
 directory; `-Dsushi_plugin_dir` moves or skips it) and lists `sushi` as an optional
