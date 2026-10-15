@@ -1685,3 +1685,100 @@ Session state to pick up from:
 Also in phase 22: R15 (a failed `rofd_renderer_render_page_cairo` reports at
 `g_warning`, diagnostics stay at `g_debug`) and a README latency/limitation
 refresh if the render path's numbers move.
+
+## 2026-10-15 (session B): phase 22 — render robustness (R3, R14, R15)
+
+Session B starts from `1e7fe74` (the session prompt) on top of phase 21's
+`1d0cef5`; baseline before the phase: `meson test` **13/13** in `_build` and
+`_build-slow`, `reuse lint` compliant.
+
+### Test-first: the failures observed before the fix
+
+Both tests were written first and watched failing; the module was not touched
+until they were red.
+
+- `test_oblique_rotation_snaps` (rotations 0/45/90 on the metadata fixture):
+  `Bail out! ERROR:../tests/test-ofd-render.c:71:render_page: 'surface' should not
+  be NULL` — the 45° render (R14).
+- `test_high_zoom_still_renders` (scales 4/7/8/10/12/16): with the oblique test
+  temporarily commented out, the same assertion fired at the first scale above 7
+  (`ERROR:../tests/test-ofd-render.c:306 ... 'surface' should not be NULL`) — the
+  scale-8 request R3 describes, whose budget rofd used to refuse with
+  `raster surfaces require 288662100 bytes but the limit is 268435456`.
+- The R15 test came third: with the module still logging the failure at `g_debug`,
+  `assertion failed (render_warning_count == 1): (0 == 1)` while
+  `pps_document_render` already answered NULL.
+
+### R3 — the raster budget is derived from the request
+
+`src/ofd-render.c` maps a render context onto rofd's options in one place
+(`ofd_render_options_from_context`), so the page texture and every overlay take the
+same fitted scale:
+
+- `ofd_render_worst_case_bytes()` mirrors rofd's
+  `worst_case_surface_bytes` (`2*stride_argb32*h + stride_a8*h`, strides through
+  cairo) and `ofd_render_required_bytes()` upper-bounds the canvas as
+  `ceil(points * scale) + 1` per axis, for both orientations, so the derived budget
+  can never fall below rofd's own requirement.
+- `max_raster_bytes` becomes `MAX(required, rofd's initialized default)`. The
+  default is not merely a fallback: rofd charges **decoded source images** against
+  the same field (`raster_budget = limits.max_decoded_image_bytes.min(
+  max_raster_bytes)`, `cairo_renderer.rs:1624`), which the first implementation
+  missed — a budget fitted to a 2115×1400 canvas (26.6 MB) starved the invoice's
+  seal image and `ofd-oracle` failed with `'surface' should not be NULL` until the
+  budget stopped dropping below the default.
+- Cap: `OFD_RENDER_MAX_RASTER_BYTES = 450 MiB`, i.e. Papers' own default allowance
+  (the 200 MiB `page-cache-size` at 4 B/px ≈ 10.2× on A4) converted to rofd's
+  ≈9 B/px rate (2.25×). Beyond it the scale is lowered by `sqrt(cap/required)`
+  until the canvas fits, at `g_debug`.
+
+Measured (module debug log, `G_MESSAGES_DEBUG=papers-ofd`, metadata fixture, A4):
+scales 4/7/8/10 render at full size (no fit message); 12 and 16 are fitted to
+`scale 10.227` — the same 10.23× Papers' own clamp allows for the default cache —
+with the requested 7143×10103 (12×) and 9524×13470 (16×) px. `test_high_zoom_still_renders`
+then asserts, per scale, `0 < size <= requested + 1` and `>= requested / 2`, and
+that the selection overlay has the texture's dimensions.
+
+### R14 — an oblique rotation snaps to the nearest quarter turn
+
+`ofd_render_snap_rotation()` normalizes and rounds `rotation / 90` (45° ties
+upward) before handing it to rofd, whose renderer accepts only 0/90/180/270
+(`cairo_renderer.rs:1158-1163`). The 45° render is compared **pixel by pixel** with
+the 90° render and has the upright render's swapped dimensions.
+
+### R15 — a failed render path is a warning, not a debug line
+
+- a failed `rofd_renderer_render_page_cairo` is reported at `g_warning`; the
+  object-level diagnostics stay at `g_debug` (D9);
+- the same applies to a page surface cairo refuses. That is the reachable shape,
+  and it was silently returning NULL before: rofd's canvas query bounds dimensions
+  against i32 only, while cairo 1.18.6 refuses anything above 32767 px with
+  `CAIRO_STATUS_INVALID_SIZE` (measured: 34016×851 → status 32, 32767×851 → 0), so
+  the render call is never reached. The new `strip` fixture (a 1000×25 mm page,
+  34016×851 px at 12×) drives exactly that; the test asserts rofd's canvas query
+  still succeeds for the same options (so the failure is the surface, not the
+  query) and that exactly one warning was emitted.
+
+### Observed
+
+- `meson test -C _build`: **13/13**; `meson test -C _build-slow`: **13/13**
+  (`ofd-render` 0.8–0.9 s, the whole suite ≈4 s).
+- `ofd-oracle` reproduces the recorded metric unchanged: `oracle 2115x1400: mean
+  channel difference 3.283; over 8: 2.61%; over 64: 1.86%`.
+- `reuse lint`: compliant, 56/56 files.
+- `tests/ofd-latency`, 5 runs, both builds (the render path moved, so it was
+  re-measured): fast build info walk 22.5–23.2 ms, `setup_cache` 80–83 ms, first
+  render 52.3–58.8 ms, best total 157.4 ms; slow build info walk 66–82 ms,
+  `setup_cache` 0.1 ms, first render 43.5–58.3 ms, best total 111.2 ms. The
+  run-to-run spread is larger than any difference from R3 (the budget for a 1×
+  A4 page is rofd's default, so nothing changes for that path), so the README's
+  latency row keeps its numbers.
+- No live GUI session in this run: the interactive zoom/rotate items stay on the
+  manual list (phase 25/26 and the phase-20 GUI pass).
+
+### Files
+
+`src/ofd-render.c` (budget derivation, rotation snap, R15 warnings),
+`tests/test-ofd-render.c` (three new checks), `tests/meson.build` +
+`tests/generate_fixture.py` (the `strip` fixture), `docs/plan.md` (§4 render math,
+§8 risk rows, A16 corrected), `README.md` (suite description, limitation table).

@@ -452,6 +452,12 @@ def fixture_spec(kind, count):
                           page(A4, "")],
                 "max_unit": 81, "font_catalog": True,
                 "raw_pages": {1: BROKEN_PAGE.encode("utf-8")}}
+    if kind == "strip":
+        # A page whose width is 40x its height: the one request shape the render
+        # budget cannot absorb, because the canvas crosses cairo's 32767-pixel
+        # dimension limit long before the byte cap bites (R15's test drives a
+        # failed render through it).
+        return {"pages": [page((0.0, 0.0, 1000.0, 25.0), "")]}
     if kind == "malformed-zip":
         return {"raw": True}
     raise SystemExit(f"unknown fixture kind: {kind}")

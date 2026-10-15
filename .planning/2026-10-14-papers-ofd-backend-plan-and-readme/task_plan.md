@@ -7,24 +7,22 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
-**Session A is closed; the next work happens in a new session, starting phase 22
-with R3.** The four decisions are recorded (Key Questions 7–10 and the decisions
-table): render budget derived from the request with a degrade fallback, fonts
-declared in the AUR recipe plus a named in-repo failure, `GRWLock` on the
-poppler model, and one `51.1.2` after R3/R4/R10.
+**Phase 22 is complete (2026-10-15, session B): R3 (budget derived from the
+request under a 450 MiB cap, never below rofd's default, degrade by lowering the
+scale), R14 (oblique rotation snaps to the nearest quarter turn) and R15 (a failed
+page surface or render reports at `g_warning`) are in, each with a test that was
+observed failing first; evidence in `progress.md` §"Phase 22".** `meson test` is
+13/13 in `_build` and `_build-slow`, `reuse lint` is compliant, and plan §4/§8,
+A16 and the README limitation table carry the new rule.
 
-Phases 20 and 21 are complete (2026-10-15): the two blockers and the mechanical
-fixes are in, each with a regression test that failed before the change (evidence
-in `progress.md`; R11 was withdrawn after a probe showed rofd publishes one link
-entry per action). `main` is at `1d0cef5`, the tree is clean and the suite is
-13/13 in both page-size builds.
-
-To start phase 22: re-create the two tests described in `progress.md` §"Phase 22
-test design" first (`test_high_zoom_still_renders`,
-`test_oblique_rotation_snaps` in `tests/test-ofd-render.c`), observe them fail,
-then implement the budget/scale fix in `src/ofd-render.c` plus R14/R15. Q8 gates
-phase 24, Q9 gates phase 23; phase 25 (documentation corrections) needs no
-decision.
+The next work is phase 23 (R7 concurrency, decision Q9): start with the stress test
+in `tests/` — worker threads rendering pages while the main thread reloads the same
+document instance over the URI and the fd path — watch it fail under
+`meson setup _build-asan -Db_sanitize=address` against the current `GMutex`, then
+replace the lock with a `GRWLock` (writer in `load`/`load_fd`, reader around every
+vfunc, including the outline and links paths that borrow the handle) and keep a
+short deterministic version of the test in the suite. Phase 24 (CI and packaging
+parity, Q8: R4/R10) follows; phases 25 and 26 stay out of this session.
 
 Session split agreed 2026-10-15: phase 20 + 21 are one session (blockers plus the
 mechanical fixes), phases 22–24 a second (render budget, concurrency, CI/packaging
@@ -117,9 +115,9 @@ and #12 when convenient.
 
 ## Current Phase
 
-Phase 22 (render robustness: R3, R14, R15) — blocked on decision Q7; phases 20
-and 21 are complete. `docs/plan.md` phases 0–3 stay shipped and accepted, phase 4
-(upstream MR) remains the last planned module work.
+Phase 23 (concurrency hardening: R7) — phase 22 (R3/R14/R15) is complete
+(2026-10-15) with `meson test` 13/13 in both builds. `docs/plan.md` phases 0–3 stay
+shipped and accepted, phase 4 (upstream MR) remains the last planned module work.
 
 ## Phases
 
@@ -311,14 +309,14 @@ and 21 are complete. `docs/plan.md` phases 0–3 stay shipped and accepted, phas
 were drafted and reverted at the end of session A, so start by re-creating them
 and watching them fail.*
 
-- [ ] Test first: `test_high_zoom_still_renders` (scales 4/7/8/10/12/16, surface size bounds, overlay == texture) and `test_oblique_rotation_snaps` (0/45/90) in `tests/test-ofd-render.c`
-- [ ] R3: derive `max_raster_bytes` from the request (rofd's worst case ≈9·w·h) under a module cap in `ofd_render_options_from_context`, so a legitimate Papers zoom cannot fail the render
-- [ ] R3: beyond the cap, lower `options.scale` until the canvas fits and use the same fitted options for the page texture and the overlays (`ofd_render_page_surface`, `ofd_render_page_canvas_size`)
-- [ ] R14: snap a non-quarter-turn rotation to the nearest quarter turn instead of letting rofd reject the render
-- [ ] R15: report a failed `rofd_renderer_render_page_cairo` at `g_warning` while object-level diagnostics stay at `g_debug` (D9)
-- [ ] Latency re-measured if the render path's numbers move; README limitation table refreshed
-- [ ] `meson test` 13/13 in both builds; plan §4/§8 and README updated with the budget rule and the degrade behaviour
-- **Status:** pending
+- [x] Test first: `test_high_zoom_still_renders` (scales 4/7/8/10/12/16, surface size bounds, overlay == texture) and `test_oblique_rotation_snaps` (0/45/90) in `tests/test-ofd-render.c` — both observed red (`'surface' should not be NULL` at the 45° render and at scale 8)
+- [x] R3: derive `max_raster_bytes` from the request (rofd's worst case ≈9·w·h) under a module cap in `ofd_render_options_from_context`, so a legitimate Papers zoom cannot fail the render — never below rofd's own default, which also budgets decoded source images (the oracle caught that)
+- [x] R3: beyond the cap, lower `options.scale` until the canvas fits and use the same fitted options for the page texture and the overlays (`ofd_render_page_surface`, `ofd_render_page_canvas_size`); cap 450 MiB = Papers' 200 MiB page-cache allowance at rofd's rate; fitted 12×/16× → scale 10.227
+- [x] R14: snap a non-quarter-turn rotation to the nearest quarter turn instead of letting rofd reject the render; the 45° render is byte-identical to the 90° one
+- [x] R15: report a failed page surface and a failed `rofd_renderer_render_page_cairo` at `g_warning` while object-level diagnostics stay at `g_debug` (D9); the new `strip` fixture drives the reachable failure
+- [x] Latency re-measured (unchanged within the run-to-run spread; README row keeps its numbers); README limitation table gained the budget rule, plan §4/§8 updated and A16 corrected
+- [x] `meson test` 13/13 in both builds; `reuse lint` compliant
+- **Status:** complete (2026-10-15)
 
 ### Phase 23: Concurrency hardening (R7)
 

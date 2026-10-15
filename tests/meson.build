@@ -57,6 +57,11 @@ malformed_zip_fixture = custom_target('ofd-test-fixture-malformed-zip',
   command: [fixture_generator, 'malformed-zip', '@OUTPUT@'],
   build_by_default: true)
 
+strip_fixture = custom_target('ofd-test-fixture-strip',
+  output: 'strip-1page.ofd',
+  command: [fixture_generator, 'strip', '@OUTPUT@'],
+  build_by_default: true)
+
 poppler_glib_dep = dependency('poppler-glib')
 gtk_dep = dependency('gtk4')
 papers_view_dep = dependency('papers-view-4.0', version: ['>= 51', '< 52'])
@@ -137,7 +142,8 @@ test('ofd-discovery-failure',
 test('ofd-render',
   test_ofd_render,
   args: [ofd_module, descriptor_in_build, files('../data/papers-ofd.xml'),
-         corner_marker_fixture, origin_offset_fixture, metadata_fixture],
+         corner_marker_fixture, origin_offset_fixture, metadata_fixture,
+         strip_fixture],
   timeout: 120)
 
 test('ofd-print-file',

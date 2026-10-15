@@ -200,10 +200,20 @@ rofd_render_options_t o;
 rofd_render_options_init (&o, sizeof o);   /* dpi 96, white background, 256 MiB budget */
 o.dpi = 72.0;
 o.scale = (double) scaled_w / width_pt;    /* works even when rc->scale == 0 */
-o.rotation_degrees = (uint32_t) rc->rotation;
+o.rotation_degrees = snap_to_quarter_turn (rc->rotation);   /* rofd rejects anything else */
 o.background_rgba = 0xFFFFFFFF;            /* opaque white, like the PDF backend */
-/* image_interpolation and max_raster_bytes keep their initialized defaults:
-   a zeroed max_raster_bytes fails every render with RasterBudgetExceeded */
+
+/* Raster budget (R3): rofd charges the worst case of the canvas —
+   2*stride_argb32*h + stride_a8*h ≈ 9 B/px — against max_raster_bytes, whose
+   default is 256 MiB, and Papers' own clamp (the 200 MiB page cache at 4 B/px,
+   libview/pps-view.c:5663-5675) admits ≈10.2x on A4, i.e. more than that default.
+   Raise the budget to what this request needs, under a cap of 2.25 x Papers' own
+   default allowance (450 MiB); beyond the cap lower the scale until the canvas
+   fits, so an oversized request degrades instead of failing. The budget never
+   drops below rofd's initialized default: rofd charges decoded source images
+   against the same field (cairo_renderer.rs:1624). */
+o.max_raster_bytes = MAX (request_worst_case_bytes (&o, width_pt, height_pt),
+                         rofd_default_budget);
 
 rofd_renderer_get_pixel_canvas_size (renderer, page, &o, &w, &h);  /* authoritative */
 surface = cairo_image_surface_create (CAIRO_FORMAT_ARGB32, w, h);
@@ -217,6 +227,15 @@ selection and thumbnail paths), and `dpi = 72` makes rofd's `scale` numerically
 identical to Papers' points→pixels factor while keeping the arithmetic in rofd's
 millimetre space. rofd's own canvas size wins over Papers' rounded estimate (≤1 px
 difference, invisible), because the surface and rofd's internal CTM must agree.
+
+Why the budget is derived and fitted in `ofd_render_options_from_context`: it is
+the one place `ofd_render_page_surface` and `ofd_render_page_canvas_size` take
+their options from, so the page texture and the overlays that are drawn over it
+(the selection surface, the selection region in device pixels) cannot disagree
+about the scale. Papers' clamp is not a substitute for the cap: it bounds what the
+*view* asks for through `page-cache-size` (a user setting, default 200 MiB), while
+a target size set directly (the thumbnailer, our own tests) can ask for more, and
+rofd's per-pixel charge is 2.25× Papers' own allowance.
 
 rofd has a **single uniform scale**, so the height follows the width-derived
 scale: a target size with a different aspect ratio than the page is not stretched
@@ -796,6 +815,8 @@ release when the tag has none. A container cannot cover the GUI acceptance items
 | --- | --- | --- |
 | `setup_cache` fetches and parses every page at load (rofd's FFI has no size-only call; `Document::page_size()` exists in rofd-core but is unexported) | open latency on large documents | request `rofd_document_get_page_size_mm` (§9); meanwhile measure on a 300-page fixture and publish the number |
 | Rotation direction mismatch | all rotated views wrong | corner-marker fixture in phase 1; fallback mapping is a one-line change |
+| rofd charges its raster worst case (~9 B/px against 2×stride_argb32·h + stride_a8·h) where Papers' allowance is 4 B/px, so a zoom Papers' own clamp admits used to exceed rofd's 256 MiB default | every render above ≈7× came back NULL (measured: scale 8.0 needs 288662100 bytes), and on a 2× device scale the threshold was ≈4× | R3: `ofd_render_options_from_context` derives `max_raster_bytes` from the request under a 450 MiB cap (2.25× Papers' 200 MiB page-cache allowance) and lowers the scale beyond the cap instead of failing; the texture and the overlays share the fitted options (§4), and `tests/test-ofd-render.c::test_high_zoom_still_renders` covers 4/7/8/10/12/16×. The budget never drops below rofd's default, since decoded source images are charged against the same field. A request the fit cannot absorb — a canvas dimension above cairo's 32767 px, which rofd's canvas query does not bound — fails loudly: R15 reports a failed page surface and a failed render at `g_warning`, covered by `test_failed_render_is_a_warning` (the "strip" fixture) |
+| An oblique rotation (`rc->rotation` not a quarter turn) | rofd's renderer answers INVALID_ARGUMENT and the page stays blank, while Papers' model accepts 0-360 | R14: the module snaps to the nearest quarter turn (45° ties upward); `tests/test-ofd-render.c::test_oblique_rotation_snaps` compares the 45° render with the 90° one pixel by pixel |
 | `render_selection` cannot recolour glyphs | highlight covers text on builds without transparent selection | accept; optional "text mask" render mode request (§9). The host's poppler 26.08 has transparent selection, so the degradation is not visible here |
 | Multi-line find matches collapse into one rectangle | result rows differ from the PDF backend | accept and document |
 | Selection on a rotated page | no highlight and no region | Papers never starts one (it requires rotation 0, `libview/pps-view.c:4512`); the module declines instead of drawing rectangles in the wrong place, and answers an *empty* region rather than NULL so the shell's unchecked `cairo_region_num_rectangles` call cannot crash |
@@ -1023,7 +1044,7 @@ Evidence paths are repository-relative: Papers paths are files in tag `51.1` of
 | A13 | MIME detection is two-pass (filename/content-type, then 1024 sniffed bytes); the previewer's fd path sniffs content | `libdocument/pps-file-helpers.c:300-402`; `pps-document-factory.c:250-283`; `previewer/pps-previewer.c:171-178` |
 | A14 | rofd's default fallback families include CJK; the reference PNG is generated at 254 dpi with explicit families | `$ROFD_SRC/crates/rofd-ffi/src/renderer.rs:21`; `$ROFD_SRC/crates/rofd-render/tests/real_fixture.rs:13-20,140-150`; `$ROFD_SRC/crates/rofd-render/README.md` |
 | A15 | `setup_cache` walks all pages inside the load job; search snippets are derived from find rects ∩ layout rects; caret needs `get_text`+`get_text_layout`; ink/selection surfaces are full-page ARGB32 at the scaled size | `libdocument/pps-document.c:203-276`; `libview/context/pps-search-context.c:240-300,331-380`; `libview/pps-view.c:3225-3248,3037-3078`; `libdocument/backend/pdf/pps-poppler.c:1888-2010`; rofd resource limits and strictness: `$ROFD_SRC/crates/rofd-core/src/options.rs` |
-| A16 | Zoom is clamped by the pixbuf-cache budget and `MAX_IMAGE_SIZE 32767`, so request sizes stay under rofd's raster budget | `libview/pps-view.c:5653,5663-5675` |
+| A16 | Zoom is clamped by the pixbuf-cache budget (`page-cache-size`, 200 MiB by default) and `MAX_IMAGE_SIZE 32767`, at 4 B/px — i.e. ≈10.2× on A4, which is *more* than rofd's 256 MiB default raster budget buys at its own ≈9 B/px worst case, so request sizes do **not** stay under rofd's budget | `libview/pps-view.c:5653,5663-5675`; `data/org.gnome.Papers.gschema.xml:25-29`; `$ROFD_SRC/crates/rofd-render/src/cairo_renderer.rs:1122-1126,1246-1257`; fixed by R3 (§4), measured in `progress.md` ("Phase 22") |
 | A17 | Pages' size-only query exists in rofd-core but not in the ABI; SONAME/packaging constraints for `librofd_ffi.so.0` | `$ROFD_SRC/crates/rofd-core/src/document.rs:664-735`; `$ROFD_SRC/crates/rofd-ffi/build.rs`; `$ROFD_SRC/crates/rofd-ffi/tests/run_c_tests.sh:36-46`; `$ROFD_SRC/debian/rules:27-36`; `$ROFD_SRC/debian/control` |
 | A18 | The exported FFI symbol set is pinned (77 names) and diffed by the C runner, so an added function must update that list; rofd's own rule is to extend the ABI additively | `$ROFD_SRC/crates/rofd-ffi/tests/c/expected-symbols.txt`; `$ROFD_SRC/crates/rofd-ffi/tests/run_c_tests.sh:74`; `$ROFD_SRC/AGENTS.md` ("Extend the ABI additively") |
 | A19 | rofd ≤ 0.4.0 **aborts the whole page render** with `ROFD_STATUS_INTERNAL` on a document object carrying a singular transform (degenerate CTM, e.g. the empty text objects some converters emit); `0.4.2`+ maps the diagnostic to `ROFD_DIAGNOSTIC_SINGULAR_TRANSFORM` (7) and rendering continues. ABI v1 and the pinned 77-symbol set are unchanged, so the fix is free for us — but it makes 0.4.2 the minimum that matches D9 ("never fail a render because of a diagnostic") | `$ROFD_SRC/crates/rofd-ffi/include/rofd.h:75,147`; `$ROFD_SRC/crates/rofd-ffi/tests/c/expected-symbols.txt` (77); upstream commit `8cfb2f7` on `main` ("fix(ffi): map SingularTransform diagnostic to C ABI v1") |

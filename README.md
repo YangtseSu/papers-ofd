@@ -17,7 +17,8 @@ selection, search, page links and the outline, opens documents from a file
 descriptor (the Nautilus previewer's path) and ships as an Arch package on the AUR.
 
 - `meson test -C _build` runs the unit conversions, the factory round-trip with a
-  deliberate discovery failure, the rotation/zoom/origin render matrix, the
+  deliberate discovery failure, the rotation/zoom/origin render matrix (including
+  the 4–16× budget fit and the oblique-rotation snap), the
   same-options equivalence against a direct FFI render, a real GTK print-to-file
   whose PDF text is verified with poppler, the metadata fields and mask bits, the
   text/layout/find/selection checks and the link/outline model — each compared
@@ -213,6 +214,21 @@ patch-free vs patch-the-desktop tradeoff:
   the same in the shell's flow because `setup_cache` fetches the page objects
   either way; the fast path pays off for callers that only need sizes
   (`tests/ofd-latency.c`, both builds).
+- **Render budget.** rofd charges the worst case of a page raster
+  (≈9 B/px: the finished ARGB32 target, its A8 clip mask and a clipped
+  temporary) against `max_raster_bytes`, where Papers' own allowance is 4 B/px —
+  the `page-cache-size` setting, 200 MiB by default, which is what clamps the
+  maximum zoom (≈10.2× on A4). The module therefore derives the budget from each
+  request and caps it at 450 MiB (that allowance converted to rofd's rate), so
+  every zoom the view admits renders; a request beyond the cap — only reachable
+  from a caller that sets a target size itself, or a larger `page-cache-size` —
+  renders at the largest scale that fits instead of failing. The page texture and
+  the selection overlay share the fitted scale, so they cannot disagree. One shape
+  the fit cannot save is a canvas dimension above cairo's 32767-pixel limit (a page
+  far wider than it is tall, at a high zoom): it has no surface to draw into, and
+  that refusal is reported at `g_warning` rather than silently. Rotation
+  is snapped to the nearest quarter turn: rofd's renderer accepts nothing else,
+  while Papers' model allows any 0–360.
 - Selection highlights are drawn as filled rectangles; the glyphs underneath are
   not recoloured, because rofd's ABI exposes no text mask. Invisible on systems
   whose poppler has transparent-selection support (the common case).
