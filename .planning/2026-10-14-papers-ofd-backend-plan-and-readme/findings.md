@@ -197,3 +197,204 @@ possible dependency; D12 chooses the reference route.
 ## Visual/Browser Findings
 
 - None in this session (no image/PDF/browser sources used). The reference PNG is only referenced as a future oracle, not inspected.
+
+## Review findings (2026-10-15) — whole-project audit
+
+Whole-repository review of the module, the tests, the packaging and the docs,
+with every claim checked against `$PAPERS_SRC` (Papers 51.1), `$ROFD_SRC`
+(fork `dev`, ABI `v0.4.3-fork.2`) and the live Papers stack. Probe recipes and
+observed numbers are in `progress.md`. Ids R1–R19 are referenced by phases 20–26
+in `task_plan.md`.
+
+### Verified working (do not re-audit)
+
+- `meson test`: 13/13 in `_build` and in `_build-slow`
+  (`-Drofd_page_size=disabled`); `reuse lint` compliant.
+- Real Papers stack: `papers-thumbnailer -s 256` gives 181×256 (text fixture) and
+  256×170 (invoice) — identical to the recorded phase-3 numbers; the invoice
+  oracle reproduces mean channel difference 3.283 / 2.61 % over 8.
+- Latency tool reproduces the README table in both builds (fast: info 20 ms +
+  `setup_cache` 71 ms + first render 47 ms; slow: 71 ms walk, cache ~0).
+- Fork state matches the documentation: `dev` carries five `--no-ff` merges, tag
+  `v0.4.3-fork.2`, 78 exported symbols; AUR `papers-ofd 51.1.1-1` exists with the
+  documented `depends` (`librofd-ffi>=0.4.3`, `papers>=51`, `papers<52`).
+- Ownership patterns that look risky but are correct:
+  `PpsMapping.data` + `g_object_unref` destroy notify (`pps-mapping-list.c:218-231`),
+  the `"link"` property taking its own reference and `pps_outlines_set_children`
+  ref'ing (`pps-outlines.c:74-76,131-140`), the render scale equalling
+  `pps_render_context_compute_scales` for both rc shapes, `rofd_string_get_data`
+  copied before free, the print path's borrowed `cairo_t`.
+- Headless CJK Ctrl+F snippets go through Papers' own search context and pass.
+
+### Defects
+
+**R1 (blocker, reproduced) — a degenerate selection rectangle selects nothing.**
+`src/ofd-text.c:66-100` forwards the Papers rectangle unchanged; `src/ofd-units.c:44-56`
+keeps a zero width/height at 0. rofd's hit test is a strict positive-area
+overlap (`crates/rofd-core/src/semantic.rs:504-507`) and `validate_area` accepts
+zero dimensions (`:482-502`), so rofd answers *success with an empty selection*.
+Papers passes exactly that shape for double/triple click
+(`libview/pps-view.c:4235-4249`; `compute_new_selection` returns early only for
+GLYPH, `:7190-7192,7201-7232`), `pps_view_get_selections` documents it
+(`:7498-7520`), and `compute_scroll_increment` builds `x1 == x2, y1 == y2`
+explicitly (`:920-931`). Probe: point rect → `""` for GLYPH/WORD/LINE and a
+WORD region with 0 rectangles, while a positive-area band yields
+`Invo`/`Invoice`/`Invoice total: 42 EUR`. Impact: no double/triple-click
+highlight, `Ctrl+C` clears the clipboard, PageUp/Down never learns the line
+height. Fix: widen a degenerate axis to a hair box (±0.01 mm) before the rofd
+query; add point-rect cases for all three styles.
+
+**R2 (blocker, reproduced) — `get_selection_region` returns NULL on a rotated
+context and Papers dereferences it.** `src/ofd-text.c:506-521` returns NULL for a
+rotated rc, a missing page handle, a canvas-size failure and a rofd failure; the
+wrapper only guards a NULL vfunc (`libdocument/pps-selection.c:66-78`), and
+`compute_scroll_increment` calls `cairo_region_num_rectangles (sel_region)`
+without a check (`libview/pps-view.c:925-931`) on an rc built with the *model
+rotation*. Probe: rotation 0 → non-NULL, 90/180/270 → NULL;
+`cairo_region_num_rectangles (NULL)` exits 139. The PDF backend always returns a
+region (`pps-poppler.c:2007-2037`). Repro: rotate a text document, press
+PageDown/Space → SIGSEGV. Fix: return an empty region on every refusal path.
+
+**R3 (high, reproduced) — the raster budget refuses renders at zoom levels
+Papers' own clamp allows.** `src/ofd-render.c:203-221` sizes the surface with the
+budget-free canvas query and allocates before the render enforces the 256 MiB
+default; rofd's worst case is `2·stride_argb32·h + stride_a8·h ≈ 9·w·h`, while
+Papers' budget is 4 B/px (`shell/src/document_view.rs:274-275`,
+`libview/pps-view.c:5663-5675`) and allows ≈10.2× on A4. Measured: scale 7.0
+renders, scale 8.0+ returns NULL with
+`raster surfaces require 288662100 bytes but the limit is 268435456`. On a 2×
+device scale the threshold is ≈4×. Plan A16's "request sizes stay under rofd's
+raster budget" is false. Fix needs decision Q7.
+
+**R4 (high, reproduced) — the suite needs an installed font; the AUR recipe
+declares none.** In a mount namespace with `/usr/share/fonts` empty,
+`ofd-text` fails at `tests/test-ofd-text.c:757` (`areas[0].y2 > MM (6.0)`).
+rofd resolves fonts through `fontdb` (`crates/rofd-render/src/fonts.rs:5`), not
+fontconfig, so no environment override hides it. CI installs
+`noto-fonts noto-fonts-cjk` for this reason (`.github/workflows/checks.yml:50-59`);
+AUR `papers-ofd` (`makedepends`: gtk4, librofd-ffi>=0.4.3-6, meson, poppler-glib)
+does not, so `check()` is environment-dependent. Needs decision Q8.
+
+**R5 (high, reproduced) — `scripts/dev-env.sh` sourced under zsh kills the
+caller's shell.** Sourced detection uses `[ "$_papers_ofd_self" != "$0" ]`
+(`:32-35`) and zsh sets `$0` to the sourced file, so the "direct run" tail's
+`exit` fires inside the caller; the `-h` `exit 0` (`:65`) is outside the guard in
+every shell. Measured: `zsh -c 'echo BEFORE; . ./scripts/dev-env.sh; echo AFTER'`
+prints only `BEFORE` (and exports nothing); bash behaves; both shells drop the
+rest of the command line for `-h`. This host's login shell is zsh and both the
+README and plan §6 prescribe the sourced form. Fix: add
+`-n "${ZSH_EVAL_CONTEXT:-}"` to the detection and move every `exit` behind it.
+
+**R6 (medium, reproduced) — `ofd-discovery-failure` is vacuous.**
+`tests/test-ofd-document.c:109-145` never calls `pps_init ()`, and the backend
+list is filled only by `_pps_document_factory_init` (`pps-init.c:46`), so the
+factory answers "File type … is not supported" for any `Module=`. Probe (C,
+public API): valid descriptor + no init → "not supported"; broken `Module=` +
+init → `Failed to load backend for 'application/ofd'`. The plan's phase-0
+acceptance for this test is therefore unproven. Fix: call `pps_init ()` and
+assert the discovery message.
+
+**R7 (medium, code evidence) — unlocked reads of the document handle and the
+geometry array.** `src/ofd-document.c:120-125,146-150,424,501,615` (and
+`ofd-outline.c:80,129`) use `self->rofd_document`/`self->geometry` outside the
+mutex while `load_path` (`:223-229`) frees and rebuilds both inside it —
+violating both `rofd.h` ("no handle is freed while another call is using it")
+and D2's own rule. Reachability in Papers 51.1 is narrow (the job pool is
+currently one thread, `libview/pps-job-scheduler.c:93-100`, and the shell's
+reload builds a new document; only the failed-load retry reuses an instance,
+`pps-jobs.c:832-852`), but poppler guards exactly this with a writer lock during
+load. Fix needs decision Q9.
+
+**R8 (medium, code evidence) — an outline row without an action reports page
+-1.** `src/ofd-outline.c:192-195` publishes an actionless `PpsLink`
+deliberately; `pps_document_links_get_link_page` then returns -1
+(`pps-document-links.c:147-153`), and the sidebar only guards the *last* page:
+`first_page = link_page (&link) + 1` becomes 0 (`shell/src/sidebar_links.rs:686`),
+so "Print section" on such a row prints the whole document, and
+`outlines_to_page` casts -1 to `usize::MAX` as a `page_map` key
+(`:548-551,748`). The PDF backend skips actionless index entries
+(`pps-poppler.c:1292-1297`). Fix: fall back to the subtree's first reachable
+GOTO.
+
+**R9 (medium, code evidence) — the text test classifies the linked ABI from the
+module's own output.** `tests/test-ofd-text.c:944-968` derives
+`layout_span_mm` from the code under test and a >25 % deviation switches off the
+alignment/coverage assertions (`:1031-1048,1129-1140`). The program also has no
+`g_test_init`, so every `g_test_message` is a no-op and README's "meson test
+reports which model the linked library uses" is false (the model line only shows
+up in `_build/meson-logs/testlog.txt`). Fix: classify through the oracle handle
+and print with `g_print`/`g_test_init --verbose`.
+
+**R10 (medium, reproduced) — CI exercises neither the delivery configure path
+nor the page-size fallback.** `.github/workflows/checks.yml:88-104` configures
+once with `-Drofd_libdir/-Drofd_includedir` (the `declare_dependency` branch), so
+the AUR's `dependency('rofd-ffi')` path and the `#else` of
+`src/ofd-document.c:119-131` are never built; `ofd-latency` is an executable
+without a `test()` registration. Also `meson.build:39-52` reports an *old*
+`rofd-ffi.pc` as "not found", and the real floor (0.4.3 / 0.4.3-6) is only
+documented.
+
+**R11 (medium, code evidence) — page links consider only the first CLICK
+action.** `src/ofd-links.c:200-240` stops after the first `ROFD_ACTION_EVENT_CLICK`
+even when `ofd_link_action_from_rofd` returns NULL (unresolved GOTO), dropping a
+link a later action could serve; `ofd_outline_node_action`
+(`src/ofd-outline.c:16-70`) loops until one resolves. Fix: keep looping.
+
+**R12 (low, code evidence) — `dup ()` without `FD_CLOEXEC`.**
+`src/ofd-document.c:352`; the descriptor is kept for the document's lifetime, so
+any child Papers spawns inherits it. Papers' own helper uses
+`fcntl (fd, F_DUPFD_CLOEXEC, 3)` (`libview/pps-jobs.c:798-811`). Fix: use the
+same call and assert `F_GETFD` in the fd test.
+
+**R13 (low, code evidence) — refusal paths of `render_selection` leave a reused
+surface dirty.** `src/ofd-text.c:396-415` returns before the clear when the
+context is rotated or a query fails; the pixbuf-cache caller rebuilds the texture
+from that surface. Normally unreachable (that caller passes rotation 0,
+`pps-pixbuf-cache.c:1043-1046`; the job path passes a fresh local pointer,
+`pps-jobs.c:427`), so this is a robustness fix: clear and drop the surface on
+refusal.
+
+**R14 (low, code evidence) — a non-quarter-turn rotation blanks the page.**
+`src/ofd-render.c:88-104` forwards `rotation % 360`; rofd rejects anything but
+0/90/180/270 (`cairo_renderer.rs:1158-1163`) while Papers' model accepts any
+0–360 (`pps-document-model.c:257-264,609-626`). Fix: snap to the nearest quarter
+turn.
+
+**R15 (low, code evidence) — a hard render failure is logged only at
+`g_debug`.** `src/ofd-render.c:110-112`: D9 requires `g_debug` for *diagnostics*,
+but a failed render is the cause of a user-visible failure and should be
+`g_warning`/`g_message`.
+
+**R16 (low, code evidence) — `get_info` announces paper sizes it could not
+resolve.** `src/ofd-document.c:462-479` sets `PPS_DOCUMENT_INFO_PAPER_SIZE` even
+when some boxes failed and stay 0×0, which the properties dialog then shows.
+Fix: clear the bit (or omit the array) unless every page resolved.
+
+**R17 (low, code evidence) — all regions of one action share a single
+`PpsLink`.** `src/ofd-links.c:246-250`; `pps_mapping_list_find` resolves by
+pointer identity and returns the first hit (`pps-mapping-list.c:33-50`), so the
+tooltip tip area and link popover anchor on the first region
+(`libview/pps-view.c:1733-1747,3985-4000`). The PDF backend builds one link per
+mapping. Fix: one link object per region.
+
+**R18 (low, code evidence) — `FitR` destinations with absent `HAS_RIGHT`/
+`HAS_BOTTOM` become a zero-size box.** `src/ofd-links.c:55-76` subtracts the
+origin from all four coordinates unconditionally while rofd zeroes absent values
+(`rofd.h:297-299`), and `pps_link_dest_new_fitr` hard-codes the change bits, so
+`goto_fitr_dest` computes a 0×0 target (`libview/pps-view.c:1828-1845`) and
+`zoom_for_size_fit_page` returns +inf, clamped to max zoom
+(`pps-document-model.c:478-484`) — visible only with `allow-links-change-zoom`.
+Fix: require a non-empty box, else fall back to a plain FIT.
+
+**R19 (low, docs) — claims the review disproved or that disagree with the files.**
+plan §3's "rotation ≠ 0 → no region" is only safe once R2 lands; A16's budget
+claim is false (R3); plan §5's phase-0 acceptance for the deliberate discovery
+failure is unproven until R6 lands; plan:774 says "exactly the five files" while
+the table lists six, and `README.md:7` says "four small data files" (six files
+install); `README.md`'s descriptor snippet says
+`TypeDescription=Open Fixed-layout Documents` while
+`data/org.gnome.Papers.OfdDocument.papers-backend:3` says
+`Fixed-layout Documents`; plan §2's file tree lists a `debian/` that does not
+exist and omits `scripts/`, `patches/`, `.github/` and the Sushi plugin;
+`README.md`'s "~120 ms" open-latency limitation matches the *fallback* build
+(the fast build, which ships, measures ~139 ms with the metadata walk included).

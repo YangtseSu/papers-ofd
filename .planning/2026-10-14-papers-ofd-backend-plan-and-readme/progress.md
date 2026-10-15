@@ -1407,3 +1407,81 @@ rejects a stale `.SRCINFO`, and the AUR repository is the recipe's only home).
   was backfilled with the same commands, which is also how they were verified.
   The AUR RPC frontend reports `papers-ofd 51.1.1-1`, so the earlier index lag
   has cleared.
+
+## 2026-10-15 (later): whole-project review — baselines, probes, R1–R19
+
+Read-only audit of the module, the tests, the packaging, the CI and the docs
+against Papers 51.1 and the fork ABI. No repository file was modified; the probe
+programs and staged trees live outside the repository (`/tmp`, never committed).
+The defect inventory is in `findings.md` §"Review findings (2026-10-15)";
+phases 20–26 in `task_plan.md` are the fix campaign.
+
+### State at review time
+
+- `git status` clean, `git diff --stat` empty; the tree is the 51.1.1 release plus
+  the CI commits.
+- `scripts/dev-env.sh` resolves `PAPERS_SRC=$PWD/../papers` (ok, 51.1),
+  `ROFD_SRC=$PWD/../rofd` (ok, `dev`, `v0.4.3-fork.2`), `ROFD_ABI_SOURCE=checkout`;
+  `librofd-ffi 0.4.3.fork.2-1` is installed, so `rofd-ffi.pc` exists and the meson
+  `dependency('rofd-ffi')` branch is the one in use here.
+- The plan was extended in place (same `.planning` directory) rather than forking a
+  second plan: the resolver selects this directory and the repository's working
+  memory must stay one file.
+
+### Baseline runs (all reproduced)
+
+- `meson setup --reconfigure _build … && meson compile && meson test`:
+  **13/13 OK**; `_build-slow` (`-Drofd_page_size=disabled`): **13/13 OK**.
+  `ofd-oracle` printed `oracle 2115x1400: mean channel difference 3.283; over 8:
+  2.61%; over 64: 1.86%` — the phase-1 numbers hold.
+- `reuse lint`: compliant, 55/55 files with license and copyright information.
+- Real Papers stack, `PPS_BACKENDS_DIR` = the system backend directory plus the
+  built module and descriptor, `XDG_DATA_DIRS` with a freshly indexed MIME tree:
+  `papers-thumbnailer -s 256` → 181×256 for the generated text fixture and
+  256×170 for `$ROFD_SRC/learning/test.ofd`, matching the phase-3 record.
+- `tests/ofd-latency … 5` in both builds: fast path `load 2.0 ms / info walk
+  20.0 ms / setup_cache 70.7 ms / first render 47.4 ms / total 139.6 ms`; slow path
+  `load 2.0 ms / walk 70.7 ms / setup_cache 0.1 ms / render 46.6 ms / total
+  118.5 ms`. The README's "~120 ms" describes the slow build's sequence, not the
+  shipped fast one.
+- `ofd-text` log shows the strict branch ran (`layout 28.7 mm, ink 28.2 mm ->
+  font-resolved geometry`), so the A24/A27 assertions are live against this ABI.
+
+### Probes (throwaway C programs, public API only)
+
+1. **Degenerate selection (R1).** After `pps_document_text_get_text_layout`, a
+   `PpsRectangle` with `x1 == x2, y1 == y2` at the centre of the first glyph:
+   `GLYPH/WORD/LINE point-rect -> EMPTY ""`; the same call with a positive-area
+   band over the first four scalars: `Invo`, `Invoice`,
+   `Invoice total: 42 EUR`; `WORD region: point-rect empty/NULL (rects 0)`,
+   `band-rect non-empty (rects 1)`.
+2. **Rotated selection region (R2).** With the rc shape
+   `compute_scroll_increment` builds (model rotation, `rc->scale = 0`, target
+   size 600×850): `rotation 0 → non-NULL`, `90/180/270 → NULL`. A three-line
+   cairo probe confirmed `cairo_region_num_rectangles (NULL)` exits 139.
+3. **Zoom vs raster budget (R3).** A scale sweep on the A4 text fixture:
+   `4.0 … 7.0 → surface`, then `8.0 → NULL` with
+   `render failed: raster surfaces require 288662100 bytes but the limit is
+   268435456` (and proportionally larger numbers up to 12.0).
+4. **Fontless environment (R4).** `unshare -rm --map-root-user` with an empty
+   directory bind-mounted over `/usr/share/fonts` (`ls | wc -l` → 0): the text
+   test aborts at `../tests/test-ofd-text.c:757`, assertion
+   `areas[0].y2 > MM (6.0)`. With fonts present it passes. An empty fontconfig
+   config does *not* reproduce it — rofd uses `fontdb`, not fontconfig.
+5. **Discovery failure (R6).** A C probe calling
+   `pps_document_factory_get_document` with a valid descriptor+module but no
+   `pps_init` → `File type 开放式版式文档 (application/ofd) is not supported`
+   (identical to the broken-`Module=` case the test asserts); with `pps_init` and
+   a broken `Module=` → `Failed to load backend for 'application/ofd'`, and with
+   `pps_init` and a valid descriptor → `document=RETURNED`.
+6. **`dev-env.sh` sourcing (R5).** `zsh -c 'echo BEFORE; . ./scripts/dev-env.sh;
+   echo AFTER'` prints only `BEFORE` (no `AFTER`, no exports);
+   `bash -c` prints both and exports `ROFD_SRC`. `bash -c '. scripts/dev-env.sh
+   -h; echo AFTER'` also prints only `BEFORE` — the `-h` exit is unguarded.
+
+### Errors hit while probing
+
+| Error | Attempt | Resolution |
+|-------|---------|------------|
+| `gjs` probe: `Papers.document_factory_get_document` / `factory_get_document` "is not a function" | 1 | GI names it differently from the C symbol; replaced gjs with a 30-line C probe against `pps_document_factory_get_document`, which answered the question directly |
+| `cairo_null.c` did not compile (`'NULL' undeclared`) | 1 | Used a `(cairo_region_t *) 0` cast; the probe then exited 139, which is the evidence for R2 |

@@ -7,6 +7,22 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
+**Next action: start phase 20 by fixing R1** — widen a degenerate selection
+rectangle to a hair box inside `ofd_text_select_mm` (`src/ofd-text.c:66-100`) and
+add the permanent point-rect case for GLYPH/WORD/LINE to `tests/test-ofd-text.c`.
+R2 (return an empty `cairo_region_t` instead of NULL) follows in the same phase.
+Both are blockers; the inventory is `findings.md` §"Review findings (2026-10-15)",
+the campaign is phases 20–26 below.
+
+Session split agreed 2026-10-15: phase 20 + 21 are one session (blockers plus the
+mechanical fixes), phases 22–24 a second (render budget, concurrency, CI/packaging
+— each needs the decision recorded in Key Questions 7–9), phase 25 a third
+(documentation corrections), phase 26 a fourth and user-gated (51.1.2 release,
+AUR repackage, and the still-open `pacman -Rns` uninstall regression).
+
+*The text below is the phase-19 handoff history, kept as the record of where this
+campaign started from.*
+
 **Phase 3 is complete and accepted** (2026-10-15): fd loading, the Arch package, its install checks
 and — after the first acceptance run — the Sushi plugin that makes the space-bar
 preview work out of tree. The user installed `0.1.0-2` and confirmed the session
@@ -89,7 +105,9 @@ and #12 when convenient.
 
 ## Current Phase
 
-`docs/plan.md` phases 0–3 implemented, packaged and shipped; phase 3 awaits only the user's visual acceptance; phase 4 (upstream MR) is the remaining planned work
+Review-fix campaign (phases 20–26): planned, not started. Phase 20 (blockers R1/R2)
+is next; `docs/plan.md` phases 0–3 stay shipped and accepted, phase 4 (upstream MR)
+remains the last planned module work.
 
 ## Phases
 
@@ -252,6 +270,66 @@ and #12 when convenient.
 - [x] Green on current versions: `ubuntu-26.04`, `actions/checkout@v7`, run [38744389444](https://github.com/YangtseSu/papers-ofd/actions/runs/38744389444)
 - **Status:** complete
 
+### Phase 20: Blocker fixes (R1, R2) with regression tests
+
+- [ ] R1: `ofd_text_select_mm` widens a zero-width/height query to a hair box (±0.01 mm) before the rofd call; `ofd_rect_to_mm` keeps its current arithmetic
+- [ ] R1 test: point-rect selection for all three styles returns the expected text and a non-empty region (`tests/test-ofd-text.c`)
+- [ ] R2: every refusal/failure path of `ofd_selection_get_selection_region` returns an empty `cairo_region_t`, never NULL (poppler's contract)
+- [ ] R2 test: a rotated render context yields a non-NULL empty region
+- [ ] `meson test` 13/13 (plus the two new cases) in `_build` and `_build-slow`
+- [ ] Optional if a GUI session is available: double-click selects the word, triple-click the line, Ctrl+C copies it, PageDown after Ctrl+R does not crash
+- **Status:** pending
+
+### Phase 21: Mechanical robustness fixes (R5, R6, R8, R9, R11, R12, R13, R16)
+
+- [ ] R5 `scripts/dev-env.sh`: detect sourcing under zsh (`ZSH_EVAL_CONTEXT`) and move every `exit` into the non-sourced branch; verify sourcing under bash and zsh and `-h` in both
+- [ ] R6 `ofd-discovery-failure`: call `pps_init ()` and assert the `Failed to load backend` message (the positive control stays in the sibling invocation)
+- [ ] R8 outline: a node without its own action inherits the first reachable descendant GOTO; every row then answers `link_page != -1` (fixture gains an actionless grouping node)
+- [ ] R9 `ofd-text` test: classify the linked ABI through the oracle handle, not the module's output; print the model report with `g_print` (or `g_test_init` + `--verbose`) and correct README's claim
+- [ ] R11 links: keep trying later CLICK actions when the first yields no `PpsLinkAction` (fixture: an unresolved GOTO followed by a usable URI)
+- [ ] R12 `dup` → `F_DUPFD_CLOEXEC`; the fd test asserts `FD_CLOEXEC` with `fcntl (F_GETFD)`
+- [ ] R13 clear and drop the reused selection surface on every refusal path of `render_selection`
+- [ ] R16 clear `PPS_DOCUMENT_INFO_PAPER_SIZE` (or omit the array) when any page box is unresolved
+- [ ] Docs updated alongside the code per `AGENTS.md`; `meson test` in both builds
+- **Status:** pending
+
+### Phase 22: Render robustness (R3, R14, R15)
+
+- [ ] Record the R3 decision (Key Question 7), then stop allocating before the budget check: probe with a budget-aware query, derive `max_raster_bytes` from the request under a Papers-scale cap, or degrade the scale — the page texture and the overlay must keep using one option set
+- [ ] Test: the high-zoom render (scale ≥ 8 on the A4 fixture, and a 2×-device-scale-sized target) succeeds or degrades explicitly; a regression that reinstates the silent NULL fails
+- [ ] R14 snap a non-quarter-turn rotation to the nearest quarter; R15 report a failed render at `g_warning` while keeping diagnostics on `g_debug`
+- [ ] Latency re-measured (the budget work touches the render path) and README's limitation table refreshed
+- **Status:** pending
+
+### Phase 23: Concurrency hardening (R7)
+
+- [ ] Record the R7 decision (Key Question 9) and implement it: poppler-style rwlock (writer during `load`/`load_fd`, reader across each vfunc call) or a retire list plus a geometry generation counter
+- [ ] Stress test: worker threads rendering page 0..n while the main thread reloads the same document instance over the URI and the fd path; run it under `-Db_sanitize=address` (or valgrind) once and keep a deterministic short version in the suite
+- [ ] `rofd.h`'s handle-lifetime contract stated in the code comment; D2's wording in plan §2 updated to match the implementation
+- **Status:** pending
+
+### Phase 24: CI and packaging parity (R4, R10)
+
+- [ ] Record the R4 decision (Key Question 8): declare the fonts the suite measures with, and make the in-repo failure name the missing dependency instead of an opaque assertion
+- [ ] `meson.build`: distinguish "rofd-ffi.pc too old" from "not found", and settle whether the floor moves to 0.4.3
+- [ ] CI: build and test the `-Drofd_page_size=disabled` configuration, and exercise the installed-`rofd-ffi.pc` configure path (or record why it stays out)
+- [ ] Decide `ofd-latency`'s status: registered check with an assertion, or an explicit tool outside `meson test`
+- **Status:** pending
+
+### Phase 25: Documentation corrections the review proved wrong (R19)
+
+- [ ] `docs/plan.md` §3 selection/rotation row, A16's budget claim, §5 phase-0's acceptance wording for the deliberate discovery failure, §2's file tree, §7's file count
+- [ ] `README.md`: installed-file count, the descriptor `TypeDescription`, the open-latency numbers per build, the "meson test reports which model the linked library uses" claim
+- [ ] Re-verify anchors, paths and citations after the edits (the phase-4 rule)
+- **Status:** pending
+
+### Phase 26: Release 51.1.2 and AUR repackage (user-gated)
+
+- [ ] `meson.build` version → `51.1.2` (D13: fixes move the last component), tag `v51.1.2`, GitHub release after CI is green
+- [ ] AUR `papers-ofd`: `pkgver=51.1.2`, new `source=` and sha256, regenerated `.SRCINFO`, `makepkg -C -f`; the push is the user's step
+- [ ] Still open from phase 3: the `pacman -Rns papers-ofd` uninstall regression
+- **Status:** pending
+
 ## Key Questions
 
 1. Does rofd's ABI allow concurrent read-only calls? → **Yes** (`rofd.h` header, `rofd-ffi/README.md:329-335`, internal locks in rofd-core/rofd-render).
@@ -260,6 +338,10 @@ and #12 when convenient.
 4. Is `PpsDocumentPrint`/`PpsSelection` optional? → **No in practice**: both wrappers are dispatched without NULL checks.
 5. Can `get_thumbnail*`/`get_page_label` be skipped? → **Yes**, base-class fallbacks exist.
 6. Is a cheap page-size path available for `setup_cache`? → **No in the ABI**; `Document::page_size()` exists in rofd-core but is unexported → upstream request.
+7. **R3 (render budget):** raise `max_raster_bytes` to the request's worst case (`≈9·w·h`, i.e. 2.25× Papers' 4 B/px budget) under a cap, or degrade the scale when the canvas exceeds the budget, or both? Recommended: derive the budget from the request and keep a degrade fallback, so a legitimate Papers zoom cannot fail the render.
+8. **R4 (fonts):** declare the fonts as check dependencies in the AUR recipe (as CI already does), make the font-dependent assertions skip with an explicit message, or vendor a test font into the fixtures? Recommended: declare them **and** name the missing dependency from the in-repo test.
+9. **R7 (concurrency):** poppler-style rwlock (writer during `load`, reader across each vfunc) or a retire list plus a geometry generation counter (keeps the single mutex)? Recommended: the rwlock — it mirrors the reference backend and covers the handle, not just the array.
+10. **Release:** is a `51.1.2` release wanted at the end of the campaign, or only once the highs (R3/R4) are in? Packaging-only changes would otherwise stay in the AUR `pkgrel`.
 
 ## Decisions Made
 
@@ -274,6 +356,9 @@ and #12 when convenient.
 | Dependency checkouts are located through `scripts/dev-env.sh`, never by assuming a sibling directory | The docs were written on a machine where `../papers`/`../rofd` existed; on this one `../rofd` is `office-rs/rofd`, a different OFD project with the same name, so hardcoded relative paths fail — or worse, resolve to the wrong tree. Environment → `local.conf` → sibling default, with marker validation, serves both machines and the installed package |
 | Papers citations are written against upstream tag `51.1`; a local Papers checkout is optional | The module builds against the installed `papers-document-4.0` headers (43 libdocument + 20 libview shipped) and every reader can open `…/papers/-/blob/51.1/<path>`; only grepping and the phase-4 MR want a clone. rofd citations keep `$ROFD_SRC`, because the carried patch and the cross-repo tests run against that checkout |
 | The AUR `librofd-ffi` pins an upstream commit when upstream publishes no tag, adds `rofd-ffi.pc`, and applies its own patch files | 0.4.3 exists only as `140b936` on `main`, so a tag-based source cannot be used; a commit-pinned archive keeps the sha256 check meaningful and the vendored crates make the build fully offline. Pinning also makes the "which ABI is in the field" question answerable, and the `.pc` lets consumers (papers-ofd now, Papers after phase 4) use `dependency('rofd-ffi')` |
+| The review-fix campaign extends this plan (phases 20–26) instead of creating a second plan directory | `resolve-plan-dir.sh` selects this directory, the repository's working memory must stay one file, and a second plan for the same module would fork the state; the phases continue the existing numbering |
+| Review findings are recorded as R1–R19 in `findings.md`, with the probe recipes and raw numbers in `progress.md` | The next session must be able to resume from the files alone, not from a chat transcript; the probes were throwaway programs outside the repository and only their recipes and outputs belong here |
+| Every phase of this campaign carries its own regression test (or an explicitly recorded manual acceptance) | The review found that the ordinary suite missed both blockers, so a fix without a test that fails before it is not accepted |
 
 ## Errors Encountered
 
@@ -282,8 +367,16 @@ and #12 when convenient.
 | `read` returned elided C bodies for `pps-render-context.c` | 1 | Re-read the exact ranges through `sed -n` |
 | Failed in-place edit assertion while renumbering plan sections (text mismatch) | 1 | Re-grepped the exact line text, then re-ran the substitutions; script writes only after all assertions pass |
 | Machine move: the sibling paths the plan assumed no longer exist (`../papers` missing, `../rofd` = `office-rs/rofd`) | 1 | Added `scripts/dev-env.sh` (env → `local.conf` → sibling default, marker-validated) and rewrote every doc path to `$PAPERS_SRC/…` / `$ROFD_SRC/…`; the build itself uses the installed `librofd-ffi` |
+| Review probe: `gjs` reports `Papers.document_factory_get_document` (and `factory_get_document`) "is not a function" | 1 | The GI name differs from the C symbol; replaced the script with a 30-line C probe against `pps_document_factory_get_document`, which answered the discovery question directly |
+| Review probe: `cairo_null.c` failed to compile, `'NULL' undeclared` | 1 | Used a `(cairo_region_t *) 0` cast; the probe then exited 139, which is the evidence for R2 |
+| Review probe: an empty fontconfig configuration did not reproduce R4 | 1 | rofd resolves fonts through `fontdb`, not fontconfig; reproduced instead in a mount namespace with `/usr/share/fonts` emptied (`unshare -rm --map-root-user`) |
 
 ## Notes
 
-- Deliverables: `docs/plan.md`, `README.md`. Working memory: this directory.
+- Deliverables: `docs/plan.md`, `README.md`, the module together with its tests, the
+  packaging payloads' metadata. Working memory: this directory.
+- Phases 20–26 are the review-fix campaign (findings R1–R19 in `findings.md`); each
+  phase's acceptance is a regression test in `tests/` or an explicitly recorded
+  manual acceptance, because the review proved the ordinary suite missed both
+  blockers.
 - Re-read this file before each phase; update `**Status:**` and `## Next Step` on every change.
