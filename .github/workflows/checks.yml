@@ -36,6 +36,11 @@ jobs:
       # git is not in the container image, and the checkout below needs it.
       - name: Install the build and test dependencies
         run: |
+          # cairo, freetype2 and jbig2dec are what the rofd-ffi build probes with
+          # pkg-config (the first two through the cairo/freetype bindings,
+          # jbig2dec in crates/rofd-render/build.rs); gtk4/poppler-glib/papers
+          # pull most of them in, but the build fails on jbig2dec alone, so all
+          # three are explicit.
           # noto-fonts-cjk is not a build dependency: the fixtures and the
           # repository's reference render carry CJK text, and rofd's resolver
           # falls back to `Noto Sans CJK SC` — without the font the run reports
@@ -44,6 +49,7 @@ jobs:
           # skipping.
           pacman -Syu --noconfirm --needed \
             git gcc pkgconf meson rust reuse \
+            cairo freetype2 jbig2dec \
             papers gtk4 poppler-glib gjs sushi \
             noto-fonts noto-fonts-cjk
 

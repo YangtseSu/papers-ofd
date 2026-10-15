@@ -25,9 +25,10 @@ State to pick up from: `.planning/…/progress.md`, sections *Phase 3 — fd loa
 packaging, install checks* and *Phase 3 follow-up — the space bar* (evidence), plus
 *Test Results* / *Error Log* rows.
 Repository main is at the phase-3 commits plus the artefact-consolidation commit
-(phase 18): the Arch recipes live in their AUR repositories (`papers-ofd 0.1.0-4`
-published and installed on this machine, `librofd-ffi 0.4.3-6`) and the carried rofd
-patch files live there too — this repository carries no PKGBUILD and no patch payload.
+(phase 18) and the 51.1.1 release (phase 19): the Arch recipes live in their AUR
+repositories (`papers-ofd 51.1.1-1` published, built from the `v51.1.1` tag
+archive; `librofd-ffi 0.4.3.fork.2-1`) and the carried rofd changes live on the
+fork — this repository carries no PKGBUILD and no patch payload.
 
 ### Phase 3 handoff (2026-10-15)
 
