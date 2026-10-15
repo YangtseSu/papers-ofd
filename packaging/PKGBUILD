@@ -22,6 +22,7 @@ depends=(
 # unneeded here.
 makedepends=(
   'gtk4'
+  'librofd-ffi>=0.4.3-5'  # check(): ofd-text compares the selection region with the ink rofd renders
   'meson'
   'poppler-glib'
 )
