@@ -858,6 +858,15 @@ in-tree move that also lets our association entry and the Sushi plugin retire.
     (sha256 `41ada59a41d864925a3819092375d2e14ffc46e1da948cacfe8305590edd1556`) built
     `papers-ofd-0.1.0-4-x86_64.pkg.tar.zst` and ran `check()`: 12/12 against the
     installed 0.4.3-6.
+  - Pushed from `~/projects/ofd-reader/papers-ofd-aur/papers-ofd` after switching the
+    remote to `ssh://aur@aur.archlinux.org/papers-ofd.git` (the https remote answered
+    403): `9e0e4ab..e9af873  master -> master`, confirmed with `git ls-remote` and by
+    fetching the ref back (`git show origin/master:.SRCINFO` → `pkgrel = 4`,
+    `makedepends = librofd-ffi>=0.4.3-6`). The first attempt was rejected by the AUR hook
+    — "the repository must not contain subdirectories" — because `git add -A` had swept
+    in the previous build's `pkg/` and `src/` output; the artifacts are removed and the
+    commit carries only `PKGBUILD` and `.SRCINFO`. Both packages' RPC entries still
+    reported the previous versions right after the pushes (the known index lag).
 
 ## Sushi test hermeticity (2026-10-15)
 
