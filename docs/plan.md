@@ -818,7 +818,9 @@ when a non-Arch consumer appears.
 `meson test` and `reuse lint`. It runs on `main`, on pull requests and on demand.
 `release.yml` calls it for a `v*` tag and then appends the tag archive's sha256 —
 the value the AUR recipe's `source=` pins — to the release notes, creating the
-release when the tag has none. A container cannot cover the GUI acceptance items
+release when the tag has none. It also accepts `workflow_dispatch`, which runs the
+same path for the ref you pick: that is how the `pin` job was exercised on a
+throwaway tag before the next release, since a published tag is never moved. A container cannot cover the GUI acceptance items
 (§5 phase 3), the uninstall regression or the AUR push itself; those stay manual.
 
 ## 8. Risks and open questions

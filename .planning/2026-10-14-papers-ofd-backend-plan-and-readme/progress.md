@@ -2221,6 +2221,11 @@ bottom > top`; otherwise it logs the reason at `g_debug` and returns
   The live window was left open for a hover check on the fixture's two-region bar
   (left half vs right half of the 40–100 mm / 220–240 mm rectangle, page 1).
 
+  **Done 2026-10-16**: the user ran that hover check on the live window and
+  confirmed it, together with phase 20's optional pass; the automation boundary
+  (no input injection available in this session, every route observed failing) is
+  recorded in §"Item 2" at the end of this file.
+
 ### Pushed (2026-10-16)
 
 The user approved the push; `main` went to `origin` (GitHub, the public
@@ -2359,3 +2364,166 @@ real container on a commit that carries them, not only mirrored locally.
   on the third attempt, the permanently broken case exits 1.
 - The failed run was also re-run to show the flake passes on its own, and the
   hardened step is exercised by the push that carries it.
+
+## 2026-10-16: plan audit (what is still open)
+
+Requested by the user ("查看当前有没有未完成的plan"). Read-only apart from the
+bookkeeping corrections listed at the end; nothing in `src/`, `tests/`, `data/` or
+the workflows changed.
+
+What the audit found, in the order of how much it matters:
+
+1. **`docs/plan.md` phase 4 — the upstream MR — is not started.** It is the last
+   planned module work and explicitly optional: move `src/*` into Papers'
+   `libdocument/backend/ofd/`, add `application/ofd` to Papers' MIME list, an
+   `ofd` entry to the `backends` option, and declare the ABI through
+   `dependency('rofd-ffi', version: '>= 0.4')` (plan §5 phase 4, §9 item 5). It
+   is also where the two upstream-report candidates go (A23: a `PpsSearchContext`
+   cannot be finalized; A29: `pps_document_load` leaks the previous URI on
+   reload), and it retires our `NoDisplay` association entry and the Sushi
+   plugin.
+2. **Unverified acceptance, GUI-only.** — *run by the user and confirmed 2026-10-16, see §"Item 2" below.* Phase 27's hover check on the `links`
+   fixture's two-region bar (tooltip tip area and link-popover rect are
+   GTK-internal, so the headless test pins the mapping identity instead), and
+   phase 20's optional pass (double-click selects the word, triple-click the
+   line, Ctrl+C copies it, PageDown after Ctrl+R). Both need a live window; both
+   are recorded as open in `task_plan.md` (phase 27's own box stays as the phase
+   status, the phase-20 box stays unchecked).
+3. **The `release.yml` pin fix is verified outside CI only.** — *closed 2026-10-16, see §"Item 3" below: the fixed job ran green in CI.* The `v51.1.2` tag
+   run stays red (`pin`: R20, no release created by the workflow) — the release
+   was created by running the fixed step by hand; the next tag push is the first
+   CI-verified run of the fixed job. Recorded as R20 in `findings.md` and in the
+   phase-26 section above.
+4. **The five upstream rofd PRs are still open** — *the sign sentence was posted on all five 2026-10-16 (§"Item 4"); the check stays red on an upstream infra defect, R22.* (`needs-ok-to-test`, red
+   `clacheck / CLAssistant`, no approval): #11 page size, #12 `.pc`, #13 font
+   advances, #14 decode budget, #15 region-AA tolerance. Nothing here blocks a
+   release — the carried changes ship through the fork tag — but the CLA sentence
+   on each PR is the user's, still open since the phase-1 handoff.
+5. **Machine-local, documented, not a defect:** `deepin-reader` (installed here)
+   holds the `application/ofd` default because our entry is `NoDisplay`;
+   `xdg-mime default org.gnome.Papers.Ofd.desktop application/ofd` flips it back,
+   and phase 4 makes it moot. A stale prunable worktree remains in the rofd
+   checkout, which `git worktree prune` clears.
+
+Bookkeeping corrections made (all in `task_plan.md`):
+
+- Phase 17's optional `pacman -Rns` box is ticked — the user ran it on 2026-10-16
+  (see §"Install and uninstall acceptance" above), it had been left unchecked.
+- Phase 15's status line said "GUI acceptance open" while its own acceptance box
+  records the user's 2026-10-15 confirmation; corrected to `complete`.
+- `## Current Phase` still ended at "Next: phase 26"; it now records that phase 26
+  closed and names the four open items above.
+- The open CLA action names all five PRs instead of #11/#12.
+
+Verification of this audit: `main` is `0458f96` = `origin/main` with a clean tree;
+`gh run list` shows every `main` push green (last: `38849701753`, 2m10s) with only
+the `v51.1.2` release run red (R20); the AUR `papers-ofd` working copy is clean at
+`05b9e2d` = `origin/master`; `librofd-ffi 0.4.3.fork.2-1` and `papers-ofd 51.1.2-1`
+are the installed pair; the fork checkout is clean and level with `origin/dev`
+(`0 0`); `meson test -C _build` is 14/14 on this tree.
+
+## 2026-10-16: the three remaining open items (2, 3, 4)
+
+### Item 2 — the GUI-only acceptances, and why they had to be hands-on
+
+Input injection was attempted first, so the boundary is on the record. This
+machine is GNOME on Wayland (`XDG_SESSION_TYPE=wayland`, one 4608x2592 output at
+scale 2), and every automation route failed, each with an observation:
+
+- **XTEST** (python-xlib 0.33, already installed): `XWarpPointer` moves the X
+  pointer inside XWayland (2462,1988 as asked) but the click never reaches the
+  window — the page did not navigate; plain `XTestFakeMotionEvent` was a no-op
+  (`query_pointer` returned the same position before and after). Mutter does not
+  forward XTEST input to XWayland clients.
+- **`/dev/uinput`** (the ydotool route; the node carries an ACL entry for the
+  session's account and the open-for-write test passes): a virtual device is accepted by the kernel
+  (`/proc/bus/input/devices` lists the probe's own device name, with the
+  mouse/keyboard handlers) and udev tags it `ID_INPUT=1 ID_INPUT_MOUSE=1
+  ID_INPUT_KEY=1`, but nothing arrives in the app: with the Papers window focused
+  (X input focus on a child of its toplevel, checked before injecting) `Ctrl+R`
+  left the window byte-identical (0 changed pixels), and relative and absolute
+  motions alike left the X pointer where it was, even after three seconds of
+  device-open delay.
+- **Screenshots**: `org.gnome.Shell.Screenshot` answers
+  `AccessDenied: Screenshot is not allowed`, so a Wayland output capture is
+  unavailable; an X window of an XWayland client *is* capturable with
+  `import -window <id>`, which is what the probes used.
+- **Nothing else available**: no `xdotool`/`ydotool`/`grim`/`Xvfb`/`weston`/
+  `Xephyr`, no passwordless `sudo`, `org.gnome.Shell.Eval` disabled
+  (`(false, '')`), and the a11y bus exposes only `org.a11y.atspi.Registry`.
+- The injected virtual devices were destroyed in the same run (`grep -c
+  live-acceptance /proc/bus/input/devices` is 0 afterwards); the X windows the
+  probes opened are the app's own.
+
+The two checks were therefore run by the user, on the app's own windows, and
+both confirmed on 2026-10-16. What they cover, so the confirmation is
+reproducible from this file: the `links` fixture's four bars are at page y
+100-120 / 140-160 / 180-200 / 220-240 mm, the fourth carrying one action with two
+explicit `Region` areas (left half page x 40-70 mm, right half 75-100 mm); the
+hover check is that each half's tooltip anchors over *that* half (the pre-R17
+symptom was the second region anchoring on the first), that the second and third
+bars show their `URI`s (the third falling back past the unresolved GOTO to page
+99 — R11), and that either half of the fourth bar navigates to page 2. Phase
+20's optional pass is the same window discipline on `text-2pages.ofd`:
+double-click selects the word, triple-click the line, `Ctrl+C` copies it, and
+`Ctrl+R` followed by `PageDown` neither crashes nor blanks the page.
+
+### Item 4 — the CLA sentence on the five upstream PRs
+
+Posted on 2026-10-16 with the string the bot itself asks for, taken from its own
+workflow input (`custom-pr-sign-comment`, not invented):
+`I have read the CLA Document and I hereby sign the CLA.` — on
+[#11](https://github.com/linuxdeepin/rofd/pull/11#issuecomment-6217430802),
+[#12](https://github.com/linuxdeepin/rofd/pull/12#issuecomment-6217431395),
+[#13](https://github.com/linuxdeepin/rofd/pull/13#issuecomment-6217431955),
+[#14](https://github.com/linuxdeepin/rofd/pull/14#issuecomment-6217432599) and
+[#15](https://github.com/linuxdeepin/rofd/pull/15#issuecomment-6217433327).
+
+It does **not** turn the check green, and that is an upstream defect, not a
+missing signature: the comment-triggered re-run
+([38914310384](https://github.com/linuxdeepin/rofd/actions/runs/38914310384))
+fails exactly like the original one, with `Could not update the JSON file: Error
+occured when creating a pull request comment: Resource not accessible by
+integration` — the reusable `cla-check` workflow's GitHub App has no write access
+in `linuxdeepin/rofd`, so it can neither post its comment nor persist a
+signature. Recorded as R22 in `findings.md`; the PRs stay blocked on
+`needs-ok-to-test` (an org member's approval) as well. Nothing here blocks a
+release: the carried ABI ships through the fork tag, which is what the AUR
+package builds.
+
+### Item 3 — `release.yml`'s `pin` job, now CI-verified
+
+A plain re-run cannot verify the fix, and that was established by observation
+before building anything: `gh run rerun 38845166083 --failed` re-ran the job with
+the workflow file **as of the tag's commit** (the log's script starts at
+`tag="$GITHUB_REF_NAME"` with no `repo="$GITHUB_REPOSITORY"` line, i.e. R20's
+code) and failed identically — `failed to run git: fatal: not a git repository`,
+`pin` started 2026-10-16T13:51:36Z, conclusion `failure`. Re-running re-exercises
+the old code, not the fix.
+
+What does exercise the fix is a ref whose tree carries it, which is what the
+workflow's own `workflow_dispatch` input is for ("Re-runs the release path for the
+ref you pick"). Harness, 2026-10-16:
+
+1. `git tag ci-release-pin-check 0458f96` — the commit that is `origin/main`, so
+   the tag's tree carries the fixed workflow and nothing new is published — and
+   pushed it. A non-`v` name, so the tag-push trigger does not fire and the
+   dispatch is the only thing that runs.
+2. `gh workflow run release.yml --ref ci-release-pin-check` →
+   [38914235518](https://github.com/YangtseSu/papers-ofd/actions/runs/38914235518):
+   **green in both jobs** — `checks` 14:15:07Z→14:17:26Z, `pin`
+   14:17:29Z→14:17:36Z. The first CI run of the fixed job, and the only red left
+   in the history is the original `v51.1.2` run, which stays red by design (the
+   tag's tree predates the fix; a published tag is never moved, D13).
+3. The `pin` job created the release for that tag and wrote the pin block into
+   it: `sha256 14638114bb7a49cca61df900f6e8a2119b58b58c345eb0269d6ccdcb6a405d42`,
+   byte-identical to an independent
+   `curl -fsSL https://github.com/YangtseSu/papers-ofd/archive/refs/tags/ci-release-pin-check.tar.gz | sha256sum`
+   — i.e. the job's placeholder-free path (new release, generated notes, pin
+   appended) and its `-R "$GITHUB_REPOSITORY"` calls both work on the runner.
+4. Cleanup: `gh release delete ci-release-pin-check --yes --cleanup-tag` and
+   `git tag -d ci-release-pin-check`. Verified afterwards: `git ls-remote --tags
+   origin` has no such ref, and the release list is `v51.1.2` (`latest`) and
+   `v51.1.1` again.
+
+This closes audit item 3: the fix is no longer "verified outside CI only".

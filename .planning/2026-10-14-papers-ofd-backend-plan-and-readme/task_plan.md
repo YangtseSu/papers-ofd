@@ -49,8 +49,7 @@ Session split agreed 2026-10-15: phase 20 + 21 are one session (blockers plus th
 mechanical fixes), phases 22–24 a second (render budget, concurrency, CI/packaging
 — each needs the decision recorded in Key Questions 7–9), phase 25 a third
 (documentation corrections), phase 26 a fourth (the `51.1.2` release and the AUR
-repackage — executed 2026-10-16, with the `pacman -Rns` uninstall regression as
-the user's remaining step).
+repackage — executed 2026-10-16, the `pacman -Rns` uninstall regression with it).
 
 *The text below is the phase-19 handoff history, kept as the record of where this
 campaign started from.*
@@ -132,8 +131,13 @@ difference 3.28) and the open-latency table for both page-size paths; `meson tes
 7/7 in both builds; the four GUI items were user-confirmed on the live session.
 Evidence is in `progress.md`.
 
-Open user action (not blocking): post the CLA sentence on upstream rofd PRs #11
-and #12 when convenient.
+Open user action (not blocking, unchanged as of 2026-10-16): the CLA sentence on
+the upstream rofd PRs — all five are open with `needs-ok-to-test` and a red
+`clacheck / CLAssistant`: [#11](https://github.com/linuxdeepin/rofd/pull/11)
+(page size), [#12](https://github.com/linuxdeepin/rofd/pull/12) (`.pc`),
+[#13](https://github.com/linuxdeepin/rofd/pull/13) (font advances),
+[#14](https://github.com/linuxdeepin/rofd/pull/14) (decode budget),
+[#15](https://github.com/linuxdeepin/rofd/pull/15) (region-AA tolerance).
 
 ## Current Phase
 
@@ -143,10 +147,18 @@ corrections and the R17/R18 link defects are committed and verified — plan
 `_build` and `_build-slow` (the links test also clean under `_build-asan`). `main`
 is pushed (`17c5769..e65bb01`) and CI is green in the Arch container (run
 38816196820: module, page-size fallback and installed-`.pc` builds plus `reuse
-lint`). Next: phase 26 (the `51.1.2` release, AUR repackage and the `pacman -Rns`
-uninstall regression), which is user-gated; `docs/plan.md` phases 0–3 stay shipped
-and accepted and phase 4 (upstream MR) remains the last planned module
-work.
+lint`). Phase 26 is complete as well (2026-10-16): `51.1.2` is tagged and
+released, AUR `papers-ofd 51.1.2-1` is published and installed here, the
+`pacman -Rns` uninstall regression ran, and R20/R21 hardened `release.yml` and the
+CI dependency step (R20's fix is CI-verified too, via the dispatch harness in
+`progress.md` §"Item 3"). The user ran the two GUI-only acceptances on 2026-10-16
+(phase 27's hover check, phase 20's optional pass; the injection attempts and the
+resulting boundary are in §"Item 2"), and the CLA sign sentence is posted on all
+five upstream PRs (§"Item 4" — the check itself stays red on the upstream infra
+defect R22). The only open work left is `docs/plan.md` phase 4, the optional
+upstream MR, which also retires the `NoDisplay` association entry and the Sushi
+plugin and carries reports A23/A29 upstream. Remaining bookkeeping: nothing —
+every phase in this file carries its final status.
 
 ## Phases
 
@@ -231,7 +243,7 @@ work.
 - [x] Headless Ctrl+F acceptance: Papers' own search context over the text fixture (snippets for ASCII/CJK/case-sensitive/whole-word), which also surfaced an upstream defect (A23: a `PpsSearchContext` cannot be finalized)
 - [x] Two real defects found and fixed: `pps_outlines_new`/`pps_outlines_set_link` are declared but not exported (A21), and the MIME magic priority made content-only detection answer `application/zip` (A22, the previewer/fd path)
 - [x] GUI acceptance on the live session (user-confirmed 2026-10-15, incl. the Ctrl+F highlight after phase 16)
-- **Status:** implementation complete, GUI acceptance open
+- **Status:** complete (2026-10-15; the GUI acceptance named above was user-confirmed, recorded with phase 17's acceptance row)
 
 ### Phase 17: docs/plan.md phase 3 — fd loading and packaging
 
@@ -246,7 +258,7 @@ work.
 - [x] Docs: plan §1 (previewer row), §5 phase-3 steps/evidence, §6 (test list, packaging recipes, previewer invocation), §7 (Arch package section), §8 (fd fallback risk), Appendix A25; README status/capabilities/install/roadmap
 - [x] Sushi plugin (`data/papers-ofd-sushi.js`, option `sushi_plugin_dir`) + `tests/test-sushi-plugin.js`: the first acceptance run showed the space bar falling back to the file-information panel because Sushi derives its document renderer's types from Papers' own desktop file (A26)
 - [x] User installed `0.1.0-2` and confirmed the session items (space bar with the packaged plugin, Nautilus icon/thumbnail, double-click, single app-grid entry); the temporary user-level plugin copy is removed and the packaged file alone reproduces the behaviour
-- [ ] Optional: `pacman -Rns papers-ofd` as the uninstall regression
+- [x] Optional: `pacman -Rns papers-ofd` as the uninstall regression — done by the user 2026-10-16 on `51.1.2-1`: the transaction removed exactly our package (progress.md §"Install and uninstall acceptance")
 - **Status:** complete and accepted
 
 ### Phase 16: rofd font-resolved text geometry (Ctrl+F highlight offset)
@@ -316,7 +328,7 @@ work.
 - [x] R2: every refusal/failure path of `ofd_selection_get_selection_region` returns an empty `cairo_region_t`, never NULL (poppler's contract)
 - [x] R2 test: a rotated render context yields a non-NULL empty region
 - [x] `meson test` 13/13 (plus the two new cases) in `_build` and `_build-slow`
-- [ ] Optional if a GUI session is available: double-click selects the word, triple-click the line, Ctrl+C copies it, PageDown after Ctrl+R does not crash
+- [x] Optional GUI pass run by the user 2026-10-16 on `_build/tests/text-2pages.ofd`: double-click selects the word, triple-click the line, `Ctrl+C` copies it, `Ctrl+R` followed by `PageDown` neither crashes nor blanks the page (progress.md §"Item 2")
 - **Status:** complete (2026-10-15; the optional GUI pass is the only open box)
 
 ### Phase 21: Mechanical robustness fixes (R5, R6, R8, R9, R11, R12, R13, R16)
@@ -381,7 +393,7 @@ and watching them fail.*
 - [x] `meson.build` → `51.1.2` (D13: the fixes move the last component) with every tracked statement of the current release (README status/install/version and the `checkdepends` note, plan D13/§6/§7, `AGENTS.md`); commit `61affd3`, pushed to `main` (`edeb0a0..61affd3`) with checks green ([38844929158](https://github.com/YangtseSu/papers-ofd/actions/runs/38844929158))
 - [x] Counts made exact before committing: 13/13 in `_build` and `_build-slow` (no `-Drofd_src`; the suite has 13 groups, the 14th being `ofd-oracle`), 14/14 in a `-Drofd_src` build, `reuse lint` 57/57
 - [x] Tag `v51.1.2` (annotated) pushed; `checks` green on the tag tree
-- [x] R20 found by that push and fixed: the `pin` job's `gh` calls had no repository to work from (no checkout), so it died with `fatal: not a git repository` and no release was created; each call now passes `-R "$GITHUB_REPOSITORY"` and the title is `papers-ofd $tag` — verified by running the extracted step in a non-git directory, which created the release with the pin block `f79eb779…d9558`
+- [x] R20 found by that push and fixed: the `pin` job's `gh` calls had no repository to work from (no checkout), so it died with `fatal: not a git repository` and no release was created; each call now passes `-R "$GITHUB_REPOSITORY"` and the title is `papers-ofd $tag` — verified by running the extracted step in a non-git directory, which created the release with the pin block `f79eb779…d9558`; **CI-verified 2026-10-16** by dispatching this workflow on a throwaway tag that points at the released tree (both jobs green, the pin block matching an independent `curl | sha256sum`), the tag and its release deleted afterwards — progress.md §"Item 3"
 - [x] AUR `papers-ofd 51.1.2-1`: `pkgver`/`pkgrel`, `source=`, sha256, comment, regenerated `.SRCINFO`; `makepkg -C -f` green with `check()` 13/13 and the same six installed files; pushed `f64a19c..05b9e2d`. The AUR hook declines a non-fast-forward push, so the one inaccurate sentence in that commit message (it claimed `ofd-print-file` skipped) could not be corrected in place — `progress.md` §"phase 26" carries the accurate record
 - [x] The phase-3 uninstall regression and the install, both done by the user on 2026-10-16: `pacman -U` upgraded `0.1.0-6` → `51.1.2-1`, `pacman -Rns papers-ofd` removed exactly our package with nothing else in the transaction, reinstall clean; from `/usr` with no overrides the MIME query, the thumbnailer (PNG 181×256), the previewer's fd path, `papers <fixture>` (931 module debug lines, zero CRITICAL/ERROR) and `papers <pdf>` are all clean. Noted: `deepin-reader`, installed here, now holds the `application/ofd` default because our association entry is `NoDisplay` — the documented cost of that route, removed by phase 4
 - **Status:** complete (2026-10-16)
@@ -397,7 +409,7 @@ executed before phase 26 so both fixes ship in `51.1.2`.*
 - [x] R18 fix: `ofd_link_dest_from_rofd` requires all four `HAS_*` bits and a positive box for `FitR`, otherwise it fits the page, observed green
 - [x] Docs: plan §3 (`get_links`, destinations), §6's `links` fixture row, A30/A31; `meson test` 14/14 in `_build` and `_build-slow` (also clean under `_build-asan`), `reuse lint`
 - [x] Pushed (`17c5769..e65bb01` on `main`) and CI green in the Arch container ([run 38816196820](https://github.com/YangtseSu/papers-ofd/actions/runs/38816196820), 157.8 s)
-- **Status:** complete (2026-10-16)
+- **Status:** complete (2026-10-16; the hover check the headless test cannot observe — the tooltip's tip area — was run by the user on the live window the same day, progress.md §"Item 2")
 
 ## Key Questions
 

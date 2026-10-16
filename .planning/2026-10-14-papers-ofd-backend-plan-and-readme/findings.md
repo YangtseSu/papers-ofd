@@ -466,6 +466,8 @@ Nothing from the review remains open: R1–R18 are closed (R11 withdrawn with th
 probe recorded above), R19 is closed by phases 20–25, and the two upstream-report
 candidates (A23, A29) stay in the plan's §8 for phase 4.
 
+| R22 | `clacheck / CLAssistant` fails on **every** PR in `linuxdeepin/rofd`, and not for a missing signature: the job ends with `Could not update the JSON file: Error occured when creating a pull request comment: Resource not accessible by integration`, i.e. the reusable `cla-check` workflow's GitHub App has no write access in the repository, so it can neither post its own comment nor persist a signature. Observed twice: the original run and the re-run triggered by posting the sign sentence on #11–#15 | not ours to fix (upstream infra); recorded so phase 4 does not wait on it | run [38914310384](https://github.com/linuxdeepin/rofd/actions/runs/38914310384) (`##[error]Could not update the JSON file: …`), the same line in the 2026-10-14 run, and the five comments |
+
 ### Found by the v51.1.2 release run (2026-10-16, phase 26)
 
 | Item | Defect | Fix | Evidence |
