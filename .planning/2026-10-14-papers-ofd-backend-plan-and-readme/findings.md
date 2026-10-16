@@ -465,3 +465,9 @@ documentation items of R19.
 Nothing from the review remains open: R1–R18 are closed (R11 withdrawn with the
 probe recorded above), R19 is closed by phases 20–25, and the two upstream-report
 candidates (A23, A29) stay in the plan's §8 for phase 4.
+
+### Found by the v51.1.2 release run (2026-10-16, phase 26)
+
+| Item | Defect | Fix | Evidence |
+| --- | --- | --- | --- |
+| R20 | the `pin` job of `release.yml` has no `actions/checkout` — it only needs the tag archive — so `gh` had no repository to infer from and the step died with `failed to run git: fatal: not a git repository (or any of the parent directories): .git` after computing the checksum: the tag push of `v51.1.2` produced a green `checks` job and a **red** `pin` job, and no release was created. The first tag ever pushed through this workflow, which is why it had not been exercised | every `gh` call names the repository explicitly (`-R "$GITHUB_REPOSITORY"`) | run [38845166083](https://github.com/YangtseSu/papers-ofd/actions/runs/38845166083) (`checks`: success, `pin`: failure) and the failing log line; the fixed script extracted from the workflow and run in a non-git directory created the release and printed the same checksum, which is also the AUR pin |

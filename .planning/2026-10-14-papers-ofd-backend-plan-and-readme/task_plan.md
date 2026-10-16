@@ -7,47 +7,43 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
-**Session C (phase 25 and, on the user's request, phase 27) is complete and stops
-here.** Phase 25: the R19 documentation
-corrections are in: plan §2's file tree (no `debian/`; scripts/patches/.github and
-the Sushi plugin listed), §3's selection/rotation row (a refusal drops the reused
-surface and answers an empty region), §5 phase-0's acceptance (the deliberate
-discovery failure is the `ofd-discovery-failure` assertion since R6), §5's
-phase-1 latency note (post-phase-23 re-measurement), §6's `strip` fixture row,
-§7's file count (six), and the README items (module + five data files, the
-descriptor's `TypeDescription`, the open-latency numbers per build, and the
-`-v`/testlog correction for the ABI-classifier line). A16 and §3's "empty region"
-wording were already correct from phases 20–22. Verified after the edits: both
-documents' fences balanced, all 13 relative links (anchors included) resolve,
-edited citations spot-checked, `reuse lint` 57/57, `meson test -C _build` 14/14,
-and the latency bands re-measured in both builds (shipping ~130–140 ms, fallback
-~115–120 ms). Evidence: `progress.md` §"session C".
+**Phase 26 (release `51.1.2`) is complete except for the user's uninstall
+regression.** The release commit `61affd3` — `meson.build` to `51.1.2` (D13) plus
+every tracked statement of the current release — is on `main` (`edeb0a0..61affd3`)
+with checks green
+([38844929158](https://github.com/YangtseSu/papers-ofd/actions/runs/38844929158)),
+and `v51.1.2` is tagged on it. The tag push's run
+[38845166083](https://github.com/YangtseSu/papers-ofd/actions/runs/38845166083)
+was green in `checks` and red in `pin`: R20 — that job has no checkout, so `gh`
+could not infer the repository (`fatal: not a git repository`) and no release was
+created. Fixed in `release.yml` (every `gh` call names the repository, and the
+title is `papers-ofd $tag`), verified by running the extracted step from a
+non-git directory: the release
+<https://github.com/YangtseSu/papers-ofd/releases/tag/v51.1.2> exists with the
+generated notes and the pin block `f79eb779…d9558`, the same value an independent
+`curl | sha256sum` of the tag archive yields (and the same method reproduces
+`v51.1.1`'s pin). The AUR followed: `papers-ofd 51.1.2-1` pushed as
+`f64a19c..05b9e2d`, `makepkg -C -f` green with `check()` 13/13 and the same six
+installed files. Evidence: `progress.md` §"phase 26", `findings.md` R20.
 
-Phase 27 (R17/R18, requested by the user on 2026-10-16) is also complete: one
-`PpsLink` per hit region (the view resolves a link's area by pointer identity) and
-a `FitR` destination only for a complete, non-empty box (an incomplete one used to
-mean "jump to maximum zoom"); both were written test-first and observed red before
-the fix. Evidence: `progress.md` §"session C — phase 27" and A30/A31.
+Still the user's: `pacman -Rns papers-ofd` (the phase-3 uninstall regression — it
+needs a password) and, as its companion, installing `51.1.2-1` on this machine,
+which still carries `0.1.0-6`.
 
-Phase 26 (`51.1.2`: version bump, tag, GitHub release, AUR repackage, and the
-still-open `pacman -Rns` uninstall regression) is user-gated and starts next — it
-now carries the phase-27 fixes as well.
+Both user steps carried over from phase 24 are closed: the AUR `checkdepends`
+revision was published as `51.1.1-2` (`c2f0387..f64a19c`), and the branch push ran
+CI green ([38816196820](https://github.com/YangtseSu/papers-ofd/actions/runs/38816196820)).
 
-Also still the user's, from phase 24:
-
-1. the AUR `papers-ofd` revision — the prepared `checkdepends` diff and the
-   regenerated `.SRCINFO` (the working copy is
-   `~/projects/ofd-reader/papers-ofd-aur`, left uncommitted on purpose);
-2. ~~a branch push, if CI should run the new steps~~ — **done 2026-10-16**:
-   `main` was pushed as `17c5769..e65bb01` and CI is green
-   ([run 38816196820](https://github.com/YangtseSu/papers-ofd/actions/runs/38816196820)),
-   which covers the new fallback and installed-`.pc` steps in the real container.
+After that, `docs/plan.md` phase 4 (the upstream MR into Papers'
+`libdocument/backend/ofd/`) is the only planned module work left; it is optional
+and waits for a Papers-side slot.
 
 Session split agreed 2026-10-15: phase 20 + 21 are one session (blockers plus the
 mechanical fixes), phases 22–24 a second (render budget, concurrency, CI/packaging
 — each needs the decision recorded in Key Questions 7–9), phase 25 a third
-(documentation corrections), phase 26 a fourth and user-gated (51.1.2 release,
-AUR repackage, and the still-open `pacman -Rns` uninstall regression).
+(documentation corrections), phase 26 a fourth (the `51.1.2` release and the AUR
+repackage — executed 2026-10-16, with the `pacman -Rns` uninstall regression as
+the user's remaining step).
 
 *The text below is the phase-19 handoff history, kept as the record of where this
 campaign started from.*
@@ -373,12 +369,15 @@ and watching them fail.*
 - [x] Re-verified anchors, paths and citations after the edits (the phase-4 rule): 13 links resolve, fences balanced, `reuse lint` 57/57, `meson test` 14/14
 - **Status:** complete (2026-10-16; A16 and the §3 "empty region" wording were already correct from phases 20–22, see `progress.md` §"session C")
 
-### Phase 26: Release 51.1.2 and AUR repackage (user-gated)
+### Phase 26: Release 51.1.2 and AUR repackage
 
-- [ ] `meson.build` version → `51.1.2` (D13: fixes move the last component), tag `v51.1.2`, GitHub release after CI is green
-- [ ] AUR `papers-ofd`: `pkgver=51.1.2`, new `source=` and sha256, regenerated `.SRCINFO`, `makepkg -C -f`; the push is the user's step
-- [ ] Still open from phase 3: the `pacman -Rns papers-ofd` uninstall regression
-- **Status:** pending
+- [x] `meson.build` → `51.1.2` (D13: the fixes move the last component) with every tracked statement of the current release (README status/install/version and the `checkdepends` note, plan D13/§6/§7, `AGENTS.md`); commit `61affd3`, pushed to `main` (`edeb0a0..61affd3`) with checks green ([38844929158](https://github.com/YangtseSu/papers-ofd/actions/runs/38844929158))
+- [x] Counts made exact before committing: 13/13 in `_build` and `_build-slow` (no `-Drofd_src`; the suite has 13 groups, the 14th being `ofd-oracle`), 14/14 in a `-Drofd_src` build, `reuse lint` 57/57
+- [x] Tag `v51.1.2` (annotated) pushed; `checks` green on the tag tree
+- [x] R20 found by that push and fixed: the `pin` job's `gh` calls had no repository to work from (no checkout), so it died with `fatal: not a git repository` and no release was created; each call now passes `-R "$GITHUB_REPOSITORY"` and the title is `papers-ofd $tag` — verified by running the extracted step in a non-git directory, which created the release with the pin block `f79eb779…d9558`
+- [x] AUR `papers-ofd 51.1.2-1`: `pkgver`/`pkgrel`, `source=`, sha256, comment, regenerated `.SRCINFO`; `makepkg -C -f` green with `check()` 13/13 and the same six installed files; pushed `f64a19c..05b9e2d`. The AUR hook declines a non-fast-forward push, so the one inaccurate sentence in that commit message (it claimed `ofd-print-file` skipped) could not be corrected in place — `progress.md` §"phase 26" carries the accurate record
+- [ ] Still open from phase 3: the `pacman -Rns papers-ofd` uninstall regression (user; needs a password — and installing `51.1.2-1` here, which still carries `0.1.0-6`)
+- **Status:** complete 2026-10-16 except the user's uninstall regression
 
 ### Phase 27: Link-region and FitR defects (R17, R18)
 

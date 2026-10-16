@@ -2237,3 +2237,76 @@ configure/build/test, the page-size fallback build, the installed-`rofd-ffi.pc`
 build, `reuse lint`. This also closes phase 24's open user step 2 ("a branch push,
 if CI should run the new steps"): the two extra CI steps are now verified in the
 real container on a commit that carries them, not only mirrored locally.
+
+## 2026-10-16 (session C): phase 26 — release 51.1.2
+
+### The release commit
+
+- `61affd3` ("release 51.1.2: version bump and the docs that name the current
+  release") bumps `meson.build` to `51.1.2` (D13: the fixes move the last
+  component) and updates every tracked statement of the current release: the
+  README status/install/version paragraphs and the `checkdepends` note (the fonts
+  landed in `51.1.1-2`), plan D13 and §6's packaging block and §7's Arch-package
+  section, and `AGENTS.md`'s version bullet.
+- The test counts were made exact first, because a plain build shows fewer groups
+  than the earlier "14/14" lines claimed: the suite has **13 groups** without
+  `-Drofd_src` (the 14th, `ofd-oracle`, exists only when a rofd checkout with the
+  two fixtures is configured). Observed on the release tree: `meson test -C _build`
+  **13/13**, `meson test -C _build-slow` **13/13**, `meson test -C _build-oracle`
+  (`-Drofd_src=$ROFD_SRC`) **14/14**, `reuse lint` compliant 57/57.
+- The checkout here was 23 commits behind `origin/main` (session A/B/C work) and
+  was fast-forwarded first; the push `edeb0a0..61affd3` triggered checks
+  [38844929158](https://github.com/YangtseSu/papers-ofd/actions/runs/38844929158)
+  — green, every step.
+
+### The tag, and R20 in the release workflow
+
+- Tag `v51.1.2` (annotated) pushed; its workflow run
+  [38845166083](https://github.com/YangtseSu/papers-ofd/actions/runs/38845166083)
+  came back **green in `checks` and red in `pin`** (R20): the `pin` job has no
+  `actions/checkout` on purpose — it only needs the archive — so `gh` had no
+  repository to infer and the step died with `failed to run git: fatal: not a git
+  repository (or any of the parent directories): .git` right after computing the
+  checksum. No release was created. This was the first run of the `pin` path
+  (there is no `release`-workflow run for `v51.1.1`, whose release was created by
+  hand), so nothing had exercised it.
+- Fix in `release.yml`: every `gh` call names the repository
+  (`-R "$GITHUB_REPOSITORY"`), with the reason inline, and the release title
+  becomes `papers-ofd $tag` like the `v51.1.1` release. Verified by extracting the
+  fixed step and running it **from a non-git directory** (the failing condition)
+  with `GITHUB_REPOSITORY`/`GITHUB_REF_NAME` set: it created
+  <https://github.com/YangtseSu/papers-ofd/releases/tag/v51.1.2> with the generated
+  notes plus the pin block, printing `f79eb7798d3a940c18e540bd3dcc2a23178fd151bf2473300036eef0855d9558`.
+- That checksum is independently reproducible: `curl -fsSL
+  https://github.com/YangtseSu/papers-ofd/archive/refs/tags/v51.1.2.tar.gz |
+  sha256sum` gives the same value (and the same method reproduces `v51.1.1`'s pin,
+  `d9c94f4e…`), and the AUR build verifies it. The tag itself was not moved.
+
+### AUR `papers-ofd 51.1.2-1`
+
+- The AUR working copy here was still on the `0.1.0-6` commit pin while the remote
+  was already at the tag-sourced `51.1.1-2` recipe; it was fast-forwarded to
+  `f64a19c` first, so the release needed only `pkgver` 51.1.1 → 51.1.2, `pkgrel`
+  2 → 1, the new `source=` URL and checksum, the version comment and a regenerated
+  `.SRCINFO`.
+- `makepkg -C -f --noconfirm` from a cleaned `src/`/`pkg/` is green: the anonymous
+  download's checksum is verified, `check()` is **13/13** — `ofd-print-file` ran
+  and passed (this session has a display; it skips itself without one) and
+  `ofd-sushi-plugin` passed — and the package's file list is the same six paths as
+  `51.1.1-1`. namcap reports the `gcc-libs` advisory for the package and the
+  pre-existing "make dependency already included" note for the PKGBUILD (the
+  runtime floor is in `depends`, the `>=0.4.3-6` check() floor in `makedepends`).
+- Pushed `f64a19c..05b9e2d` to `ssh://aur@aur.archlinux.org/papers-ofd.git`;
+  `git ls-remote` confirms `05b9e2d`, the RPC index still reports `51.1.1-2` (the
+  usual lag).
+- The pushed commit message claims `ofd-print-file` skipped itself; the test log
+  shows it ran. The corrected message was **rejected** — the AUR hook declines a
+  non-fast-forward push ("hook declined"), i.e. an AUR revision cannot be rewritten
+  in place — so the clone was reset to the published commit and this log carries
+  the accurate record. Bumping `pkgrel` for a message-only change is not justified.
+
+### Still open (user)
+
+- `pacman -Rns papers-ofd` — the phase-3 uninstall regression needs a password, and
+  this machine still has `0.1.0-6` installed, so both installing `51.1.2-1` and the
+  uninstall check after it are the user's step.

@@ -33,13 +33,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
+          # This job deliberately has no checkout (it only needs the archive), so
+          # `gh` cannot infer the repository from a git remote and every call must
+          # name it: without -R the first `gh release view` dies with
+          # "fatal: not a git repository" (found by the v51.1.2 run).
+          repo="$GITHUB_REPOSITORY"
           tag="$GITHUB_REF_NAME"
-          url="https://github.com/$GITHUB_REPOSITORY/archive/refs/tags/$tag.tar.gz"
+          url="https://github.com/$repo/archive/refs/tags/$tag.tar.gz"
           sum=$(curl -fsSL "$url" | sha256sum | awk '{print $1}')
-          if gh release view "$tag" --json body --jq .body > body.md 2>/dev/null; then
+          if gh release view "$tag" -R "$repo" --json body --jq .body > body.md 2>/dev/null; then
             echo "the release exists; keeping its notes"
           else
-            gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            gh api "repos/$repo/releases/generate-notes" \
               -f tag_name="$tag" --jq .body > body.md
           fi
           if grep -qF "$sum" body.md; then
@@ -50,10 +55,10 @@ jobs:
               printf 'The AUR recipe (`papers-ofd`) builds this tag archive. Its `source=` checksum is\n\n'
               printf '```\nsha256  %s\n```\n' "$sum"
             } >> body.md
-            if gh release view "$tag" >/dev/null 2>&1; then
-              gh release edit "$tag" --notes-file body.md
+            if gh release view "$tag" -R "$repo" >/dev/null 2>&1; then
+              gh release edit "$tag" -R "$repo" --notes-file body.md
             else
-              gh release create "$tag" --title "$tag" --notes-file body.md
+              gh release create "$tag" -R "$repo" --title "papers-ofd $tag" --notes-file body.md
             fi
           fi
           printf 'tag archive checksum: %s\n' "$sum" >> "$GITHUB_STEP_SUMMARY"
