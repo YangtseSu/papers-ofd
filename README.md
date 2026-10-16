@@ -30,7 +30,7 @@ descriptor (the Nautilus previewer's path) and ships as an Arch package on the A
   lifetime), and (with `-Drofd_src=<rofd checkout>`) the invoice oracle against
   rofd's reference render.
 - Install: [`papers-ofd` on the AUR](https://aur.archlinux.org/packages/papers-ofd)
-  (`51.1.1-1`), built from the `v51.1.1` tag archive by the AUR recipe, which
+  (`51.1.2-1`), built from the `v51.1.2` tag archive by the AUR recipe, which
   is maintained in the AUR repository — this repository carries no PKGBUILD.
   Remaining: the upstream MR (phase 4).
 
@@ -157,7 +157,7 @@ tests — is in [`docs/plan.md` §6](docs/plan.md#6-verification-playbook).
 ## Install
 
 Arch Linux: [`papers-ofd` on the AUR](https://aur.archlinux.org/packages/papers-ofd)
-(`51.1.1-1`) — `yay -S papers-ofd`, `paru -S papers-ofd`, or
+(`51.1.2-1`) — `yay -S papers-ofd`, `paru -S papers-ofd`, or
 
 ```bash
 git clone https://aur.archlinux.org/papers-ofd.git && cd papers-ofd
@@ -165,13 +165,13 @@ makepkg -si
 ```
 
 The recipe lives in that AUR repository (this repository carries no PKGBUILD, so
-there is no copy to keep in sync); its source is the `v51.1.1` tag archive of this
+there is no copy to keep in sync); its source is the `v51.1.2` tag archive of this
 repository, so `makepkg` verifies a checksum, and its
 `check()` runs the test suite (13 tests on a host with Sushi, 12 without it — the
 invoice oracle needs `-Drofd_src`, which a package build does not have;
 `ofd-print-file` skips itself when GTK has no display). The fonts the suite
-measures with are the recipe's `checkdepends` (`noto-fonts`, `noto-fonts-cjk`; the
-change lands with the next package revision): the fixtures carry text but no font
+measures with are the recipe's `checkdepends` (`noto-fonts`, `noto-fonts-cjk`,
+declared in `51.1.1-2`): the fixtures carry text but no font
 file, so a host without them fails `ofd-text` — with the missing package named
 instead of an opaque assertion (R4, plan §8). Dependencies are
 `librofd-ffi>=0.4.3` (the ABI plus its `rofd-ffi.pc`), `papers>=51` and `papers<52`,
@@ -180,9 +180,10 @@ are not listed because their pacman hooks (which index the MIME xml and the desk
 file) arrive through `papers` already.
 
 Versions track the Papers line rather than our own feature count (plan D13):
-`51.1.1` is the Papers 51 line that the dependency bound asserts, verified against
-Papers 51.1, our first release for that baseline; only the last component moves with
-our releases, and packaging-only changes stay in the AUR `pkgrel`.
+`51.1.2` is the Papers 51 line that the dependency bound asserts, verified against
+Papers 51.1 — the second release for that baseline (`51.1.1` was the first, the
+initial tag; `51.1.2` carries the review campaign's fixes). Only the last component
+moves with our releases, and packaging-only changes stay in the AUR `pkgrel`.
 
 The package also installs the Sushi plugin below (into Sushi's system plugin
 directory; `-Dsushi_plugin_dir` moves or skips it) and lists `sushi` as an optional

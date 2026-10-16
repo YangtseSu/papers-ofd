@@ -105,7 +105,7 @@ Decisions that constrain everything else:
 | D10 | Page sizes come from a configure-time-detected `rofd_document_get_page_size_mm` when the linked rofd has it, otherwise from `rofd_document_get_page` | A17, A18: the fast path already exists in rofd-core but not in the ABI; without detection the module would either need a forked rofd or pay a full-document parse. The fallback keeps stock rofd working |
 | D11 | Dependency strategy is fork-first: `YangtseSu/rofd` mirrors `linuxdeepin/rofd` on `main`, integrates our changes on `dev` (one `feat/*` / `fix/*` branch off `main` per change, merged `--no-ff`, so `git log --merges origin/main..dev` is the carried inventory) and delivers through tags on `dev` (`<upstream>-fork.<n>`, e.g. `v0.4.3-fork.2`); the AUR `librofd-ffi` package builds the tag tarball directly and carries no patch files. `patches/README.md` is the consumer-side inventory, the fork's `FORK.md` its own rules. Upstream PRs stay open as the exit path, not as the plan's critical path | PR #11 has drawn only bot traffic since 2026-10-14 (CLA, ok-to-test, OWNERS approval) and the upstream project serves deepin's own client, so acceptance is unlikely on our schedule. The fork releases keep the wait off the critical path and the AUR package a plain `source=` + `sha256sums`; `patches/README.md` indexes what each release carries, so a machine without the fork reproduces the same ABI; D10's configure-time probe keeps the module working against stock rofd in either case |
 | D12 | Annotation editing is out of v1; if taken up it is implemented against GB/T 33190-2016 clause 15 and annex A.3/A.4 inside the fork, with **no** dependency on `office-rs/rofd`, which stays a read-only craft reference. Future scope: a writer in `rofd-core`, additive ABI calls (list/add/remove annotations, save), then the module's `PpsDocumentAnnotations` and a real `PpsDocument::save` | The whole toolset is gated on that one interface, and both `get_annotations` and `PpsDocument::save` are dispatched without NULL checks (`libdocument/pps-document-annotations.c:26-32`, `pps-document.c:461-469`); our reader drops any `Annot` whose `Type` is outside the standard's five values, so the writer must stay inside them (`crates/rofd-core/src/document.rs:1055-1080`); the engine cannot change (cairo rasterization, find/links/outline, our patched ABI), and `office-rs/rofd` cannot embed the image a Papers stamp needs. Detail: §10 |
-| D13 | Version scheme `<Papers line>.<verified baseline>.<our release>`: `51.1.1` is the Papers 51 line (the `papers-document-4.0` bound `>=51,<52`), verified against Papers 51.1, the first release of ours for that baseline. Only the first two fields move with the baseline, the third counts our own releases (fixes included), packaging-only changes stay in the AUR `pkgrel`; a published tag is never moved | The module's compatibility contract is the Papers line and the backend directory (`papers/6`), not a feature count of ours; `0.x` would say nothing about which Papers a package belongs to and would desynchronise from the `pkgver` users already have. Baseline jumps stay monotonic (`51.1.5` → `52.0.0`) |
+| D13 | Version scheme `<Papers line>.<verified baseline>.<our release>`: `51.1.x` is the Papers 51 line (the `papers-document-4.0` bound `>=51,<52`), verified against Papers 51.1 — `51.1.1`, the first release of ours for that baseline, then `51.1.2` with the review campaign's fixes. Only the first two fields move with the baseline, the third counts our own releases (fixes included), packaging-only changes stay in the AUR `pkgrel`; a published tag is never moved | The module's compatibility contract is the Papers line and the backend directory (`papers/6`), not a feature count of ours; `0.x` would say nothing about which Papers a package belongs to and would desynchronise from the `pkgver` users already have. Baseline jumps stay monotonic (`51.1.5` → `52.0.0`) |
 
 ## 3. Interface contract
 
@@ -670,7 +670,7 @@ Packaging and install checks (Arch; no container, the package is built and
 installed on this machine):
 
 ```bash
-# build + verify the package from the AUR recipe (source = the v51.1.1 tag archive
+# build + verify the package from the AUR recipe (source = the v51.1.2 tag archive
 # of the public repository; the checksum is checked on every build)
 git clone https://aur.archlinux.org/papers-ofd.git /tmp/ofd-pkg && cd /tmp/ofd-pkg
 makepkg -f --noconfirm          # runs check(): 12-13 tests, ofd-print-file skips headless
@@ -688,7 +688,7 @@ xdg-mime query filetype <fixture>.ofd          # application/ofd
 xdg-mime query default application/ofd         # org.gnome.Papers.Ofd.desktop
 
 # install (password needed: the user's step) and uninstall regression
-sudo pacman -U papers-ofd-51.1.1-1-x86_64.pkg.tar.zst
+sudo pacman -U papers-ofd-51.1.2-1-x86_64.pkg.tar.zst
 sudo pacman -Rns papers-ofd                    # then: papers <some>.pdf still opens
 ```
 
@@ -785,8 +785,8 @@ declarations but not line numbers or `.c` bodies.
 ### Arch package (the delivery route)
 
 The recipe is the AUR repository
-[`papers-ofd`](https://aur.archlinux.org/packages/papers-ofd) (`51.1.1-1` as of
-2026-10-15) — maintained there and nowhere else, so there is no copy to keep in
+[`papers-ofd`](https://aur.archlinux.org/packages/papers-ofd) (`51.1.2-1` as of
+2026-10-16) — maintained there and nowhere else, so there is no copy to keep in
 sync (the same holds for `librofd-ffi` and the fork's `dev` branch). `debian/` follows only
 when a non-Arch consumer appears.
 
@@ -797,7 +797,7 @@ when a non-Arch consumer appears.
   listed: their pacman hooks index our MIME xml and desktop file, and `papers`
   already requires both (`pactree -u papers` shows them) — namcap agrees.
 - `makedepends`: `meson`, `gtk4`, `poppler-glib` (the test suite links them).
-- `source`: the tag archive of the public `YangtseSu/papers-ofd` — `v51.1.1` today.
+- `source`: the tag archive of the public `YangtseSu/papers-ofd` — `v51.1.2` today.
   The recipe names the release tag, so `pkgver` is the tag's version, the tree it
   builds is exactly that tag, and a release means a new tag plus a `source=` update;
   the AUR repository is the published recipe and its only copy.

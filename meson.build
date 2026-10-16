@@ -1,8 +1,9 @@
 # Version scheme (plan D13): <Papers line>.<verified baseline>.<our release>.
-# 51.1.1 = the Papers 51 line (the papers-document-4.0 bound below), verified
-# against Papers 51.1 (tag `51.1`), the first release of ours for that baseline.
+# 51.1.x = the Papers 51 line (the papers-document-4.0 bound below), verified
+# against Papers 51.1 (tag `51.1`); the last component counts our releases for
+# that baseline (51.1.1 first, 51.1.2 second).
 project('papers-ofd', 'c',
-  version: '51.1.1',
+  version: '51.1.2',
   license: 'GPL-2.0-or-later',
   meson_version: '>= 1.0',
   default_options: [
