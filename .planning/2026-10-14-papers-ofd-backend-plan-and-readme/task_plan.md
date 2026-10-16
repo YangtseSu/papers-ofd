@@ -7,8 +7,7 @@ papers-ofd OFD backend, grounded in verified Papers 51.1 / rofd ABI v1 behaviour
 
 ## Next Step
 
-**Phase 26 (release `51.1.2`) is complete except for the user's uninstall
-regression.** The release commit `61affd3` — `meson.build` to `51.1.2` (D13) plus
+**Phase 26 (release `51.1.2`) is complete.** The release commit `61affd3` — `meson.build` to `51.1.2` (D13) plus
 every tracked statement of the current release — is on `main` (`edeb0a0..61affd3`)
 with checks green
 ([38844929158](https://github.com/YangtseSu/papers-ofd/actions/runs/38844929158)),
@@ -26,9 +25,17 @@ generated notes and the pin block `f79eb779…d9558`, the same value an independ
 `f64a19c..05b9e2d`, `makepkg -C -f` green with `check()` 13/13 and the same six
 installed files. Evidence: `progress.md` §"phase 26", `findings.md` R20.
 
-Still the user's: `pacman -Rns papers-ofd` (the phase-3 uninstall regression — it
-needs a password) and, as its companion, installing `51.1.2-1` on this machine,
-which still carries `0.1.0-6`.
+The user's remaining step is done too: `51.1.2-1` is installed on this machine
+(`pacman.log`: `upgraded papers-ofd (0.1.0-6 -> 51.1.2-1)`), the `pacman -Rns
+papers-ofd` transaction removed exactly our package and nothing else, and the
+runtime checks from `/usr` are clean (MIME → `application/ofd`, thumbnailer PNG
+181×256, previewer `--fd 3` opens, `papers <fixture>` and `papers <pdf>` run with
+zero CRITICAL/ERROR). One environment change is recorded rather than fixed:
+`deepin-reader` is installed here and claims `application/ofd` with a visible
+entry, so the default association for the type is now deepin-reader
+(`xdg-mime query default`); our `NoDisplay` entry loses it by design, and phase 4
+is what restores a visible Papers entry. Evidence: `progress.md` §"install and
+uninstall acceptance".
 
 Both user steps carried over from phase 24 are closed: the AUR `checkdepends`
 revision was published as `51.1.1-2` (`c2f0387..f64a19c`), and the branch push ran
@@ -376,8 +383,8 @@ and watching them fail.*
 - [x] Tag `v51.1.2` (annotated) pushed; `checks` green on the tag tree
 - [x] R20 found by that push and fixed: the `pin` job's `gh` calls had no repository to work from (no checkout), so it died with `fatal: not a git repository` and no release was created; each call now passes `-R "$GITHUB_REPOSITORY"` and the title is `papers-ofd $tag` — verified by running the extracted step in a non-git directory, which created the release with the pin block `f79eb779…d9558`
 - [x] AUR `papers-ofd 51.1.2-1`: `pkgver`/`pkgrel`, `source=`, sha256, comment, regenerated `.SRCINFO`; `makepkg -C -f` green with `check()` 13/13 and the same six installed files; pushed `f64a19c..05b9e2d`. The AUR hook declines a non-fast-forward push, so the one inaccurate sentence in that commit message (it claimed `ofd-print-file` skipped) could not be corrected in place — `progress.md` §"phase 26" carries the accurate record
-- [ ] Still open from phase 3: the `pacman -Rns papers-ofd` uninstall regression (user; needs a password — and installing `51.1.2-1` here, which still carries `0.1.0-6`)
-- **Status:** complete 2026-10-16 except the user's uninstall regression
+- [x] The phase-3 uninstall regression and the install, both done by the user on 2026-10-16: `pacman -U` upgraded `0.1.0-6` → `51.1.2-1`, `pacman -Rns papers-ofd` removed exactly our package with nothing else in the transaction, reinstall clean; from `/usr` with no overrides the MIME query, the thumbnailer (PNG 181×256), the previewer's fd path, `papers <fixture>` (931 module debug lines, zero CRITICAL/ERROR) and `papers <pdf>` are all clean. Noted: `deepin-reader`, installed here, now holds the `application/ofd` default because our association entry is `NoDisplay` — the documented cost of that route, removed by phase 4
+- **Status:** complete (2026-10-16)
 
 ### Phase 27: Link-region and FitR defects (R17, R18)
 

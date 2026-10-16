@@ -275,9 +275,13 @@ patch-free vs patch-the-desktop tradeoff:
   plugin loads with an error and previews of other types are unaffected.
 - "Open With" in Nautilus lists every installed application, so both desktop
   entries that run `papers` (Papers' own and this package's `NoDisplay`
-  association entry) appear as rows there. `application/ofd` itself is registered
-  on one entry only; the duplicate disappears with the phase-4 move, which also
-  retires the association entry.
+  association entry) appear as rows there. Where another package declares
+  `application/ofd` with a *visible* entry it wins the default association —
+  observed with `deepin-reader` installed, where `xdg-mime query default
+  application/ofd` answers `deepin-reader.desktop` — because a `NoDisplay` entry
+  is not offered as a default; `xdg-mime default org.gnome.Papers.Ofd.desktop
+  application/ofd` sets ours for the user. Both the duplicate and this route
+  disappear with the phase-4 move, which also retires the association entry.
 - Named destinations (`find_link_dest`/`find_link_page`) are stubs.
 - Selection is declined on rotated pages, which is where Papers refuses to start
   one itself ("Selection in rotated documents has never worked", `pps-view.c`).

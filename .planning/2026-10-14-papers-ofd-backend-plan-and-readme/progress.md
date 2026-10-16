@@ -2309,7 +2309,36 @@ real container on a commit that carries them, not only mirrored locally.
 
 - `pacman -Rns papers-ofd` — the phase-3 uninstall regression needs a password, and
   this machine still has `0.1.0-6` installed, so both installing `51.1.2-1` and the
-  uninstall check after it are the user's step.
+  uninstall check after it are the user's step. **Done 2026-10-16, see below.**
+
+### Install and uninstall acceptance (user, 2026-10-16)
+
+- `pacman.log`: `upgraded papers-ofd (0.1.0-6 -> 51.1.2-1)` at 12:08:12, then
+  `pacman -Rns papers-ofd`, whose transaction removed **exactly**
+  `papers-ofd (51.1.2-1)` and completed with no other package in it — the phase-3
+  uninstall regression, open since the first package: nothing outside our six paths
+  is touched — and then `installed papers-ofd (51.1.2-1)` at 12:09:11.
+- `pacman -Ql papers-ofd` lists the same six paths as the package build.
+- From `/usr` with no overrides: `xdg-mime query filetype _build/tests/text-2pages.ofd`
+  → `application/ofd`; `papers-thumbnailer -s 256` → PNG 181×256, exit 0;
+  `papers-previewer --fd 3` opened and stayed up (killed by `timeout` after 8 s,
+  exit 124) with zero CRITICAL/ERROR; `G_MESSAGES_DEBUG=all papers <fixture>` ran
+  for 15 s and logged **931 `papers-ofd-DEBUG` lines** — all render diagnostics for
+  the fixture's font fallback — with zero CRITICAL/ERROR, i.e. the installed module
+  is what served the document; the same run on `_build/phase1-print-to-file.pdf`
+  rendered through the PDF backend (a render job finished and disposed) with zero
+  CRITICAL/ERROR, so the regression holds. The only warnings are this session's own
+  GTK 4 `settings.ini` keys (`gtk-button-images`, `gtk-menu-images`, `gtk-modules`).
+- Association change on this machine, worth keeping: `deepin-reader 6.6.2-2` is
+  installed and its desktop file claims `application/ofd` as well, so
+  `xdg-mime query default application/ofd` now answers `deepin-reader.desktop`
+  (`~/.config/mimeapps.list` sets no default, and `gio mime application/ofd` lists
+  only the visible competitor): our `NoDisplay=true` entry — deliberate, plan §7 —
+  lost the default it had during the phase-3 acceptance, and double-click opens
+  deepin-reader here. That is the documented cost of the `NoDisplay` route and one
+  of the things phase 4 removes (Papers' own MIME list would carry the type with a
+  visible entry); the choice is the user's —
+  `xdg-mime default org.gnome.Papers.Ofd.desktop application/ofd` flips it back.
 
 ### The record commit's CI run: a mirror flake, and R21
 
