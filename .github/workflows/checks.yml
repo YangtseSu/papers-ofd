@@ -52,11 +52,27 @@ jobs:
           # falls back to `Noto Sans CJK SC` — without the font the run reports
           # MissingGlyph diagnostics instead of the text it must measure. gjs and
           # sushi make tests/test-sushi-plugin.js run its selector half.
-          pacman -Syu --noconfirm --needed \
-            git gcc pkgconf meson rust reuse shadow \
-            cairo freetype2 jbig2dec \
-            papers gtk4 poppler-glib gjs sushi \
-            noto-fonts noto-fonts-cjk
+          #
+          # The transaction is retried: the container's mirror
+          # (fastly.mirror.pkgbuild.com) serves a transient error often enough
+          # that a single attempt decides a run — the v51.1.2 record commit went
+          # red on `failed retrieving file 'djvulibre-…'`, with the same step
+          # green two minutes earlier (R21).
+          ok=0
+          for attempt in 1 2 3; do
+            if pacman -Syu --noconfirm --needed \
+                 git gcc pkgconf meson rust reuse shadow \
+                 cairo freetype2 jbig2dec \
+                 papers gtk4 poppler-glib gjs sushi \
+                 noto-fonts noto-fonts-cjk; then
+              ok=1
+              break
+            fi
+            echo "::warning::pacman attempt $attempt failed (mirror flake?); retrying"
+            rm -f /var/lib/pacman/db.lck
+            sleep 20
+          done
+          [ "$ok" = 1 ]
 
       - uses: actions/checkout@v7
 

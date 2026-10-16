@@ -2310,3 +2310,23 @@ real container on a commit that carries them, not only mirrored locally.
 - `pacman -Rns papers-ofd` — the phase-3 uninstall regression needs a password, and
   this machine still has `0.1.0-6` installed, so both installing `51.1.2-1` and the
   uninstall check after it are the user's step.
+
+### The record commit's CI run: a mirror flake, and R21
+
+- The record commit (`8d833a2`, `.planning/` and the two workflows only) went **red**
+  in `checks` ([38845938669](https://github.com/YangtseSu/papers-ofd/actions/runs/38845938669)),
+  but not on code: the dependency step died with
+  `error: failed retrieving file 'djvulibre-3.5.30.1-1-x86_64.pkg.tar.zst' from fastly.mirror.pkgbuild.com :`
+  (no reason given), then `too many errors from fastly.mirror.pkgbuild.com, skipping
+  for the remainder of this transaction` and
+  `failed to commit transaction (failed to retrieve some files)`. The same step was
+  green in [38844929158](https://github.com/YangtseSu/papers-ofd/actions/runs/38844929158)
+  two minutes earlier, with the same commit's parent tree, so this is the container
+  mirror, not the module.
+- R21: the step now retries the transaction up to three times, 20 s apart, clearing
+  `/var/lib/pacman/db.lck` between attempts, and still fails when every attempt
+  fails — a single mirror hiccup no longer decides a run. Verified by running the
+  extracted step against a fake `pacman`: the transient case (fails twice) exits 0
+  on the third attempt, the permanently broken case exits 1.
+- The failed run was also re-run to show the flake passes on its own, and the
+  hardened step is exercised by the push that carries it.
