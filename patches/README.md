@@ -49,24 +49,36 @@ this section is what a consumer of the ABI needs to know.
 | --- | --- |
 | Tag / version | `v0.4.3-fork.2` (cargo `0.4.3-fork.2`), tag on `dev` |
 | Upstream base | `linuxdeepin/rofd` 0.4.3 at `140b936` (upstream published no 0.4.3 tag) |
-| Carried changes | see the table below |
+| Carried changes | the two rows below, after the 2026-10-19 rebase of `dev` onto upstream `main` `2f5013d`; the published tag also contains the four changes upstream has taken since |
 | AUR | `librofd-ffi 0.4.3.fork.2-1`, tarball sha256 `6b6c462a…73c5ba6c0` |
 | Supersedes | `v0.4.3-fork.1` — withdrawn, its tag and the `release/0.4.3-fork.1` branch are deleted |
 | Retirement | when an upstream `linuxdeepin/rofd` release contains **every** carried change, the AUR package switches its `source=` to an upstream-built one (or to the distribution package if one exists) and this table records the switch |
 
-## Carried changes in the release
+`dev` (untagged, ahead of the release) was rebased onto upstream `main` `2f5013d`
+on 2026-10-19, which dropped the four merges upstream had taken in the meantime
+(PRs #11, #12, #14, #15) and the two C-ABI test fixes the fork CI used to tolerate
+on feature branches. The next release copies upstream `main` plus the two rows
+below; `v0.4.3-fork.2` itself is unchanged and stays what the AUR pins.
 
-| Change | Fork branch & upstream PR | Retired from the release when |
+## Carried changes on `dev`
+
+| Change | Fork branch & upstream PR | Retired from the carry when |
 | --- | --- | --- |
-| `rofd_document_get_page_size_mm` — metadata-only page sizes, so `setup_cache` stops parsing every page | `feat/ffi-page-size-query`, [linuxdeepin/rofd#11](https://github.com/linuxdeepin/rofd/pull/11) | an upstream release exports the function — then rebase `dev` onto it, drop the merge, and the `meson.build` probe keeps the fast path |
-| Font-resolved text geometry: a run without an explicit `DeltaX` advances by the resolved font, its character box spans that face's typographic ascent and descent, and a selection region grows by an eighth of its height on both sides | `feat/font-text-advances`, [linuxdeepin/rofd#13](https://github.com/linuxdeepin/rofd/pull/13) | an upstream release resolves advances through the injected provider |
-| Image decode allocation budget: the decoder's intermediate buffers are budgeted on top of the finished RGBA8 raster, so seals inside the document limits decode and out-of-limit ones report `RasterBudgetExceeded` | `fix/decoded-image-alloc-budget`, [linuxdeepin/rofd#14](https://github.com/linuxdeepin/rofd/pull/14) | an upstream release budgets the decoder with headroom over the raster |
-| `pkg-config` metadata `rofd-ffi.pc` | `feat/pkgconfig`, [linuxdeepin/rofd#12](https://github.com/linuxdeepin/rofd/pull/12) | an upstream release installs (or at least ships) the template |
-| Region-AA test tolerance in `crates/rofd-ffi/tests/region.rs` — bounds the pixel diff by its share and per-channel delta instead of absolutes that only hold on Arch's font stack | `fix/region-aa-tolerance`, [linuxdeepin/rofd#15](https://github.com/linuxdeepin/rofd/pull/15) | the PR merges; the tolerance then comes from upstream |
+| Font-resolved advances: a run without an explicit `DeltaX` is placed by the resolved font's advance, and a resolved glyph box is exactly that advance wide so a run's boxes tile it | `feat/font-text-advances`, [linuxdeepin/rofd#13](https://github.com/linuxdeepin/rofd/pull/13) (two commits; open, awaiting `/ok-to-test`) | an upstream release resolves advances through the injected provider |
+| Font-metric box extents and the selection margin: a character box spans the face's typographic ascent and descent, and a selection region grows by an eighth of its height on both sides | `feat/font-text-band` on `YangtseSu/rofd`, stacked on the branch above. No upstream PR yet: a PR cannot be based on a fork's branch, so it opens on `main` (as the band commit plus the margin commit) once #13 lands | an upstream release spans a box with the face's metrics |
 
-All are additive over ABI v1: the releases keep `librofd_ffi.so.0` and the
-78-symbol `expected-symbols.txt` surface, so every released ABI is a strict
-supersede of the previous one.
+## Retired from the carry (2026-10-19)
+
+| Change | Upstream commit | Why it could go |
+| --- | --- | --- |
+| `rofd_document_get_page_size_mm` | `16eaa8d` | upstream exports the function; the module's configure-time probe keeps the fast path on any library that has it |
+| Image decode allocation budget | `bef8a3e` | upstream budgets the decoder with headroom over the raster |
+| Region-AA test tolerance | `f6fb312` | upstream's own tolerance ships; nothing is skipped or tolerated in the fork CI any more |
+| `pkg-config` metadata `rofd-ffi.pc` | `2f5013d` | upstream installs the template from `debian/` |
+
+Both carried changes are additive over ABI v1: the releases keep
+`librofd_ffi.so.0` and the 78-symbol `expected-symbols.txt` surface, so every
+released ABI is a strict supersede of the previous one.
 
 ## Release and update routine
 
@@ -90,11 +102,10 @@ consumer half, which is what this repository owns.
 4. Refresh this inventory: the current-release table, and any carried-change row
    that was retired or added.
 
-Two tests are red on upstream `main` and green on `dev` (fixed by PRs #14 and
-#15), so they gate there; only the loose mode used for `feat/*` / `fix/*`
-branches keeps them visible but non-gating. Drop the loose half — the two
-`--skip` flags and the two `continue-on-error` steps — once the PRs merge and
-upstream `main` carries the fixes.
+Upstream `main` is green across the whole suite since PRs #14 and #15 merged
+(2026-10-19), so the fork CI checks every ref strictly: the two `--skip` flags
+and the two `continue-on-error` steps are gone, and so is the distinction
+between `dev` and a feature branch in the workflow's ref matrix.
 
 ## Working against a release checkout
 

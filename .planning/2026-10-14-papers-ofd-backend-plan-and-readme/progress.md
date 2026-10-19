@@ -2527,3 +2527,99 @@ ref you pick"). Harness, 2026-10-16:
    `v51.1.1` again.
 
 This closes audit item 3: the fix is no longer "verified outside CI only".
+
+## 2026-10-19: the four upstream merges, and the text-geometry request split in two
+
+Requested by the user after they tested the fork's `librofd-ffi` against
+`deepin-reader` (the other consumer of the same ABI): find out how deepin-reader
+handles the horizontal geometry, and split the font-text response upstream so the
+two bug fixes can land without the behaviour change riding along.
+
+- **Upstream took four of the five requests.** All on 2026-10-19 (GitHub's
+  `merged_at`, one commit each on `linuxdeepin/rofd` `main`, `140b936` →
+  `2f5013d`): `16eaa8d` = #11 page-size query, `bef8a3e` = #14 decoder budget,
+  `f6fb312` = #15 region-AA tolerance, `2f5013d` = #12 `rofd-ffi.pc`. Each
+  upstream commit's patch text is byte-identical to our branch commit's (`diff
+  <(git diff base ours) <(git diff theirs upstream)` empty for all four), so
+  dropping our merges loses nothing. #13 stays open (`needs-ok-to-test`, no
+  maintainer review yet; CLA signed 2026-10-16).
+- **Fork `dev` rebased** onto `2f5013d`: the four merges dropped, the two
+  loose-CI halves (the `--skip` flags and the two `continue-on-error` steps,
+  which existed only for the two tests #14/#15 fixed) and the workflow's
+  strict/loose ref distinction removed with them, `FORK.md` updated. `dev` is now
+  upstream `main` + the fork's own three commits + **two** `--no-ff` merges, and
+  `git log --merges origin/main..dev` lists exactly those two. No archive branch was
+  made: the pre-rebase tip and the old three-commit branch are either upstream now or
+  reproduced by the two new branches, and both stay reachable in this checkout's
+  reflogs (`dev`, `feat/font-text-advances`) plus the detached `pr13-font-advances`
+  worktree. The published tag `v0.4.3-fork.2` is untouched and stays what the AUR pins.
+- **The split.** The third commit of the old branch bundled two different things:
+  covering the glyphs below the baseline (a bug: the highlight cut the bottom off
+  CJK overshoot and Latin descenders) and the *model* that does it (a band shared
+  by every glyph of one face, plus the 1/8 selection margin — the poppler model
+  Papers' PDF backend paints). Recut as two branches, each diff against upstream
+  being the change alone:
+  - `feat/font-text-advances` (`8db94f9`, `f0572f2`) — the horizontal half, i.e.
+    PR #13 narrowed to "resolve missing text deltas through font advances" and
+    "size a resolved glyph box by its advance": the provider seam plus the box
+    width. No vertical geometry, no model change, no ABI surface change (the
+    export set is untouched).
+  - `feat/font-text-band` (`a5102c1`, `a57fd63`) — stacked on the above: the box
+    spanning the face's typographic ascent and descent, and, as its own second
+    commit, the selection margin. The margin is separable on purpose: a reviewer
+    who wants the ink covered but not the extra growth can drop that one commit.
+    The alternative model (each glyph's own painted control box — the shape
+    released locally as `librofd-ffi 0.4.3-5`) is still recoverable from the
+    branch's reflog and is documented in the PR body as the option not taken.
+  - Review comments answered: Sourcery's "explicit advances still load fonts" is
+    fixed in commit 1 (the provider is asked only when a run declares no
+    `DeltaX`; #13's body and thread say so); its "font errors become silent
+    fallback" is answered with the contract — `None` means "no resolved glyph",
+    the conservative footprint is what a font-free build produces, and a font
+    problem must not become a query error. In the band commit the call is
+    unconditional again, with a comment saying why: the vertical extents come
+    from the font whatever the deltas say.
+  - PR-2 is **not open yet**: a GitHub PR cannot use a fork's branch as its base,
+    so it would have to target `main` and show both changes at once. It opens on
+    `main` (band + margin) once #13 lands; the branch is pushed and its body is
+    drafted in `upstream-pr2-body-draft.md` (this directory). The upstream
+    repository is unchanged in this respect by the API's own rules, not by choice.
+- **deepin-reader 6.6.2, the other consumer** (`~/projects/ofd-reader/deepin-reader`,
+  Arch recipe with `OFD_SUPPORT_ENABLED`): its OFD backend has **no** horizontal
+  compensation at all, which is why our patch is harmless to it and why the
+  difference the user saw is not a fix on their side:
+  - one `Word` per scalar straight from `rofd_text_layout_get_char`
+    (`reader/document/OfdModel.cpp:836-867`, `toPixels` at `:884-895` is a single
+    uniform mm→px factor), one `QGraphicsItem` per word, painted 1 px inside its
+    rect (`reader/browser/BrowserWord.cpp:45-48,62-65`) and hit-tested with the
+    same items (`reader/browser/BrowserPage.cpp:1349-1363`);
+  - search highlights are the library's match rects scaled, nothing else
+    (`OfdModel.cpp:784-788`, `BrowserPage.cpp:259-265`); annotations merge those
+    per-character rects into lines with a ±1 px tolerance (`BrowserPage.cpp:835-872`);
+  - **no** `select()` / selection-region call anywhere — the 1/8 margin touches
+    no code of theirs;
+  - no `QFontMetrics`, no `adjusted()`, no snapping: nothing to disagree with the
+    boxes we return. Because their highlight *is* the hit region, a drift reads
+    as "the whole square is a bit off" rather than as a rectangle floating in
+    blank space, and a full-width CJK advance equals the font size, so the
+    font-size-floored box coincides with the character cell — the horizontal
+    problem is invisible on CJK-heavy documents and on any document whose
+    `TextCode` declares `DeltaX` (the font-size fallback never fires there).
+    That is the answer to "how do they solve it": they do not, and nothing in
+    their tree compensates.
+- Verification on this machine (all at the recut tips, trees byte-identical to
+  the previously verified ones): `cargo fmt --all -- --check`;
+  `cargo clippy --offline -p rofd-core -p rofd-render -p rofd-ffi --all-targets
+  -- -D warnings`; `cargo test` for the three crates (49 test binaries, 0
+  failures); `crates/rofd-ffi/tests/run_c_tests.sh` rc=0; the fork CI's strict
+  `dev` run green ([39223113934](https://github.com/YangtseSu/rofd/actions/runs/39223113934));
+  papers-ofd `meson test -C _build` 13/13 against the rebuilt release library;
+  `reuse lint` clean. Both reworded branches and `dev` were force-pushed to
+  `YangtseSu/rofd` after a privacy sweep of the exact diffs (no paths, secrets or
+  personal data; the diffs are source, tests and docs).
+- Records refreshed for the new state: `patches/README.md` (two carried rows, a
+  "retired from the carry" table with the four upstream commits, the loose-CI
+  paragraph replaced), `docs/plan.md` (§9 items 1/5/6/7/8 statuses, the §9 policy
+  intro, the §8 stock-rofd row, A18/A19 symbol counts, A24/A27 delivery), and
+  `README.md` (dependency row, the "Text geometry follows the ABI" bullet).
+
