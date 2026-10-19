@@ -2579,6 +2579,16 @@ two bug fixes can land without the behaviour change riding along.
     problem must not become a query error. In the band commit the call is
     unconditional again, with a comment saying why: the vertical extents come
     from the font whatever the deltas say.
+  - The PR text keeps its history: the user asked for the description as it was
+    (the three-commit, band-and-margin version) to be preserved, so #13's body now
+    opens with an "**Edited 2026-10-19**" note — what was changed and why — then
+    the narrowed description, then the original one verbatim under
+    "## Original description" (checked by comparing the old text against the body
+    fetched back from the API). The title went back to its original
+    `feat(core): …`, which matches the branch and the two `feat(core)` commits.
+    A status comment ([6263391051](https://github.com/linuxdeepin/rofd/pull/13#issuecomment-6263391051))
+    states what the PR carries now, what moved to the stacked branch, the two
+    in-thread answers, and the verification on the tip.
   - PR-2 is **not open yet**: a GitHub PR cannot use a fork's branch as its base,
     so it would have to target `main` and show both changes at once. It opens on
     `main` (band + margin) once #13 lands; the branch is pushed and its body is
