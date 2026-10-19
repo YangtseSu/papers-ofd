@@ -2550,9 +2550,14 @@ two bug fixes can land without the behaviour change riding along.
   upstream `main` + the fork's own three commits + **two** `--no-ff` merges, and
   `git log --merges origin/main..dev` lists exactly those two. No archive branch was
   made: the pre-rebase tip and the old three-commit branch are either upstream now or
-  reproduced by the two new branches, and both stay reachable in this checkout's
-  reflogs (`dev`, `feat/font-text-advances`) plus the detached `pr13-font-advances`
-  worktree. The published tag `v0.4.3-fork.2` is untouched and stays what the AUR pins.
+  reproduced by the two new branches, which is why the local cleanup could drop what
+  kept them reachable — the `~/projects/ofd-reader/.ci-worktrees/` checkouts (five of
+  them: `baseline-main`, `fix-alloc`, `pr11-page-size`, `pr12-pkgconfig`,
+  `pr13-font-advances`) and the local `fix/decoded-image-alloc-budget` branch are gone,
+  the last two scratch files having been archived to `/tmp/rofd-scratch-archive/`
+  (`tmp_enc.rs`, the PNG-encode timing probe from PR #14, and the debug-message patch
+  to `images.rs` that `baseline-main` carried). The published tag `v0.4.3-fork.2` is
+  untouched and stays what the AUR pins.
 - **The split.** The third commit of the old branch bundled two different things:
   covering the glyphs below the baseline (a bug: the highlight cut the bottom off
   CJK overshoot and Latin descenders) and the *model* that does it (a band shared
