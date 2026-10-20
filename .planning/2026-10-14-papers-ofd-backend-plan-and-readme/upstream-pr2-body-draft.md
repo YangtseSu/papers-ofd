@@ -3,9 +3,14 @@
 
 # Draft body for upstream PR 2 (`feat/font-text-band`)
 
-Held here because upstream cannot base a PR on a fork's branch: this goes to
-`linuxdeepin/rofd` with `main` as the base, as the band commit plus the margin
-commit, once PR #13 lands. The branch itself is pushed to `YangtseSu/rofd`.
+**Sent as <https://github.com/linuxdeepin/rofd/pull/16> on 2026-10-20**, after #13
+merged upstream (`82120f6` + `8672ee6`) and the branch was rebased onto `main`
+`f27fb87`. The body that was actually posted is the PR's, not this file's: the
+"One deliberate reversal of #13's review" paragraph and the updated verification
+list live there. This file is kept as the drafting record.
+
+The text below was written while #13 was still open (hence "stacks on #13"); the
+sent body replaced that framing.
 
 ---
 

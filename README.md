@@ -255,10 +255,11 @@ patch-free vs patch-the-desktop tradeoff:
   `DeltaX`, rofd takes each scalar's advance from the resolved font and sizes its box
   by that face's typographic ascent and descent — and grows a selection region by an
   eighth of its height on both sides — only in the fork's release
-  (shipped in `v0.4.3-fork.2` and built by the AUR `librofd-ffi` package, carried
-  upstream as two requests: [`#13`](https://github.com/linuxdeepin/rofd/pull/13)
-  for the advance and the box width, and the fork's `feat/font-text-band` — no
-  upstream PR yet — for the band and the selection margin). That is the model of a PDF reader's highlight: all glyphs
+  (shipped in `v0.4.3-fork.2` and built by the AUR `librofd-ffi` package, and now
+  merged upstream as [`#13`](https://github.com/linuxdeepin/rofd/pull/13) for the
+  advance and the box width; the band and the selection margin are the fork's
+  `feat/font-text-band`, proposed as
+  [`#16`](https://github.com/linuxdeepin/rofd/pull/16)). That is the model of a PDF reader's highlight: all glyphs
   of a line share one band that clears
   the text above and below. With a stock `librofd-ffi`, rofd's semantic layer uses the
   font size instead, so search highlights, caret positions and selection regions on

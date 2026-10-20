@@ -40,8 +40,7 @@ this section is what a consumer of the ABI needs to know.
 - **CI** `.github/workflows/fork-checks.yml` lives on `dev` (a feature branch
   keeps its diff against upstream to the change alone). A push to `dev` runs it
   strictly — nothing skipped, nothing tolerated. `feat/*` / `fix/*` branches are
-  checked on demand through `workflow_dispatch`, in the loose mode that keeps
-  the two upstream-red tests visible but non-gating.
+  checked on demand through `workflow_dispatch`, with the same strict checks.
 
 ## Current release
 
@@ -49,25 +48,34 @@ this section is what a consumer of the ABI needs to know.
 | --- | --- |
 | Tag / version | `v0.4.3-fork.2` (cargo `0.4.3-fork.2`), tag on `dev` |
 | Upstream base | `linuxdeepin/rofd` 0.4.3 at `140b936` (upstream published no 0.4.3 tag) |
-| Carried changes | the two rows below, after the 2026-10-19 rebase of `dev` onto upstream `main` `2f5013d`; the published tag also contains the four changes upstream has taken since |
+| Carried changes | the one row below, after the 2026-10-20 rebase of `dev` onto upstream `main` `f27fb87`; the published tag also contains the five changes upstream has taken since |
 | AUR | `librofd-ffi 0.4.3.fork.2-1`, tarball sha256 `6b6c462a…73c5ba6c0` |
 | Supersedes | `v0.4.3-fork.1` — withdrawn, its tag and the `release/0.4.3-fork.1` branch are deleted |
 | Retirement | when an upstream `linuxdeepin/rofd` release contains **every** carried change, the AUR package switches its `source=` to an upstream-built one (or to the distribution package if one exists) and this table records the switch |
 
-`dev` (untagged, ahead of the release) was rebased onto upstream `main` `2f5013d`
-on 2026-10-19, which dropped the four merges upstream had taken in the meantime
-(PRs #11, #12, #14, #15) and the two C-ABI test fixes the fork CI used to tolerate
-on feature branches. The next release copies upstream `main` plus the two rows
-below; `v0.4.3-fork.2` itself is unchanged and stays what the AUR pins.
+`dev` (untagged, ahead of the release) was rebased onto upstream `main` `f27fb87`
+on 2026-10-20, which dropped the five merges upstream had taken in the meantime
+(PRs #11, #12, #13, #14, #15) and the two C-ABI test fixes the fork CI used to
+tolerate on feature branches; the new base also carries upstream's own
+producer-quirk fix (`f27fb87`), which the fork never held. The next release copies
+upstream `main` plus the row below; `v0.4.3-fork.2` itself is unchanged and stays
+what the AUR pins.
 
 ## Carried changes on `dev`
 
 | Change | Fork branch & upstream PR | Retired from the carry when |
 | --- | --- | --- |
-| Font-resolved advances: a run without an explicit `DeltaX` is placed by the resolved font's advance, and a resolved glyph box is exactly that advance wide so a run's boxes tile it | `feat/font-text-advances`, [linuxdeepin/rofd#13](https://github.com/linuxdeepin/rofd/pull/13) (two commits; open, awaiting `/ok-to-test`) | an upstream release resolves advances through the injected provider |
-| Font-metric box extents and the selection margin: a character box spans the face's typographic ascent and descent, and a selection region grows by an eighth of its height on both sides | `feat/font-text-band` on `YangtseSu/rofd`, stacked on the branch above. No upstream PR yet: a PR cannot be based on a fork's branch, so it opens on `main` (as the band commit plus the margin commit) once #13 lands | an upstream release spans a box with the face's metrics |
+| Font-metric box extents and the selection margin: a character box spans the face's typographic ascent and descent, and a selection region grows by an eighth of its height on both sides | `feat/font-text-band` on `YangtseSu/rofd`, rebased onto upstream `main` on 2026-10-20; [linuxdeepin/rofd#16](https://github.com/linuxdeepin/rofd/pull/16) (two commits: the band, then the margin) | an upstream release spans a box with the face's metrics |
 
-## Retired from the carry (2026-10-19)
+## Retired from the carry
+
+### 2026-10-20
+
+| Change | Upstream commit | Why it could go |
+| --- | --- | --- |
+| Font-resolved advances: a run without an explicit `DeltaX` is placed by the resolved font's advance, and a resolved glyph box is exactly that advance wide so a run's boxes tile it | `82120f6` + `8672ee6` ([#13](https://github.com/linuxdeepin/rofd/pull/13)) | upstream resolves advances through the injected provider and sizes the box by them |
+
+### 2026-10-19
 
 | Change | Upstream commit | Why it could go |
 | --- | --- | --- |
@@ -76,7 +84,7 @@ below; `v0.4.3-fork.2` itself is unchanged and stays what the AUR pins.
 | Region-AA test tolerance | `f6fb312` | upstream's own tolerance ships; nothing is skipped or tolerated in the fork CI any more |
 | `pkg-config` metadata `rofd-ffi.pc` | `2f5013d` | upstream installs the template from `debian/` |
 
-Both carried changes are additive over ABI v1: the releases keep
+The carried change is additive over ABI v1: the releases keep
 `librofd_ffi.so.0` and the 78-symbol `expected-symbols.txt` surface, so every
 released ABI is a strict supersede of the previous one.
 

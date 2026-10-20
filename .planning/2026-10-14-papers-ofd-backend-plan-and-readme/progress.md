@@ -2638,3 +2638,45 @@ two bug fixes can land without the behaviour change riding along.
   intro, the §8 stock-rofd row, A18/A19 symbol counts, A24/A27 delivery), and
   `README.md` (dependency row, the "Text geometry follows the ABI" bullet).
 
+
+## 2026-10-20: #13 merged, the fork rebased, and the last PR opened
+
+Requested by the user: update the fork after upstream merged our PR, then send the
+last request (the vertical half).
+
+- **Upstream merged #13** as `82120f6` ("resolve missing text deltas through font
+  advances") and `8672ee6` ("size a resolved glyph box by its advance"), on top of
+  upstream's own `f27fb87` ("tolerate real-world producer quirks found in invoice
+  OFDs"). Upstream `main` is now `f27fb87`.
+- **Fork updated** (all pushed, after a privacy sweep of the exact diffs):
+  - `main` fast-forwarded `2f5013d..f27fb87`, the upstream mirror.
+  - `feat/font-text-advances` deleted (local and on `YangtseSu/rofd`): its change is
+    upstream.
+  - `feat/font-text-band` rebased onto `f27fb87`: `7e1dcce` (band) and `3d2446c`
+    (selection margin). The diff against `main` is 13 files, +794/-228; the export
+    set stays at 78 symbols.
+  - `dev` rebuilt from `f27fb87` (`dadb5c0` fork CI + `FORK.md` + version, `e7a4eda`,
+    `46adac5`) plus one `git merge --no-ff feat/font-text-band` (`1f7ea5f`), then
+    force-pushed. `git log --merges main..dev` lists exactly that one merge; the
+    version stays `0.4.3-fork.2` because no release is cut in this step.
+- **PR #16 opened**: <https://github.com/linuxdeepin/rofd/pull/16>, base `main`,
+  title "feat(core): span text boxes with the face's metrics and grow selection
+  regions". The body documents the vertical model, the two commits, and the one
+  deliberate reversal of #13's review (the provider is asked for every text object,
+  because the vertical extents are needed whatever a scalar declares). The CLA
+  sentence was posted; clacheck still fails with the known bot-side error (it cannot
+  post its comment), as on the earlier PRs, while commitlint, cppcheck, license-check
+  and Sourcery pass. Fork CI is green on both refs: the `dev` push
+  ([39409525910](https://github.com/YangtseSu/rofd/actions/runs/39409525910)) and the
+  branch dispatch ([39409578695](https://github.com/YangtseSu/rofd/actions/runs/39409578695)),
+  including the C ABI runner.
+- **Verification on the rebased tree**: `cargo fmt --all -- --check` clean; clippy
+  `-D warnings` clean for the three crates; `cargo test` for the three crates all
+  green; `crates/rofd-ffi/tests/run_c_tests.sh` rc=0 with the 78-symbol export set;
+  `cargo build --release --offline --locked -p rofd-ffi -p rofd --features
+  rofd/qt-reader` succeeded; papers-ofd's meson suite 13/13 against a build
+  configured with the checkout's `librofd_ffi.so`.
+- **Records refreshed**: `patches/README.md` (one carried row, the advances retired
+  in a dated table, the stale loose-CI sentence), `docs/plan.md` (§9 intro and item
+  6, the stock-rofd risk row, A24/A27 delivery), `README.md` (the text-geometry
+  bullet), and `upstream-pr2-body-draft.md` (marked sent, pointing at #16).
